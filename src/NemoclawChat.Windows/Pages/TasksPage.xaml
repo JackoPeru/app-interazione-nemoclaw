@@ -7,29 +7,87 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Padding="44,36" Background="{StaticResource AppBackgroundBrush}">
-        <StackPanel MaxWidth="920" HorizontalAlignment="Left" Spacing="24">
-            <TextBlock
-                FontSize="30"
-                FontWeight="SemiBold"
-                Foreground="White"
-                Text="Ordini agente" />
-            <TextBlock
-                Foreground="{StaticResource MutedTextBrush}"
-                Text="Qui compariranno task NemoClaw, tool call, comandi, file modificati e richieste approve/deny." />
-
-            <Border
-                Padding="22"
-                Background="{StaticResource SurfaceBrush}"
-                BorderBrush="#FF3A3A3A"
-                BorderThickness="1"
-                CornerRadius="18">
-                <StackPanel Spacing="12">
-                    <TextBlock Foreground="White" FontWeight="SemiBold" Text="Nessun task attivo" />
-                    <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Demo mode: quando il gateway sara' online useremo /api/tasks, /api/tasks/{id}/events e approve/deny." />
-                    <Button Content="Nuovo ordine agente" />
+    <ScrollViewer Background="{StaticResource AppBackgroundBrush}" VerticalScrollBarVisibility="Auto">
+        <Grid Padding="44,36">
+            <StackPanel MaxWidth="980" HorizontalAlignment="Left" Spacing="22">
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        FontSize="30"
+                        FontWeight="SemiBold"
+                        Foreground="White"
+                        Text="Ordini agente" />
+                    <TextBlock
+                        Foreground="{StaticResource MutedTextBrush}"
+                        Text="Coda locale task con approve/deny. Gateway futuro: /api/tasks e /api/tasks/{id}/events." />
                 </StackPanel>
-            </Border>
-        </StackPanel>
-    </Grid>
+
+                <Border
+                    Padding="22"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="#FF3A3A3A"
+                    BorderThickness="1"
+                    CornerRadius="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Nuovo ordine" />
+                        <Grid ColumnSpacing="12" RowSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBox
+                                x:Name="TaskTitleBox"
+                                Header="Titolo task"
+                                PlaceholderText="Es. Analizza workspace" />
+                            <ComboBox
+                                x:Name="TaskModeBox"
+                                Grid.Column="1"
+                                Header="Modalita"
+                                SelectedIndex="0">
+                                <ComboBoxItem Content="Demo" />
+                                <ComboBoxItem Content="Gateway" />
+                                <ComboBoxItem Content="Sicuro" />
+                            </ComboBox>
+                            <TextBox
+                                x:Name="TaskDetailBox"
+                                Grid.Row="1"
+                                Grid.ColumnSpan="2"
+                                AcceptsReturn="True"
+                                Header="Istruzioni"
+                                MaxHeight="140"
+                                PlaceholderText="Mostra piano, poi chiedi approve prima di azioni rischiose."
+                                TextWrapping="Wrap" />
+                            <ToggleSwitch
+                                x:Name="ApprovalSwitch"
+                                Grid.Row="2"
+                                Header="Richiedi approve prima di file, rete e comandi"
+                                IsOn="True" />
+                        </Grid>
+
+                        <TextBlock
+                            x:Name="TaskStatusText"
+                            Foreground="{StaticResource MutedTextBrush}"
+                            Text="Pronto." />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button
+                                Background="{StaticResource AccentGreenBrush}"
+                                BorderThickness="0"
+                                Click="QueueTask_Click"
+                                Content="Accoda task"
+                                Foreground="White" />
+                            <Button Click="LoadWorkspaceTemplate_Click" Content="Template workspace" />
+                            <Button Click="LoadServerTemplate_Click" Content="Template server" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel x:Name="TasksPanel" Spacing="14" />
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
 </Page>

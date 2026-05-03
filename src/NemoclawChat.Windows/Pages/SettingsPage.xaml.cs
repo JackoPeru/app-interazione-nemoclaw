@@ -29,13 +29,28 @@ public sealed partial class SettingsPage : Page
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        AppSettingsStore.Save(ReadSettings());
-        StatusText.Text = "Impostazioni salvate.";
+        var settings = ReadSettings();
+        var error = Validate(settings);
+        if (error is not null)
+        {
+            StatusText.Text = error;
+            return;
+        }
+
+        AppSettingsStore.Save(settings);
+        StatusText.Text = "Impostazioni salvate. Pairing code non salvato per sicurezza.";
     }
 
     private async void TestGateway_Click(object sender, RoutedEventArgs e)
     {
         var settings = ReadSettings();
+        var error = ValidateGateway(settings.GatewayUrl);
+        if (error is not null)
+        {
+            StatusText.Text = error;
+            return;
+        }
+
         var healthUrl = $"{settings.GatewayUrl.TrimEnd('/')}/api/health";
         StatusText.Text = $"Test: {healthUrl}";
 
@@ -71,6 +86,42 @@ public sealed partial class SettingsPage : Page
             AccessMode = SelectedComboText(AccessModeBox),
             DemoMode = DemoModeSwitch.IsOn
         };
+    }
+
+    private static string? Validate(AppSettings settings)
+    {
+        return ValidateGateway(settings.GatewayUrl)
+            ?? ValidateRequired(settings.Provider, "Provider")
+            ?? ValidateHttpUrl(settings.InferenceEndpoint, "Endpoint inferenza")
+            ?? ValidateRequired(settings.PreferredApi, "API preferita")
+            ?? ValidateRequired(settings.Model, "Modello")
+            ?? ValidateRequired(settings.AccessMode, "Accesso");
+    }
+
+    private static string? ValidateGateway(string gatewayUrl)
+    {
+        return ValidateHttpUrl(gatewayUrl, "Gateway URL");
+    }
+
+    private static string? ValidateHttpUrl(string value, string label)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return $"{label} obbligatorio.";
+        }
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
+        {
+            return $"{label} deve essere URL http/https valido.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateRequired(string value, string label)
+    {
+        return string.IsNullOrWhiteSpace(value) ? $"{label} obbligatorio." : null;
     }
 
     private static string SelectedComboText(ComboBox comboBox)

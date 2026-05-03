@@ -7,52 +7,89 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Padding="44,36" Background="{StaticResource AppBackgroundBrush}">
-        <StackPanel MaxWidth="920" HorizontalAlignment="Left" Spacing="24">
-            <TextBlock
-                FontSize="30"
-                FontWeight="SemiBold"
-                Foreground="White"
-                Text="Server" />
-            <TextBlock
-                Foreground="{StaticResource MutedTextBrush}"
-                Text="Stato gateway, modello locale, sandbox NemoClaw e policy rete." />
+    <ScrollViewer Background="{StaticResource AppBackgroundBrush}" VerticalScrollBarVisibility="Auto">
+        <Grid Padding="44,36">
+            <StackPanel MaxWidth="980" HorizontalAlignment="Left" Spacing="24">
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        FontSize="30"
+                        FontWeight="SemiBold"
+                        Foreground="White"
+                        Text="Server" />
+                    <TextBlock
+                        Foreground="{StaticResource MutedTextBrush}"
+                        Text="Dashboard gateway, modello locale, sandbox NemoClaw e policy rete." />
+                </StackPanel>
 
-            <Grid ColumnSpacing="16" RowSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="16" RowSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-                <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
-                    <StackPanel Spacing="8">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Gateway" />
-                        <TextBlock x:Name="GatewayText" Foreground="{StaticResource MutedTextBrush}" Text="https://nemoclaw.local:8443" />
+                    <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                        <StackPanel Spacing="8">
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Gateway" />
+                            <TextBlock x:Name="GatewayText" Foreground="White" TextWrapping="Wrap" />
+                            <TextBlock x:Name="GatewayDetailText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                        <StackPanel Spacing="8">
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Modello" />
+                            <TextBlock x:Name="ModelText" Foreground="White" TextWrapping="Wrap" />
+                            <TextBlock x:Name="ProviderText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Row="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                        <StackPanel Spacing="8">
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Inferenza lato server" />
+                            <TextBlock x:Name="InferenceText" Foreground="White" TextWrapping="Wrap" />
+                            <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="Il client non parla direttamente con Ollama/local inference." TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Row="1" Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                        <StackPanel Spacing="8">
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Sicurezza" />
+                            <TextBlock x:Name="PolicyText" Foreground="White" TextWrapping="Wrap" />
+                            <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="Deny by default, segreti solo lato server, rete esterna dopo approve." TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <Border
+                    Padding="22"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="#FF3A3A3A"
+                    BorderThickness="1"
+                    CornerRadius="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Azioni server" />
+                        <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button
+                                Background="{StaticResource AccentGreenBrush}"
+                                BorderThickness="0"
+                                Click="TestGateway_Click"
+                                Content="Test gateway"
+                                Foreground="White" />
+                            <Button Click="Refresh_Click" Content="Ricarica settings" />
+                            <Button Click="ShowApiContract_Click" Content="Mostra API" />
+                        </StackPanel>
+                        <Border Padding="14" Background="{StaticResource AssistantBubbleBrush}" CornerRadius="12">
+                            <TextBlock
+                                x:Name="ContractText"
+                                Foreground="{StaticResource MutedTextBrush}"
+                                Text="Contratto API nascosto. Premi Mostra API."
+                                TextWrapping="Wrap" />
+                        </Border>
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
-                    <StackPanel Spacing="8">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Modello" />
-                        <TextBlock x:Name="ModelText" Foreground="{StaticResource MutedTextBrush}" Text="meta-llama/Llama-3.1-8B-Instruct" />
-                    </StackPanel>
-                </Border>
-                <Border Grid.Row="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
-                    <StackPanel Spacing="8">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Sandbox" />
-                        <TextBlock x:Name="SandboxText" Foreground="{StaticResource MutedTextBrush}" Text="NemoClaw non attivo: demo mode" />
-                    </StackPanel>
-                </Border>
-                <Border Grid.Row="1" Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
-                    <StackPanel Spacing="8">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Policy rete" />
-                        <TextBlock x:Name="PolicyText" Foreground="{StaticResource MutedTextBrush}" Text="VPN/LAN only, deny by default, no segreti nel client" />
-                    </StackPanel>
-                </Border>
-            </Grid>
-        </StackPanel>
-    </Grid>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
 </Page>
