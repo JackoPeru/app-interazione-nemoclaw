@@ -178,7 +178,7 @@ public sealed partial class ArchivePage : Page
 
     private void ReloadItems()
     {
-        var saved = ChatArchiveStore.Load()
+        _items = ChatArchiveStore.Load()
             .Select(item => new ArchiveItem(
                 item.Id,
                 item.Title,
@@ -187,20 +187,6 @@ public sealed partial class ArchivePage : Page
                     ? $"Ultimo aggiornamento: {item.UpdatedAt:dd/MM/yyyy HH:mm}"
                     : item.Description,
                 item.Prompt))
-            .ToList();
-
-        var seeds = new List<ArchiveItem>
-        {
-            new(null, "Setup gateway OpenClaw", "Progetto", "Piano per gateway locale, TLS LAN/VPN, endpoint OpenAI-compatible e health check.", "Preparami i passaggi per avviare OpenClaw con gateway locale."),
-            new(null, "Test modello locale", "Chat", "Conversazione demo per verificare modello, API e streaming futuro.", "Testa risposta modello locale con prompt breve."),
-            new(null, "Controllo home-server", "Server", "Snapshot gateway, modello, sandbox e policy rete.", "Controlla stato gateway, modello locale e sandbox OpenClaw."),
-            new(null, "Analizza workspace", "Task", "Task agente con approve prima di leggere o modificare file.", "Analizza workspace, mostra piano e chiedi approve prima di modificare."),
-            new(null, "Ricerca web autorizzata", "Task", "Task rete esterna solo dopo conferma esplicita.", "Cerca informazioni aggiornate, ma chiedi conferma prima di uscire dalla LAN/VPN."),
-            new(null, "Documenti progetto", "Progetto", "Guide Windows/Android e memoria AGENTS.md.", "Riassumi stato progetto e prossimi passi.")
-        };
-
-        _items = saved
-            .Concat(seeds.Where(seed => saved.All(item => !string.Equals(item.Title, seed.Title, StringComparison.OrdinalIgnoreCase))))
             .ToList();
     }
 

@@ -299,7 +299,7 @@ private fun ChatScreen(
             .imePadding()
             .navigationBarsPadding()
     ) {
-        TopBar(settings)
+        TopBar(mode)
         Box(modifier = Modifier.weight(1f)) {
             if (messages.isEmpty()) {
                 EmptyState(onPrompt = { draft = it })
@@ -318,7 +318,6 @@ private fun ChatScreen(
         Composer(
             context = context,
             value = draft,
-            mode = mode,
             onValueChange = { draft = it },
             onAction = { title, text, prompt ->
                 messages.add(ChatMessage(title, text, fromUser = false, isAction = true))
@@ -342,7 +341,7 @@ private fun ChatScreen(
 }
 
 @Composable
-private fun TopBar(settings: AppSettings) {
+private fun TopBar(mode: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -355,9 +354,8 @@ private fun TopBar(settings: AppSettings) {
             contentDescription = "ChatClaw",
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .border(1.dp, Color(0xFF3A3A3A), CircleShape)
+                .size(52.dp)
+                .clip(RoundedCornerShape(16.dp))
         )
         Column(modifier = Modifier.padding(start = 12.dp)) {
             Text(
@@ -366,20 +364,18 @@ private fun TopBar(settings: AppSettings) {
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 20.sp
             )
-            Text(
-                text = if (settings.demoMode) "Client demo OpenClaw" else "Gateway OpenClaw collegato",
-                color = AppColors.Muted,
-                fontSize = 11.sp
-            )
         }
         Spacer(modifier = Modifier.weight(1f))
+        val modeIcon = if (mode == "Agente") Icons.Rounded.SmartToy else Icons.Rounded.ChatBubbleOutline
         Surface(color = AppColors.Surface, shape = RoundedCornerShape(18.dp)) {
-            Text(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                text = if (settings.demoMode) "Demo: ${settings.gatewayUrl}" else settings.gatewayUrl,
-                color = AppColors.Muted,
-                fontSize = 12.sp
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(modeIcon, contentDescription = mode, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                Text(text = mode, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            }
         }
     }
 }
@@ -428,6 +424,10 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
             }
         }
     }
+}
+
+private fun createInitialTasks(@Suppress("UNUSED_PARAMETER") settings: AppSettings): List<AgentTask> {
+    return emptyList()
 }
 
 @Composable
@@ -482,14 +482,12 @@ private fun MessageBubble(message: ChatMessage) {
 private fun Composer(
     context: Context,
     value: String,
-    mode: String,
     onValueChange: (String) -> Unit,
     onAction: (String, String, String) -> Unit,
     onModeChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val expandedComposer = value.contains('\n') || value.length > 54
 
     fun queueAction(title: String, detail: String, prompt: String) {
         onAction(title, detail, prompt)
@@ -504,366 +502,177 @@ private fun Composer(
         shape = RoundedCornerShape(30.dp)
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-            if (expandedComposer) {
-                TextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = value,
-                    onValueChange = onValueChange,
-                    placeholder = { Text("Fai una domanda", color = AppColors.Muted) },
-                    minLines = 3,
-                    maxLines = 7,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = AppColors.Accent
-                    )
+            TextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = value,
+                onValueChange = onValueChange,
+                placeholder = { Text("Fai una domanda", color = AppColors.Muted) },
+                minLines = 1,
+                maxLines = 7,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    cursorColor = AppColors.Accent
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box {
-                        IconButton(onClick = { expanded = true }) {
-                            Icon(Icons.Rounded.Add, contentDescription = "Apri menu azioni", tint = AppColors.Muted)
-                        }
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                            containerColor = AppColors.Surface
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Aggiungi file al task", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.AttachFile, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    val opened = openAndroidIntent(
-                                        context,
-                                        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                            addCategory(Intent.CATEGORY_OPENABLE)
-                                            type = "*/*"
-                                        }
-                                    )
-                                    queueAction(
-                                        "File task",
-                                        if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
-                                        "Allega un file al prossimo task e analizzalo nel contesto OpenClaw."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Cattura screenshot", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.CropFree, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Screenshot",
-                                        "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.",
-                                        "Usa uno screenshot come contesto visivo per capire app o server."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Scatta foto", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
-                                    queueAction(
-                                        "Foto",
-                                        if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
-                                        "Acquisisci una foto e usala come allegato per la conversazione."
-                                    )
-                                }
-                            )
-                            HorizontalDivider(color = Color(0xFF3A3A3A))
-                            DropdownMenuItem(
-                                text = { Text("Passa a modalita Chat", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    onModeChange("Chat")
-                                    onAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.", "")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Passa a modalita Agente", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.SmartToy, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    onModeChange("Agente")
-                                    onAction("Modalita", "Agente attivo: task demo con approve/deny per azioni rischiose.", "")
-                                }
-                            )
-                            HorizontalDivider(color = Color(0xFF3A3A3A))
-                            DropdownMenuItem(
-                                text = { Text("Crea immagine", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Immagine",
-                                        "Generazione immagine richiedera' gateway/tool dedicato e conferma prima di chiamate esterne.",
-                                        "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Deep Research locale", color = Color.White) },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ManageSearch, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Deep Research",
-                                        "Ricerca approfondita locale; rete solo dopo approvazione esplicita.",
-                                        "Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Ricerca web autorizzata", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.Language, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Web",
-                                        "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.",
-                                        "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Progetti e workspace", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Workspace",
-                                        "Workspace/progetti saranno collegati al gateway task con audit trail.",
-                                        "Lavora sul workspace o progetto selezionato e mostra piano prima di modificare file."
-                                    )
-                                }
-                            )
-                        }
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box {
+                    IconButton(onClick = { expanded = true }) {
+                        Icon(Icons.Rounded.Add, contentDescription = "Apri menu azioni", tint = AppColors.Muted)
                     }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp)) {
-                        Text(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                            text = mode,
-                            color = AppColors.Muted,
-                            fontSize = 12.sp
-                        )
-                    }
-                    IconButton(onClick = {
-                        val opened = openAndroidIntent(
-                            context,
-                            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per OpenClaw")
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        containerColor = AppColors.Surface
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Aggiungi file al task", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.AttachFile, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                val opened = openAndroidIntent(
+                                    context,
+                                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                        type = "*/*"
+                                    }
+                                )
+                                queueAction(
+                                    "File task",
+                                    if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
+                                    "Allega un file al prossimo task e analizzalo nel contesto OpenClaw."
+                                )
                             }
                         )
-                        onAction(
-                            "Voce",
-                            if (opened) "Dettatura Android aperta. Inserisci o rifinisci il testo nel prompt." else "Dettatura non disponibile su questo dispositivo. Scrivi la nota vocale nel prompt.",
-                            "Trascrivi questa nota vocale e usala come contesto: "
+                        DropdownMenuItem(
+                            text = { Text("Cattura screenshot", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.CropFree, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                queueAction(
+                                    "Screenshot",
+                                    "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.",
+                                    "Usa uno screenshot come contesto visivo per capire app o server."
+                                )
+                            }
                         )
-                    }) {
-                        Icon(Icons.Rounded.Mic, contentDescription = "Dettatura", tint = AppColors.Muted)
-                    }
-                    Button(
-                        modifier = Modifier.size(44.dp),
-                        onClick = onSend,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
-                        shape = CircleShape,
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "Invia")
+                        DropdownMenuItem(
+                            text = { Text("Scatta foto", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+                                queueAction(
+                                    "Foto",
+                                    if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
+                                    "Acquisisci una foto e usala come allegato per la conversazione."
+                                )
+                            }
+                        )
+                        HorizontalDivider(color = Color(0xFF3A3A3A))
+                        DropdownMenuItem(
+                            text = { Text("Passa a modalita Chat", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                onModeChange("Chat")
+                                onAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.", "")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Passa a modalita Agente", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.SmartToy, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                onModeChange("Agente")
+                                onAction("Modalita", "Agente attivo: task demo con approve/deny per azioni rischiose.", "")
+                            }
+                        )
+                        HorizontalDivider(color = Color(0xFF3A3A3A))
+                        DropdownMenuItem(
+                            text = { Text("Crea immagine", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                queueAction(
+                                    "Immagine",
+                                    "Generazione immagine richiedera' gateway/tool dedicato e conferma prima di chiamate esterne.",
+                                    "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni."
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Deep Research locale", color = Color.White) },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ManageSearch, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                queueAction(
+                                    "Deep Research",
+                                    "Ricerca approfondita locale; rete solo dopo approvazione esplicita.",
+                                    "Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione."
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ricerca web autorizzata", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.Language, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                queueAction(
+                                    "Web",
+                                    "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.",
+                                    "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN."
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Progetti e workspace", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                queueAction(
+                                    "Workspace",
+                                    "Workspace/progetti saranno collegati al gateway task con audit trail.",
+                                    "Lavora sul workspace o progetto selezionato e mostra piano prima di modificare file."
+                                )
+                            }
+                        )
                     }
                 }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box {
-                        IconButton(onClick = { expanded = true }) {
-                            Icon(Icons.Rounded.Add, contentDescription = "Apri menu azioni", tint = AppColors.Muted)
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = {
+                    val opened = openAndroidIntent(
+                        context,
+                        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per OpenClaw")
                         }
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                            containerColor = AppColors.Surface
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Aggiungi file al task", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.AttachFile, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    val opened = openAndroidIntent(
-                                        context,
-                                        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                            addCategory(Intent.CATEGORY_OPENABLE)
-                                            type = "*/*"
-                                        }
-                                    )
-                                    queueAction(
-                                        "File task",
-                                        if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
-                                        "Allega un file al prossimo task e analizzalo nel contesto OpenClaw."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Cattura screenshot", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.CropFree, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Screenshot",
-                                        "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.",
-                                        "Usa uno screenshot come contesto visivo per capire app o server."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Scatta foto", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
-                                    queueAction(
-                                        "Foto",
-                                        if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
-                                        "Acquisisci una foto e usala come allegato per la conversazione."
-                                    )
-                                }
-                            )
-                            HorizontalDivider(color = Color(0xFF3A3A3A))
-                            DropdownMenuItem(
-                                text = { Text("Passa a modalita Chat", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    onModeChange("Chat")
-                                    onAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.", "")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Passa a modalita Agente", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.SmartToy, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    onModeChange("Agente")
-                                    onAction("Modalita", "Agente attivo: task demo con approve/deny per azioni rischiose.", "")
-                                }
-                            )
-                            HorizontalDivider(color = Color(0xFF3A3A3A))
-                            DropdownMenuItem(
-                                text = { Text("Crea immagine", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Immagine",
-                                        "Generazione immagine richiedera' gateway/tool dedicato e conferma prima di chiamate esterne.",
-                                        "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Deep Research locale", color = Color.White) },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ManageSearch, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Deep Research",
-                                        "Ricerca approfondita locale; rete solo dopo approvazione esplicita.",
-                                        "Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Ricerca web autorizzata", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.Language, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Web",
-                                        "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.",
-                                        "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN."
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Progetti e workspace", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, tint = Color.White) },
-                                onClick = {
-                                    expanded = false
-                                    queueAction(
-                                        "Workspace",
-                                        "Workspace/progetti saranno collegati al gateway task con audit trail.",
-                                        "Lavora sul workspace o progetto selezionato e mostra piano prima di modificare file."
-                                    )
-                                }
-                            )
-                        }
-                    }
-                    TextField(
-                        modifier = Modifier.weight(1f),
-                        value = value,
-                        onValueChange = onValueChange,
-                        placeholder = { Text("Fai una domanda", color = AppColors.Muted) },
-                        minLines = 1,
-                        maxLines = 1,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            cursorColor = AppColors.Accent
-                        )
                     )
-                    Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp)) {
-                        Text(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                            text = mode,
-                            color = AppColors.Muted,
-                            fontSize = 12.sp
-                        )
-                    }
-                    IconButton(onClick = {
-                        val opened = openAndroidIntent(
-                            context,
-                            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per OpenClaw")
-                            }
-                        )
-                        onAction(
-                            "Voce",
-                            if (opened) "Dettatura Android aperta. Inserisci o rifinisci il testo nel prompt." else "Dettatura non disponibile su questo dispositivo. Scrivi la nota vocale nel prompt.",
-                            "Trascrivi questa nota vocale e usala come contesto: "
-                        )
-                    }) {
-                        Icon(Icons.Rounded.Mic, contentDescription = "Dettatura", tint = AppColors.Muted)
-                    }
-                    Button(
-                        modifier = Modifier.size(44.dp),
-                        onClick = onSend,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
-                        shape = CircleShape,
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "Invia")
-                    }
+                    onAction(
+                        "Voce",
+                        if (opened) "Dettatura Android aperta. Inserisci o rifinisci il testo nel prompt." else "Dettatura non disponibile su questo dispositivo. Scrivi la nota vocale nel prompt.",
+                        "Trascrivi questa nota vocale e usala come contesto: "
+                    )
+                }) {
+                    Icon(Icons.Rounded.Mic, contentDescription = "Dettatura", tint = AppColors.Muted)
+                }
+                Button(
+                    modifier = Modifier.size(44.dp),
+                    onClick = onSend,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Icon(Icons.Rounded.ArrowUpward, contentDescription = "Invia")
                 }
             }
         }
@@ -1032,14 +841,9 @@ private fun ArchiveCard(
 @Composable
 private fun TasksScreen(settings: AppSettings) {
     val tasks = remember {
-        mutableStateListOf(
-            AgentTask(
-                title = "Controllo gateway OpenClaw",
-                mode = "Health",
-                status = "In attesa",
-                detail = "Verifica /api/health e modello locale prima di eseguire task agente."
-            )
-        )
+        mutableStateListOf<AgentTask>().apply {
+            addAll(createInitialTasks(settings))
+        }
     }
     var title by remember { mutableStateOf("") }
     var detail by remember { mutableStateOf("") }
@@ -1093,6 +897,11 @@ private fun TasksScreen(settings: AppSettings) {
                     }
                     Text(status, color = AppColors.Muted)
                 }
+            }
+        }
+        if (tasks.isEmpty()) {
+            item {
+                Text("Nessun ordine ancora.", color = AppColors.Muted)
             }
         }
         items(tasks) { task ->
@@ -1807,7 +1616,7 @@ private fun saveSettings(context: Context, settings: AppSettings) {
 }
 
 private fun loadArchiveItems(context: Context): List<ArchiveItem> {
-    val saved = loadConversations(context).map {
+    return loadConversations(context).map {
         ArchiveItem(
             id = it.id,
             title = it.title,
@@ -1816,16 +1625,6 @@ private fun loadArchiveItems(context: Context): List<ArchiveItem> {
             prompt = it.prompt
         )
     }
-    val seeds = listOf(
-        ArchiveItem(null, "Setup gateway OpenClaw", "Progetto", "Piano per gateway locale, TLS LAN/VPN e endpoint OpenAI-compatible.", "Preparami i passaggi per avviare OpenClaw con gateway locale."),
-        ArchiveItem(null, "Test modello locale", "Chat", "Conversazione demo per verificare modello, API e streaming futuro.", "Testa risposta modello locale con prompt breve."),
-        ArchiveItem(null, "Controllo home-server", "Server", "Snapshot gateway, modello, sandbox e policy rete.", "Controlla stato gateway, modello locale e sandbox OpenClaw."),
-        ArchiveItem(null, "Analizza workspace", "Task", "Task agente con approve prima di leggere o modificare file.", "Analizza workspace, mostra piano e chiedi approve prima di modificare."),
-        ArchiveItem(null, "Ricerca web autorizzata", "Task", "Rete esterna solo dopo conferma esplicita.", "Cerca informazioni aggiornate, ma chiedi conferma prima di uscire dalla LAN/VPN."),
-        ArchiveItem(null, "Documenti progetto", "Progetto", "Guide Windows/Android e memoria AGENTS.md.", "Riassumi stato progetto e prossimi passi.")
-    )
-
-    return saved + seeds.filter { seed -> saved.none { it.title.equals(seed.title, ignoreCase = true) } }
 }
 
 private fun loadConversation(context: Context, id: String): LocalConversation? {

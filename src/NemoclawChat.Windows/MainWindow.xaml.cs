@@ -89,8 +89,12 @@ public sealed partial class MainWindow : Window
 
         if (recent.Count == 0)
         {
-            AddRecentPrompt("Setup gateway OpenClaw", "Preparami i passaggi per avviare OpenClaw con gateway locale e modello OpenAI-compatible.");
-            AddRecentPrompt("Test modello locale", "Testa il modello locale con prompt breve e mostra stato gateway.");
+            RecentChatsPanel.Children.Add(new TextBlock
+            {
+                Text = "Nessuna chat recente.",
+                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["MutedTextBrush"],
+                Margin = new Thickness(12, 6, 12, 0)
+            });
             return;
         }
 
@@ -111,15 +115,4 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void AddRecentPrompt(string title, string prompt)
-    {
-        var button = new Button
-        {
-            Style = (Style)Application.Current.Resources["SidebarButtonStyle"],
-            Tag = prompt,
-            Content = new TextBlock { Text = title }
-        };
-        button.Click += OpenChat_Click;
-        RecentChatsPanel.Children.Add(button);
-    }
 }

@@ -13,7 +13,6 @@ public sealed partial class TasksPage : Page
     public TasksPage()
     {
         InitializeComponent();
-        SeedTasks();
         RenderTasks();
     }
 
@@ -98,26 +97,19 @@ public sealed partial class TasksPage : Page
         RenderTasks();
     }
 
-    private void SeedTasks()
-    {
-        if (_tasks.Count > 0)
-        {
-            return;
-        }
-
-        var settings = AppSettingsStore.Load();
-        _tasks.Add(new AgentTask(
-            _nextTaskId++,
-            "Controllo gateway OpenClaw",
-            settings.DemoMode ? "Demo" : "Gateway",
-            "In attesa",
-            $"Verifica /api/health su {settings.GatewayUrl} e modello {settings.Model}.",
-            true));
-    }
-
     private void RenderTasks()
     {
         TasksPanel.Children.Clear();
+
+        if (_tasks.Count == 0)
+        {
+            TasksPanel.Children.Add(new TextBlock
+            {
+                Text = "Nessun ordine ancora.",
+                Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
+            });
+            return;
+        }
 
         foreach (var task in _tasks)
         {

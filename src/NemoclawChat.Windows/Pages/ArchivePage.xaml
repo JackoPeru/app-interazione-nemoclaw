@@ -22,7 +22,7 @@
                 Text="Archivio" />
             <TextBlock
                 Foreground="{StaticResource MutedTextBrush}"
-                Text="Ricerca locale demo per chat, progetti e task recenti. Persistenza reale arrivera' con database locale/gateway." />
+                Text="Ricerca locale per chat, progetti e task recenti salvati davvero sul dispositivo." />
         </StackPanel>
 
         <Grid Grid.Row="1" ColumnSpacing="12">
@@ -84,7 +84,7 @@
                     <TextBlock
                         x:Name="DetailBodyText"
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Qui vedi prompt suggerito, stato e prossima azione."
+                        Text="Qui vedi dettagli e prompt dell'elemento selezionato."
                         TextWrapping="Wrap" />
                     <Button
                         x:Name="OpenButton"
