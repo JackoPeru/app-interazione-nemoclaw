@@ -322,35 +322,35 @@ private fun Composer(
                         onDismissRequest = { expanded = false },
                         containerColor = AppColors.Surface
                     ) {
-                        DropdownMenuItem(text = { Text("Aggiungi file al task", color = Color.White) }, onClick = {
+                        DropdownMenuItem(text = { Text("📎  Aggiungi file al task", color = Color.White) }, onClick = {
                             expanded = false
                             onAction("Allega un file al prossimo task e analizzalo nel contesto NemoClaw.")
                         })
-                        DropdownMenuItem(text = { Text("Cattura screenshot", color = Color.White) }, onClick = {
+                        DropdownMenuItem(text = { Text("▣  Cattura screenshot", color = Color.White) }, onClick = {
                             expanded = false
                             onAction("Usa uno screenshot come contesto visivo per capire app o server.")
                         })
-                        DropdownMenuItem(text = { Text("Scatta foto", color = Color.White) }, onClick = {
+                        DropdownMenuItem(text = { Text("📷  Scatta foto", color = Color.White) }, onClick = {
                             expanded = false
                             onAction("Acquisisci una foto e usala come allegato per la conversazione.")
                         })
-                        DropdownMenuItem(text = { Text("Modalita: Chat", color = Color.White) }, onClick = {
+                        DropdownMenuItem(text = { Text("💬  Modalita: Chat", color = Color.White) }, onClick = {
                             expanded = false
                             onModeChange("Chat")
                         })
-                        DropdownMenuItem(text = { Text("Modalita: Agente", color = Color.White) }, onClick = {
+                        DropdownMenuItem(text = { Text("⚙  Modalita: Agente", color = Color.White) }, onClick = {
                             expanded = false
                             onModeChange("Agente")
                         })
-                        DropdownMenuItem(text = { Text("Deep Research locale", color = Color.White) }, onClick = {
+                        DropdownMenuItem(text = { Text("⌕  Deep Research locale", color = Color.White) }, onClick = {
                             expanded = false
                             onAction("Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione.")
                         })
-                        DropdownMenuItem(text = { Text("Ricerca web autorizzata", color = Color.White) }, onClick = {
+                        DropdownMenuItem(text = { Text("◎  Ricerca web autorizzata", color = Color.White) }, onClick = {
                             expanded = false
                             onAction("Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN.")
                         })
-                        DropdownMenuItem(text = { Text("Progetti / workspace", color = Color.White) }, onClick = {
+                        DropdownMenuItem(text = { Text("▤  Progetti / workspace", color = Color.White) }, onClick = {
                             expanded = false
                             onAction("Lavora sul workspace/progetto selezionato e mostra piano prima di modificare file.")
                         })

@@ -118,17 +118,17 @@
                             <FontIcon FontSize="16" Glyph="&#xE710;" />
                             <Button.Flyout>
                                 <MenuFlyout>
-                                    <MenuFlyoutItem Click="AttachFile_Click" Text="Aggiungi file al task" />
-                                    <MenuFlyoutItem Click="CaptureScreenshot_Click" Text="Cattura screenshot" />
-                                    <MenuFlyoutItem Click="TakePhoto_Click" Text="Scatta foto" />
+                                    <MenuFlyoutItem Click="AttachFile_Click" Text="📎  Aggiungi file al task" />
+                                    <MenuFlyoutItem Click="CaptureScreenshot_Click" Text="▣  Cattura screenshot" />
+                                    <MenuFlyoutItem Click="TakePhoto_Click" Text="📷  Scatta foto" />
                                     <MenuFlyoutSeparator />
-                                    <MenuFlyoutItem Click="SetModeChat_Click" Text="Modalita: Chat" />
-                                    <MenuFlyoutItem Click="SetModeAgent_Click" Text="Modalita: Agente" />
+                                    <MenuFlyoutItem Click="SetModeChat_Click" Text="💬  Modalita: Chat" />
+                                    <MenuFlyoutItem Click="SetModeAgent_Click" Text="⚙  Modalita: Agente" />
                                     <MenuFlyoutSeparator />
-                                    <MenuFlyoutItem Click="CreateImage_Click" Text="Crea immagine" />
-                                    <MenuFlyoutItem Click="DeepResearch_Click" Text="Deep Research locale" />
-                                    <MenuFlyoutItem Click="WebSearch_Click" Text="Ricerca web autorizzata" />
-                                    <MenuFlyoutItem Click="Projects_Click" Text="Progetti / workspace" />
+                                    <MenuFlyoutItem Click="CreateImage_Click" Text="◇  Crea immagine" />
+                                    <MenuFlyoutItem Click="DeepResearch_Click" Text="⌕  Deep Research locale" />
+                                    <MenuFlyoutItem Click="WebSearch_Click" Text="◎  Ricerca web autorizzata" />
+                                    <MenuFlyoutItem Click="Projects_Click" Text="▤  Progetti / workspace" />
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
