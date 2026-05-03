@@ -17,7 +17,7 @@
             <SolidColorBrush x:Key="AssistantBubbleBrush" Color="#FF282828" />
             <SolidColorBrush x:Key="UserBubbleBrush" Color="#FF3A3A3A" />
             <SolidColorBrush x:Key="MutedTextBrush" Color="#FFB4B4B4" />
-            <SolidColorBrush x:Key="AccentGreenBrush" Color="#FF10A37F" />
+            <SolidColorBrush x:Key="AccentGreenBrush" Color="#FF3EA6FF" />
 
             <Style x:Key="SidebarButtonStyle" TargetType="Button">
                 <Setter Property="HorizontalAlignment" Value="Stretch" />

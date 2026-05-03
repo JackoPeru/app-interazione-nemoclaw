@@ -18,7 +18,7 @@
                         Text="Server" />
                     <TextBlock
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Dashboard gateway, modello locale, sandbox NemoClaw e policy rete." />
+                        Text="Dashboard gateway, modello locale, sandbox OpenClaw e policy rete." />
                 </StackPanel>
 
                 <Grid ColumnSpacing="16" RowSpacing="16">

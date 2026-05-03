@@ -6,7 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:NemoclawChat_Windows"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    Title="Nemoclaw Chat"
+    Title="ChatClaw"
     mc:Ignorable="d">
     <Grid Background="{StaticResource AppBackgroundBrush}">
         <Grid.ColumnDefinitions>
@@ -31,16 +31,28 @@
 
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
+                    <Border
+                        Width="34"
+                        Height="34"
+                        CornerRadius="12">
+                        <Image
+                            Width="34"
+                            Height="34"
+                            Source="ms-appx:///Assets/ChatClawLogo.png"
+                            Stretch="UniformToFill" />
+                    </Border>
                     <TextBlock
+                        Grid.Column="1"
                         FontSize="18"
                         FontWeight="SemiBold"
                         Foreground="White"
-                        Text="Nemoclaw" />
+                        Text="ChatClaw" />
                     <Button
-                        Grid.Column="1"
+                        Grid.Column="2"
                         Width="34"
                         Height="34"
                         Background="Transparent"
@@ -89,9 +101,9 @@
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock
                                 Foreground="White"
-                                FontSize="13"
-                                FontWeight="SemiBold"
-                                Text="Progetti" />
+                            FontSize="13"
+                            FontWeight="SemiBold"
+                            Text="Progetti" />
                             <TextBlock Foreground="{StaticResource MutedTextBrush}" Text=">" />
                         </StackPanel>
                     </Button>
@@ -99,9 +111,9 @@
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock
                                 Foreground="White"
-                                FontSize="13"
-                                FontWeight="SemiBold"
-                                Text="Recenti" />
+                            FontSize="13"
+                            FontWeight="SemiBold"
+                            Text="Recenti" />
                             <TextBlock Foreground="{StaticResource MutedTextBrush}" Text=">" />
                         </StackPanel>
                     </Button>
@@ -135,7 +147,7 @@
                         <TextBlock
                             FontSize="11"
                             Foreground="{StaticResource MutedTextBrush}"
-                            Text="Server locale" />
+                            Text="OpenClaw locale" />
                     </StackPanel>
                     <Button
                         Grid.ColumnSpan="2"
@@ -188,7 +200,7 @@
                         <TextBlock
                             FontSize="12"
                             Foreground="{StaticResource MutedTextBrush}"
-                            Text="Gateway preset: nemoclaw.local" />
+                            Text="Gateway preset: openclaw.local" />
                     </Border>
                     <Button
                         Width="32"

@@ -35,7 +35,7 @@
                             HorizontalAlignment="Center"
                             FontSize="14"
                             Foreground="{StaticResource MutedTextBrush}"
-                            Text="Chat normale o ordine agente verso il tuo home-server NemoClaw." />
+                            Text="Chat normale o ordine agente verso il tuo home-server OpenClaw." />
                         <Grid ColumnSpacing="10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -47,7 +47,7 @@
                                 Background="{StaticResource SurfaceBrush}"
                                 BorderBrush="#FF3D3D3D"
                                 Click="PromptSetup_Click"
-                                Content="Prepara setup NemoClaw"
+                                Content="Prepara setup OpenClaw"
                                 CornerRadius="18"
                                 Foreground="White" />
                             <Button
@@ -117,17 +117,53 @@
                             <FontIcon FontSize="16" Glyph="&#xE710;" />
                             <Button.Flyout>
                                 <MenuFlyout>
-                                    <MenuFlyoutItem Click="AttachFile_Click" Text="[file]  Aggiungi file al task" />
-                                    <MenuFlyoutItem Click="CaptureScreenshot_Click" Text="[shot]  Cattura screenshot" />
-                                    <MenuFlyoutItem Click="TakePhoto_Click" Text="[cam]  Scatta foto" />
+                                    <MenuFlyoutItem Click="AttachFile_Click" Text="Aggiungi file al task">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8B7;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="CaptureScreenshot_Click" Text="Cattura screenshot">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE722;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="TakePhoto_Click" Text="Scatta foto">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE722;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
                                     <MenuFlyoutSeparator />
-                                    <MenuFlyoutItem Click="SetModeChat_Click" Text="[chat]  Modalita: Chat" />
-                                    <MenuFlyoutItem Click="SetModeAgent_Click" Text="[agent]  Modalita: Agente" />
+                                    <MenuFlyoutItem Click="SetModeChat_Click" Text="Passa a modalita Chat">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8BD;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="SetModeAgent_Click" Text="Passa a modalita Agente">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE7BE;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
                                     <MenuFlyoutSeparator />
-                                    <MenuFlyoutItem Click="CreateImage_Click" Text="[image]  Crea immagine" />
-                                    <MenuFlyoutItem Click="DeepResearch_Click" Text="[research]  Deep Research locale" />
-                                    <MenuFlyoutItem Click="WebSearch_Click" Text="[web]  Ricerca web autorizzata" />
-                                    <MenuFlyoutItem Click="Projects_Click" Text="[project]  Progetti / workspace" />
+                                    <MenuFlyoutItem Click="CreateImage_Click" Text="Crea immagine">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xEB9F;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="DeepResearch_Click" Text="Deep Research locale">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE721;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="WebSearch_Click" Text="Ricerca web autorizzata">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE774;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="Projects_Click" Text="Progetti / workspace">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8F1;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>

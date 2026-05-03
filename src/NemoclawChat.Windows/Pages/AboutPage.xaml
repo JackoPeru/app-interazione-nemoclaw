@@ -32,22 +32,16 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Border
-                            Width="54"
-                            Height="54"
-                            Background="#FF9B59B6"
-                            CornerRadius="27">
-                            <TextBlock
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                FontSize="18"
-                                FontWeight="SemiBold"
-                                Foreground="White"
-                                Text="MP" />
+                        <Border Width="64" Height="64" CornerRadius="18">
+                            <Image
+                                Width="64"
+                                Height="64"
+                                Source="ms-appx:///Assets/ChatClawLogo.png"
+                                Stretch="UniformToFill" />
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="Matteo" />
-                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Profilo locale per home-server NemoClaw." />
+                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Profilo locale per home-server OpenClaw." />
                             <TextBlock x:Name="SettingsPathText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
                         </StackPanel>
                     </Grid>

@@ -19,7 +19,7 @@ public sealed partial class MainWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(DragRegion);
-        AppWindow.Title = "Nemoclaw Chat";
+        AppWindow.Title = "ChatClaw";
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
         AppWindow.SetIcon("Assets/AppIcon.ico");
         ContentFrame.Navigate(typeof(HomePage));
@@ -89,7 +89,7 @@ public sealed partial class MainWindow : Window
 
         if (recent.Count == 0)
         {
-            AddRecentPrompt("Setup gateway NemoClaw", "Preparami i passaggi per avviare NemoClaw con gateway locale e modello OpenAI-compatible.");
+            AddRecentPrompt("Setup gateway OpenClaw", "Preparami i passaggi per avviare OpenClaw con gateway locale e modello OpenAI-compatible.");
             AddRecentPrompt("Test modello locale", "Testa il modello locale con prompt breve e mostra stato gateway.");
             return;
         }

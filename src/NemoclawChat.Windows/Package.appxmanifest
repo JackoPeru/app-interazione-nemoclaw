@@ -11,12 +11,12 @@
   <Identity
     Name="2D8AF35F-8122-4C3B-8487-0201987F4E61"
     Publisher="CN=AppPublisher"
-    Version="1.0.0.0" />
+    Version="0.3.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="2D8AF35F-8122-4C3B-8487-0201987F4E61" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>NemoclawChat.Windows</DisplayName>
+    <DisplayName>ChatClaw</DisplayName>
     <PublisherDisplayName>AppPublisher</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -35,8 +35,8 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="NemoclawChat.Windows"
-        Description="NemoclawChat.Windows"
+        DisplayName="ChatClaw"
+        Description="ChatClaw"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

@@ -5,16 +5,40 @@ namespace NemoclawChat_Windows.Services;
 public static class AppSettingsStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private const string CurrentDirectoryName = "ChatClaw";
+    private const string LegacyDirectoryName = "NemoclawChat";
+
+    private static string DataDirectoryPath
+    {
+        get
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var currentDirectory = Path.Combine(localAppData, CurrentDirectoryName);
+            var legacyDirectory = Path.Combine(localAppData, LegacyDirectoryName);
+
+            if (!Directory.Exists(currentDirectory) && Directory.Exists(legacyDirectory))
+            {
+                Directory.CreateDirectory(currentDirectory);
+                foreach (var file in Directory.GetFiles(legacyDirectory))
+                {
+                    var destination = Path.Combine(currentDirectory, Path.GetFileName(file));
+                    if (!File.Exists(destination))
+                    {
+                        File.Copy(file, destination);
+                    }
+                }
+            }
+
+            Directory.CreateDirectory(currentDirectory);
+            return currentDirectory;
+        }
+    }
 
     private static string SettingsPath
     {
         get
         {
-            var directory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "NemoclawChat");
-            Directory.CreateDirectory(directory);
-            return Path.Combine(directory, "settings.json");
+            return Path.Combine(DataDirectoryPath, "settings.json");
         }
     }
 

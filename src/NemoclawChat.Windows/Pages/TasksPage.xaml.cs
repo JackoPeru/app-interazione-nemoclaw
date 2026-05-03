@@ -58,7 +58,7 @@ public sealed partial class TasksPage : Page
     private void LoadServerTemplate_Click(object sender, RoutedEventArgs e)
     {
         var settings = AppSettingsStore.Load();
-        TaskTitleBox.Text = "Controlla home-server NemoClaw";
+        TaskTitleBox.Text = "Controlla home-server OpenClaw";
         TaskDetailBox.Text = $"Verifica gateway {settings.GatewayUrl}, modello {settings.Model}, sandbox e policy rete.";
         TaskModeBox.SelectedIndex = settings.DemoMode ? 0 : 1;
         ApprovalSwitch.IsOn = true;
@@ -108,7 +108,7 @@ public sealed partial class TasksPage : Page
         var settings = AppSettingsStore.Load();
         _tasks.Add(new AgentTask(
             _nextTaskId++,
-            "Controllo gateway NemoClaw",
+            "Controllo gateway OpenClaw",
             settings.DemoMode ? "Demo" : "Gateway",
             "In attesa",
             $"Verifica /api/health su {settings.GatewayUrl} e modello {settings.Model}.",

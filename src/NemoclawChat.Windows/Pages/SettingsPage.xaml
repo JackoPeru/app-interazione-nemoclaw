@@ -20,9 +20,9 @@
             Foreground="White"
             Text="Impostazioni" />
         <StackPanel Grid.Row="1" MaxWidth="760" HorizontalAlignment="Left" Spacing="18">
-            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Il client parla al gateway; segreti NemoClaw/Ollama restano sul server." />
+            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Il client parla al gateway; segreti OpenClaw/Ollama restano sul server." />
             <TextBox x:Name="GatewayUrlBox" Header="Gateway URL" />
-            <TextBox x:Name="ProviderBox" Header="NemoClaw provider" />
+            <TextBox x:Name="ProviderBox" Header="OpenClaw provider" />
             <TextBox x:Name="InferenceEndpointBox" Header="Endpoint inferenza lato server" />
             <ComboBox x:Name="PreferredApiBox" Header="API preferita" SelectedIndex="0">
                 <ComboBoxItem Content="openai-completions" />

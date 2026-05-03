@@ -7,10 +7,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +33,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ManageSearch
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.CropFree
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.ManageSearch
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -37,9 +58,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -55,17 +80,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.nemoclaw.chat.ui.theme.NemoclawTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -83,13 +117,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab(val label: String) {
-    Chat("Chat"),
-    Archive("Archivio"),
-    Tasks("Ordini"),
-    Server("Server"),
-    Settings("Impostazioni"),
-    Profile("Profilo")
+private enum class Tab(val label: String, val icon: ImageVector) {
+    Chat("Chat", Icons.Rounded.ChatBubbleOutline),
+    Archive("Archivio", Icons.Rounded.FolderOpen),
+    Tasks("Ordini", Icons.Rounded.TaskAlt),
+    Server("Server", Icons.Rounded.Dns),
+    Settings("Imposta", Icons.Rounded.Tune),
+    Profile("Profilo", Icons.Rounded.AccountCircle)
 }
 
 private data class ChatMessage(
@@ -132,6 +166,17 @@ private data class UpdateCheckResult(
     val assetUrl: String?
 )
 
+private data class UpdateDownloadState(
+    val status: String = "Controlla GitHub Releases per nuove versioni.",
+    val releaseUrl: String = AppDefaults.releasesPage,
+    val releaseAssetUrl: String? = null,
+    val latestVersion: String? = null,
+    val hasUpdate: Boolean = false,
+    val isDownloading: Boolean = false,
+    val progress: Float? = null,
+    val downloadedApkPath: String? = null
+)
+
 private data class AppSettings(
     val gatewayUrl: String = AppDefaults.gatewayUrl,
     val provider: String = AppDefaults.provider,
@@ -158,7 +203,14 @@ private fun ChatApp() {
                     NavigationBarItem(
                         selected = selectedTab == tab,
                         onClick = { selectedTab = tab },
-                        icon = { Text(tab.label.first().toString()) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color.White,
+                            selectedTextColor = Color.White,
+                            indicatorColor = Color(0xFF2E425D),
+                            unselectedIconColor = AppColors.Muted,
+                            unselectedTextColor = AppColors.Muted
+                        ),
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
                         label = { Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     )
                 }
@@ -280,7 +332,7 @@ private fun ChatScreen(
                 if (text.isNotEmpty()) {
                     val response = demoReply(settings, mode)
                     messages.add(ChatMessage("Tu", text, true))
-                    messages.add(ChatMessage("NemoClaw", response, false))
+                    messages.add(ChatMessage("OpenClaw", response, false))
                     activeConversationId = saveConversationExchange(context, activeConversationId, mode, text, response).id
                     draft = ""
                 }
@@ -294,16 +346,32 @@ private fun TopBar(settings: AppSettings) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
-            .padding(horizontal = 18.dp),
+            .height(72.dp)
+            .padding(horizontal = 18.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = "Nemoclaw",
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 18.sp
+        Image(
+            painter = painterResource(id = R.drawable.chatclaw_logo),
+            contentDescription = "ChatClaw",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .border(1.dp, Color(0xFF3A3A3A), CircleShape)
         )
+        Column(modifier = Modifier.padding(start = 12.dp)) {
+            Text(
+                text = "ChatClaw",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 20.sp
+            )
+            Text(
+                text = if (settings.demoMode) "Client demo OpenClaw" else "Gateway OpenClaw collegato",
+                color = AppColors.Muted,
+                fontSize = 11.sp
+            )
+        }
         Spacer(modifier = Modifier.weight(1f))
         Surface(color = AppColors.Surface, shape = RoundedCornerShape(18.dp)) {
             Text(
@@ -325,6 +393,15 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Image(
+            painter = painterResource(id = R.drawable.chatclaw_logo),
+            contentDescription = "Logo ChatClaw",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(108.dp)
+                .clip(RoundedCornerShape(28.dp))
+        )
+        Spacer(modifier = Modifier.height(18.dp))
         Text(
             text = "Che vuoi fare oggi, Matteo?",
             color = Color.White,
@@ -333,17 +410,18 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
         )
         Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = "Chat normale o ordine agente verso il tuo home-server NemoClaw.",
+            text = "Chat normale o ordine agente verso il tuo home-server OpenClaw.",
             color = AppColors.Muted,
-            fontSize = 14.sp
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(18.dp))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SuggestionButton("Prepara setup NemoClaw") {
-                onPrompt("Preparami i passaggi per avviare NemoClaw con un endpoint OpenAI-compatible locale.")
+            SuggestionButton("Prepara setup OpenClaw") {
+                onPrompt("Preparami i passaggi per avviare OpenClaw con un endpoint OpenAI-compatible locale.")
             }
             SuggestionButton("Controlla server") {
-                onPrompt("Controlla stato gateway, modello locale e sandbox NemoClaw.")
+                onPrompt("Controlla stato gateway, modello locale e sandbox OpenClaw.")
             }
             SuggestionButton("Crea ordine agente") {
                 onPrompt("Crea un task agente sicuro con richiesta approve/deny prima di ogni azione rischiosa.")
@@ -411,6 +489,8 @@ private fun Composer(
     onSend: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val expandedComposer = value.contains('\n') || value.length > 54
+
     fun queueAction(title: String, detail: String, prompt: String) {
         onAction(title, detail, prompt)
     }
@@ -423,82 +503,14 @@ private fun Composer(
         color = AppColors.Composer,
         shape = RoundedCornerShape(30.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box {
-                    IconButton(onClick = { expanded = true }) {
-                        Text("+", color = AppColors.Muted, fontSize = 26.sp)
-                    }
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false },
-                        containerColor = AppColors.Surface
-                    ) {
-                        DropdownMenuItem(text = { Text("[file]  Aggiungi file al task", color = Color.White) }, onClick = {
-                            expanded = false
-                            val opened = openAndroidIntent(
-                                context,
-                                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                    addCategory(Intent.CATEGORY_OPENABLE)
-                                    type = "*/*"
-                                }
-                            )
-                            queueAction(
-                                "File task",
-                                if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
-                                "Allega un file al prossimo task e analizzalo nel contesto NemoClaw."
-                            )
-                        })
-                        DropdownMenuItem(text = { Text("[shot]  Cattura screenshot", color = Color.White) }, onClick = {
-                            expanded = false
-                            queueAction("Screenshot", "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.", "Usa uno screenshot come contesto visivo per capire app o server.")
-                        })
-                        DropdownMenuItem(text = { Text("[cam]  Scatta foto", color = Color.White) }, onClick = {
-                            expanded = false
-                            val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
-                            queueAction(
-                                "Foto",
-                                if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
-                                "Acquisisci una foto e usala come allegato per la conversazione."
-                            )
-                        })
-                        DropdownMenuItem(text = { Text("[chat]  Modalita: Chat", color = Color.White) }, onClick = {
-                            expanded = false
-                            onModeChange("Chat")
-                            onAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.", "")
-                        })
-                        DropdownMenuItem(text = { Text("[agent]  Modalita: Agente", color = Color.White) }, onClick = {
-                            expanded = false
-                            onModeChange("Agente")
-                            onAction("Modalita", "Agente attivo: task demo con approve/deny per azioni rischiose.", "")
-                        })
-                        DropdownMenuItem(text = { Text("[image]  Crea immagine", color = Color.White) }, onClick = {
-                            expanded = false
-                            queueAction("Immagine", "Generazione immagine richiedera' gateway/tool dedicato e conferma prima di chiamate esterne.", "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni.")
-                        })
-                        DropdownMenuItem(text = { Text("[research]  Deep Research locale", color = Color.White) }, onClick = {
-                            expanded = false
-                            queueAction("Deep Research", "Ricerca approfondita locale; rete solo dopo approvazione esplicita.", "Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione.")
-                        })
-                        DropdownMenuItem(text = { Text("[web]  Ricerca web autorizzata", color = Color.White) }, onClick = {
-                            expanded = false
-                            queueAction("Web", "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.", "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN.")
-                        })
-                        DropdownMenuItem(text = { Text("[project]  Progetti / workspace", color = Color.White) }, onClick = {
-                            expanded = false
-                            queueAction("Workspace", "Workspace/progetti saranno collegati al gateway task con audit trail.", "Lavora sul workspace/progetto selezionato e mostra piano prima di modificare file.")
-                        })
-                    }
-                }
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            if (expandedComposer) {
                 TextField(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     value = value,
                     onValueChange = onValueChange,
                     placeholder = { Text("Fai una domanda", color = AppColors.Muted) },
-                    minLines = 1,
+                    minLines = 3,
                     maxLines = 7,
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
@@ -506,41 +518,352 @@ private fun Composer(
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                         focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        unfocusedTextColor = Color.White,
+                        cursorColor = AppColors.Accent
                     )
                 )
-                Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp)) {
-                    Text(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                        text = "$mode v",
-                        color = AppColors.Muted,
-                        fontSize = 12.sp
-                    )
-                }
-                IconButton(onClick = {
-                    val opened = openAndroidIntent(
-                        context,
-                        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per NemoClaw")
-                        }
-                    )
-                    onAction(
-                        "Voce",
-                        if (opened) "Dettatura Android aperta. Inserisci o rifinisci il testo nel prompt." else "Dettatura non disponibile su questo dispositivo. Scrivi la nota vocale nel prompt.",
-                        "Trascrivi questa nota vocale e usala come contesto: "
-                    )
-                }) {
-                    Text("mic", color = AppColors.Muted, fontSize = 12.sp)
-                }
-                Button(
-                    modifier = Modifier.size(44.dp),
-                    onClick = onSend,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
-                    shape = CircleShape,
-                    contentPadding = PaddingValues(0.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(">", fontWeight = FontWeight.Bold)
+                    Box {
+                        IconButton(onClick = { expanded = true }) {
+                            Icon(Icons.Rounded.Add, contentDescription = "Apri menu azioni", tint = AppColors.Muted)
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                            containerColor = AppColors.Surface
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Aggiungi file al task", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.AttachFile, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    val opened = openAndroidIntent(
+                                        context,
+                                        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                            type = "*/*"
+                                        }
+                                    )
+                                    queueAction(
+                                        "File task",
+                                        if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
+                                        "Allega un file al prossimo task e analizzalo nel contesto OpenClaw."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Cattura screenshot", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.CropFree, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Screenshot",
+                                        "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.",
+                                        "Usa uno screenshot come contesto visivo per capire app o server."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Scatta foto", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+                                    queueAction(
+                                        "Foto",
+                                        if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
+                                        "Acquisisci una foto e usala come allegato per la conversazione."
+                                    )
+                                }
+                            )
+                            HorizontalDivider(color = Color(0xFF3A3A3A))
+                            DropdownMenuItem(
+                                text = { Text("Passa a modalita Chat", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    onModeChange("Chat")
+                                    onAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.", "")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Passa a modalita Agente", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.SmartToy, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    onModeChange("Agente")
+                                    onAction("Modalita", "Agente attivo: task demo con approve/deny per azioni rischiose.", "")
+                                }
+                            )
+                            HorizontalDivider(color = Color(0xFF3A3A3A))
+                            DropdownMenuItem(
+                                text = { Text("Crea immagine", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Immagine",
+                                        "Generazione immagine richiedera' gateway/tool dedicato e conferma prima di chiamate esterne.",
+                                        "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Deep Research locale", color = Color.White) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ManageSearch, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Deep Research",
+                                        "Ricerca approfondita locale; rete solo dopo approvazione esplicita.",
+                                        "Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ricerca web autorizzata", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.Language, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Web",
+                                        "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.",
+                                        "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Progetti e workspace", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Workspace",
+                                        "Workspace/progetti saranno collegati al gateway task con audit trail.",
+                                        "Lavora sul workspace o progetto selezionato e mostra piano prima di modificare file."
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp)) {
+                        Text(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            text = mode,
+                            color = AppColors.Muted,
+                            fontSize = 12.sp
+                        )
+                    }
+                    IconButton(onClick = {
+                        val opened = openAndroidIntent(
+                            context,
+                            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per OpenClaw")
+                            }
+                        )
+                        onAction(
+                            "Voce",
+                            if (opened) "Dettatura Android aperta. Inserisci o rifinisci il testo nel prompt." else "Dettatura non disponibile su questo dispositivo. Scrivi la nota vocale nel prompt.",
+                            "Trascrivi questa nota vocale e usala come contesto: "
+                        )
+                    }) {
+                        Icon(Icons.Rounded.Mic, contentDescription = "Dettatura", tint = AppColors.Muted)
+                    }
+                    Button(
+                        modifier = Modifier.size(44.dp),
+                        onClick = onSend,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                        shape = CircleShape,
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "Invia")
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box {
+                        IconButton(onClick = { expanded = true }) {
+                            Icon(Icons.Rounded.Add, contentDescription = "Apri menu azioni", tint = AppColors.Muted)
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                            containerColor = AppColors.Surface
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Aggiungi file al task", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.AttachFile, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    val opened = openAndroidIntent(
+                                        context,
+                                        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                            type = "*/*"
+                                        }
+                                    )
+                                    queueAction(
+                                        "File task",
+                                        if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
+                                        "Allega un file al prossimo task e analizzalo nel contesto OpenClaw."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Cattura screenshot", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.CropFree, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Screenshot",
+                                        "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.",
+                                        "Usa uno screenshot come contesto visivo per capire app o server."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Scatta foto", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+                                    queueAction(
+                                        "Foto",
+                                        if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
+                                        "Acquisisci una foto e usala come allegato per la conversazione."
+                                    )
+                                }
+                            )
+                            HorizontalDivider(color = Color(0xFF3A3A3A))
+                            DropdownMenuItem(
+                                text = { Text("Passa a modalita Chat", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    onModeChange("Chat")
+                                    onAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.", "")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Passa a modalita Agente", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.SmartToy, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    onModeChange("Agente")
+                                    onAction("Modalita", "Agente attivo: task demo con approve/deny per azioni rischiose.", "")
+                                }
+                            )
+                            HorizontalDivider(color = Color(0xFF3A3A3A))
+                            DropdownMenuItem(
+                                text = { Text("Crea immagine", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Immagine",
+                                        "Generazione immagine richiedera' gateway/tool dedicato e conferma prima di chiamate esterne.",
+                                        "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Deep Research locale", color = Color.White) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ManageSearch, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Deep Research",
+                                        "Ricerca approfondita locale; rete solo dopo approvazione esplicita.",
+                                        "Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ricerca web autorizzata", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.Language, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Web",
+                                        "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.",
+                                        "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN."
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Progetti e workspace", color = Color.White) },
+                                leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, tint = Color.White) },
+                                onClick = {
+                                    expanded = false
+                                    queueAction(
+                                        "Workspace",
+                                        "Workspace/progetti saranno collegati al gateway task con audit trail.",
+                                        "Lavora sul workspace o progetto selezionato e mostra piano prima di modificare file."
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    TextField(
+                        modifier = Modifier.weight(1f),
+                        value = value,
+                        onValueChange = onValueChange,
+                        placeholder = { Text("Fai una domanda", color = AppColors.Muted) },
+                        minLines = 1,
+                        maxLines = 1,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = AppColors.Accent
+                        )
+                    )
+                    Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp)) {
+                        Text(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            text = mode,
+                            color = AppColors.Muted,
+                            fontSize = 12.sp
+                        )
+                    }
+                    IconButton(onClick = {
+                        val opened = openAndroidIntent(
+                            context,
+                            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per OpenClaw")
+                            }
+                        )
+                        onAction(
+                            "Voce",
+                            if (opened) "Dettatura Android aperta. Inserisci o rifinisci il testo nel prompt." else "Dettatura non disponibile su questo dispositivo. Scrivi la nota vocale nel prompt.",
+                            "Trascrivi questa nota vocale e usala come contesto: "
+                        )
+                    }) {
+                        Icon(Icons.Rounded.Mic, contentDescription = "Dettatura", tint = AppColors.Muted)
+                    }
+                    Button(
+                        modifier = Modifier.size(44.dp),
+                        onClick = onSend,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                        shape = CircleShape,
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "Invia")
+                    }
                 }
             }
         }
@@ -711,7 +1034,7 @@ private fun TasksScreen(settings: AppSettings) {
     val tasks = remember {
         mutableStateListOf(
             AgentTask(
-                title = "Controllo gateway NemoClaw",
+                title = "Controllo gateway OpenClaw",
                 mode = "Health",
                 status = "In attesa",
                 detail = "Verifica /api/health e modello locale prima di eseguire task agente."
@@ -894,8 +1217,7 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
     val scope = rememberCoroutineScope()
     val conversations = remember { loadConversations(context) }
     val version = remember { appVersion(context) }
-    var updateStatus by remember { mutableStateOf("Controlla GitHub Releases per nuove versioni.") }
-    var releaseUrl by remember { mutableStateOf(AppDefaults.releasesPage) }
+    var updateState by remember { mutableStateOf(UpdateDownloadState()) }
 
     LazyColumn(
         modifier = Modifier
@@ -914,18 +1236,17 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                     modifier = Modifier.padding(18.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        modifier = Modifier.size(56.dp),
-                        color = Color(0xFF9B59B6),
-                        shape = CircleShape
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("MP", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
-                        }
-                    }
+                    Image(
+                        painter = painterResource(id = R.drawable.chatclaw_logo),
+                        contentDescription = "Logo ChatClaw",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                    )
                     Column(modifier = Modifier.padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Matteo", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Home-server NemoClaw locale", color = AppColors.Muted)
+                        Text("Home-server OpenClaw locale", color = AppColors.Muted)
                         Text("App: $version", color = AppColors.Muted, fontSize = 12.sp)
                     }
                 }
@@ -935,7 +1256,7 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
             ServerMetric("Gateway", settings.gatewayUrl, if (settings.demoMode) "Demo mode attivo" else "Connessione reale selezionata")
         }
         item {
-            ServerMetric("Archivio locale", "${conversations.size} elementi", "SharedPreferences: nemoclaw_archive")
+            ServerMetric("Archivio locale", "${conversations.size} elementi", "Cronologia e progetti salvati sul dispositivo.")
         }
         item {
             ServerMetric("Privacy", "Locale-first", "Chat/settings restano sul dispositivo finche' non colleghi il gateway. Segreti solo lato server.")
@@ -947,24 +1268,89 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Aggiornamenti", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text(updateStatus, color = AppColors.Muted)
+                    Text(updateState.status, color = AppColors.Muted)
+                    if (updateState.progress != null) {
+                        LinearProgressIndicator(
+                            progress = { updateState.progress ?: 0f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = AppColors.Accent,
+                            trackColor = Color(0xFF424242)
+                        )
+                        Text(downloadProgressLabel(updateState.progress), color = AppColors.Muted, fontSize = 12.sp)
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
-                            updateStatus = "Controllo GitHub Releases..."
+                            updateState = updateState.copy(
+                                status = "Controllo GitHub Releases...",
+                                progress = null,
+                                downloadedApkPath = null,
+                                isDownloading = false
+                            )
                             scope.launch {
                                 val result = checkGithubUpdate(version)
-                                releaseUrl = result.assetUrl ?: result.releaseUrl
-                                updateStatus = if (result.assetUrl != null) {
-                                    "${result.message} Apri asset/APK e installa sopra questa app."
-                                } else {
-                                    result.message
-                                }
+                                updateState = updateState.copy(
+                                    status = if (result.assetUrl != null) {
+                                        "${result.message} Scarica l'APK dentro l'app e poi premi Aggiorna."
+                                    } else {
+                                        result.message
+                                    },
+                                    releaseUrl = result.releaseUrl,
+                                    releaseAssetUrl = result.assetUrl,
+                                    latestVersion = result.latestVersion,
+                                    hasUpdate = result.hasUpdate
+                                )
                             }
                         }) {
                             Text("Controlla")
                         }
-                        Button(onClick = { openUrl(context, releaseUrl) }) {
-                            Text("Apri release")
+                        if (updateState.hasUpdate && updateState.releaseAssetUrl != null && updateState.downloadedApkPath == null && !updateState.isDownloading) {
+                            Button(onClick = {
+                                val assetUrl = updateState.releaseAssetUrl ?: return@Button
+                                scope.launch {
+                                    updateState = updateState.copy(
+                                        status = "Scaricamento APK in corso...",
+                                        isDownloading = true,
+                                        progress = 0f
+                                    )
+                                    val downloaded = downloadUpdateApk(
+                                        context = context,
+                                        assetUrl = assetUrl,
+                                        version = updateState.latestVersion ?: version
+                                    ) { fraction, status ->
+                                        updateState = updateState.copy(progress = fraction, status = status, isDownloading = true)
+                                    }
+
+                                    updateState = if (downloaded != null) {
+                                        updateState.copy(
+                                            status = "APK pronto. Premi Aggiorna per avviare l'installazione Android.",
+                                            downloadedApkPath = downloaded.absolutePath,
+                                            isDownloading = false,
+                                            progress = 1f
+                                        )
+                                    } else {
+                                        updateState.copy(
+                                            status = "Download non riuscito. Riprova o apri la release.",
+                                            downloadedApkPath = null,
+                                            isDownloading = false,
+                                            progress = null
+                                        )
+                                    }
+                                }
+                            }) {
+                                Text("Scarica")
+                            }
+                        }
+                        if (updateState.downloadedApkPath != null && !updateState.isDownloading) {
+                            Button(onClick = {
+                                val apkPath = updateState.downloadedApkPath ?: return@Button
+                                val status = installDownloadedApk(context, apkPath)
+                                updateState = updateState.copy(status = status)
+                            }) {
+                                Text("Aggiorna")
+                            }
+                        }
+                        Button(onClick = { openUrl(context, updateState.releaseUrl) }) {
+                            Text("Release")
                         }
                     }
                 }
@@ -1140,7 +1526,7 @@ private suspend fun checkGithubUpdate(localVersion: String): UpdateCheckResult =
             connectTimeout = 10_000
             readTimeout = 10_000
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "NemoclawChat-Android")
+            setRequestProperty("User-Agent", "ChatClaw-Android")
         }
 
         connection.use {
@@ -1233,6 +1619,105 @@ private fun normalizeVersion(value: String): String {
     return value.trim().trimStart('v', 'V')
 }
 
+private fun downloadProgressLabel(progress: Float?): String {
+    val safe = (progress ?: 0f).coerceIn(0f, 1f)
+    return "${(safe * 100).toInt()}%"
+}
+
+private suspend fun downloadUpdateApk(
+    context: Context,
+    assetUrl: String,
+    version: String,
+    onProgress: (Float, String) -> Unit
+): File? = withContext(Dispatchers.IO) {
+    val targetDirectory = context.getExternalFilesDir(null) ?: context.cacheDir
+    val targetFile = File(targetDirectory, "ChatClaw-${normalizeVersion(version)}.apk")
+    val client = OkHttpClient.Builder().build()
+    val request = Request.Builder()
+        .url(assetUrl)
+        .header("Accept", "application/octet-stream")
+        .header("User-Agent", "ChatClaw-Android")
+        .build()
+
+    try {
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                return@withContext null
+            }
+
+            val body = response.body
+            val totalBytes = body.contentLength()
+            var downloadedBytes = 0L
+            var lastPercent = -1
+
+            body.byteStream().use { input ->
+                targetFile.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) {
+                            break
+                        }
+
+                        output.write(buffer, 0, read)
+                        downloadedBytes += read
+
+                        if (totalBytes > 0) {
+                            val progress = (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            val percent = (progress * 100).toInt()
+                            if (percent != lastPercent) {
+                                lastPercent = percent
+                                withContext(Dispatchers.Main) {
+                                    onProgress(progress, "Scaricamento APK in corso... $percent%")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        withContext(Dispatchers.Main) {
+            onProgress(1f, "Download completato. APK pronto per l'installazione.")
+        }
+        targetFile
+    } catch (_: Exception) {
+        if (targetFile.exists()) {
+            targetFile.delete()
+        }
+        null
+    }
+}
+
+private fun installDownloadedApk(context: Context, apkPath: String): String {
+    val apkFile = File(apkPath)
+    if (!apkFile.exists()) {
+        return "APK non trovato. Riscarica l'aggiornamento."
+    }
+
+    if (!context.packageManager.canRequestPackageInstalls()) {
+        openAndroidIntent(
+            context,
+            Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:${context.packageName}")
+            )
+        )
+        return "Consenti a ChatClaw di installare APK sconosciuti, poi premi di nuovo Aggiorna."
+    }
+
+    val contentUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
+    val installIntent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(contentUri, "application/vnd.android.package-archive")
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+    return if (openAndroidIntent(context, installIntent)) {
+        "Installer Android aperto. Conferma l'aggiornamento."
+    } else {
+        "Impossibile aprire l'installer Android."
+    }
+}
+
 private fun demoReply(settings: AppSettings, mode: String): String {
     val modeText = if (mode == "Agente") {
         "Creo task demo con approve/deny prima di file, rete, comandi e credenziali."
@@ -1280,9 +1765,9 @@ private fun loadArchiveItems(context: Context): List<ArchiveItem> {
         )
     }
     val seeds = listOf(
-        ArchiveItem(null, "Setup gateway NemoClaw", "Progetto", "Piano per gateway locale, TLS LAN/VPN e endpoint OpenAI-compatible.", "Preparami i passaggi per avviare NemoClaw con gateway locale."),
+        ArchiveItem(null, "Setup gateway OpenClaw", "Progetto", "Piano per gateway locale, TLS LAN/VPN e endpoint OpenAI-compatible.", "Preparami i passaggi per avviare OpenClaw con gateway locale."),
         ArchiveItem(null, "Test modello locale", "Chat", "Conversazione demo per verificare modello, API e streaming futuro.", "Testa risposta modello locale con prompt breve."),
-        ArchiveItem(null, "Controllo home-server", "Server", "Snapshot gateway, modello, sandbox e policy rete.", "Controlla stato gateway, modello locale e sandbox NemoClaw."),
+        ArchiveItem(null, "Controllo home-server", "Server", "Snapshot gateway, modello, sandbox e policy rete.", "Controlla stato gateway, modello locale e sandbox OpenClaw."),
         ArchiveItem(null, "Analizza workspace", "Task", "Task agente con approve prima di leggere o modificare file.", "Analizza workspace, mostra piano e chiedi approve prima di modificare."),
         ArchiveItem(null, "Ricerca web autorizzata", "Task", "Rete esterna solo dopo conferma esplicita.", "Cerca informazioni aggiornate, ma chiedi conferma prima di uscire dalla LAN/VPN."),
         ArchiveItem(null, "Documenti progetto", "Progetto", "Guide Windows/Android e memoria AGENTS.md.", "Riassumi stato progetto e prossimi passi.")
@@ -1307,7 +1792,7 @@ private fun saveConversationExchange(
     val now = System.currentTimeMillis()
     val newMessages = listOf(
         ChatMessage("Tu", prompt, fromUser = true),
-        ChatMessage("NemoClaw", response, fromUser = false)
+        ChatMessage("OpenClaw", response, fromUser = false)
     )
 
     val conversation = if (index >= 0) {
@@ -1400,7 +1885,7 @@ private fun copyArchiveToClipboard(context: Context) {
 private fun exportArchiveText(context: Context): String {
     val conversations = loadConversations(context)
     if (conversations.isEmpty()) {
-        return "Nemoclaw archive vuoto."
+    return "Archivio ChatClaw vuoto."
     }
 
     return conversations.joinToString("\n\n") { conversation ->
@@ -1520,7 +2005,7 @@ private fun openAndroidIntent(context: Context, intent: Intent): Boolean {
 }
 
 private object AppDefaults {
-    const val gatewayUrl = "https://nemoclaw.local:8443"
+      const val gatewayUrl = "https://openclaw.local:8443"
     const val provider = "custom"
     const val inferenceEndpoint = "http://localhost:8000/v1"
     const val preferredApi = "openai-completions -> /v1/chat/completions"
@@ -1538,5 +2023,5 @@ private object AppColors {
     val AssistantBubble = Color(0xFF282828)
     val UserBubble = Color(0xFF3A3A3A)
     val Muted = Color(0xFFB4B4B4)
-    val Accent = Color(0xFF10A37F)
-}
+      val Accent = Color(0xFF3EA6FF)
+  }

@@ -27,7 +27,7 @@ public static class AppUpdateService
         var request = new HttpRequestMessage(
             HttpMethod.Get,
             $"https://api.github.com/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
-        request.Headers.UserAgent.ParseAdd("NemoclawChat-Windows");
+        request.Headers.UserAgent.ParseAdd("ChatClaw-Windows");
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
 
         try

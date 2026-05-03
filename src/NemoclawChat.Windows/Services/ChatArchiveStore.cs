@@ -21,16 +21,40 @@ public static class ChatArchiveStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     public static event Action? Changed;
+    private const string CurrentDirectoryName = "ChatClaw";
+    private const string LegacyDirectoryName = "NemoclawChat";
+
+    private static string DataDirectoryPath
+    {
+        get
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var currentDirectory = Path.Combine(localAppData, CurrentDirectoryName);
+            var legacyDirectory = Path.Combine(localAppData, LegacyDirectoryName);
+
+            if (!Directory.Exists(currentDirectory) && Directory.Exists(legacyDirectory))
+            {
+                Directory.CreateDirectory(currentDirectory);
+                foreach (var file in Directory.GetFiles(legacyDirectory))
+                {
+                    var destination = Path.Combine(currentDirectory, Path.GetFileName(file));
+                    if (!File.Exists(destination))
+                    {
+                        File.Copy(file, destination);
+                    }
+                }
+            }
+
+            Directory.CreateDirectory(currentDirectory);
+            return currentDirectory;
+        }
+    }
 
     private static string StorePath
     {
         get
         {
-            var directory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "NemoclawChat");
-            Directory.CreateDirectory(directory);
-            return Path.Combine(directory, "conversations.json");
+            return Path.Combine(DataDirectoryPath, "conversations.json");
         }
     }
 
@@ -86,7 +110,7 @@ public static class ChatArchiveStore
         conversation.Prompt = prompt;
         conversation.UpdatedAt = DateTimeOffset.Now;
         conversation.Messages.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
-        conversation.Messages.Add(new ChatMessageRecord("NemoClaw", response, DateTimeOffset.Now));
+        conversation.Messages.Add(new ChatMessageRecord("OpenClaw", response, DateTimeOffset.Now));
         SaveAll(items);
         return conversation;
     }

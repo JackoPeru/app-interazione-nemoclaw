@@ -60,12 +60,12 @@ public sealed partial class HomePage : Page
 
     private void PromptSetup_Click(object sender, RoutedEventArgs e)
     {
-        PromptBox.Text = "Preparami i passaggi per avviare NemoClaw con un endpoint OpenAI-compatible locale.";
+        PromptBox.Text = "Preparami i passaggi per avviare OpenClaw con un endpoint OpenAI-compatible locale.";
     }
 
     private void PromptHealth_Click(object sender, RoutedEventArgs e)
     {
-        PromptBox.Text = "Controlla stato gateway, modello locale e sandbox NemoClaw.";
+        PromptBox.Text = "Controlla stato gateway, modello locale e sandbox OpenClaw.";
     }
 
     private void PromptAgent_Click(object sender, RoutedEventArgs e)
@@ -177,9 +177,9 @@ public sealed partial class HomePage : Page
             ? "Creo task demo con approve/deny prima di file, rete, comandi e credenziali."
             : "Rispondo in chat demo senza avviare task agente.";
 
-        var response = $"{modeText} Preset: gateway https://nemoclaw.local:8443, endpoint server http://localhost:8000/v1, API /v1/chat/completions. Quando gateway sara' attivo useremo streaming reale.";
+        var response = $"{modeText} Preset: gateway https://openclaw.local:8443, endpoint server http://localhost:8000/v1, API /v1/chat/completions. Quando gateway sara' attivo useremo streaming reale.";
 
-        AddBubble("NemoClaw", response, "AssistantBubbleBrush", HorizontalAlignment.Left);
+        AddBubble("OpenClaw", response, "AssistantBubbleBrush", HorizontalAlignment.Left);
         _conversationId = ChatArchiveStore.SaveExchange(_conversationId, _mode, prompt, response).Id;
     }
 

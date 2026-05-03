@@ -17,7 +17,7 @@ public sealed partial class AboutPage : Page
         VersionText.Text = CurrentVersion;
         GatewayText.Text = settings.GatewayUrl;
         ModeText.Text = settings.DemoMode ? "Demo mode attivo" : "Connessione reale selezionata";
-        SettingsPathText.Text = "Settings: %LOCALAPPDATA%\\NemoclawChat\\settings.json";
+        SettingsPathText.Text = "Settings: %LOCALAPPDATA%\\ChatClaw\\settings.json";
     }
 
     private static string CurrentVersion =>
