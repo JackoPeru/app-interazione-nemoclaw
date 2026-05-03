@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -302,25 +303,12 @@ private fun Composer(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .widthIn(max = 1040.dp),
         color = AppColors.Composer,
         shape = RoundedCornerShape(30.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-            TextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = value,
-                onValueChange = onValueChange,
-                placeholder = { Text("Fai una domanda", color = AppColors.Muted) },
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                )
-            )
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -368,15 +356,30 @@ private fun Composer(
                         })
                     }
                 }
-                Surface(color = AppColors.Surface, shape = RoundedCornerShape(16.dp)) {
+                TextField(
+                    modifier = Modifier.weight(1f),
+                    value = value,
+                    onValueChange = onValueChange,
+                    placeholder = { Text("Fai una domanda", color = AppColors.Muted) },
+                    minLines = 1,
+                    maxLines = 7,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp)) {
                     Text(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        text = mode,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        text = "$mode v",
                         color = AppColors.Muted,
                         fontSize = 12.sp
                     )
                 }
-                Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = {}) {
                     Text("mic", color = AppColors.Muted, fontSize = 12.sp)
                 }
