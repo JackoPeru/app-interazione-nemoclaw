@@ -56,7 +56,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.3.0`.
+- Versione app: `0.3.1`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
 - Chat: invio con Enter, nuova riga con Shift+Enter, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
@@ -84,7 +84,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.3.0`, versionCode `4`.
+- Versione app: `0.3.1`, versionCode `5`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
 - Chat: action bubble per menu `+`, mode `Chat`/`Agente`, mock reply differenziata `OpenClaw`, composer compatto/espanso, salvataggio cronologia locale.
@@ -92,7 +92,9 @@ Android:
 - Ordini agente: coda task locale, creazione task, template, approve/deny/completa.
 - Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, contratto API atteso.
 - Profilo: info Matteo/app/gateway/privacy/parita Windows.
-- Update system: controlla GitHub Releases latest, scarica APK dentro l'app con progress bar e poi apre installer Android con tasto `Aggiorna`.
+- Update system: controlla GitHub Releases latest, scarica APK dentro l'app con progress bar + dimensione file e poi apre installer Android con tasto `Aggiorna`.
+- Nessun bottone `Release` nella UI update Android: il flusso resta interno all'app come UniNote (`Controlla > Scarica > Aggiorna`).
+- Se la versione installata e' gia' l'ultima disponibile: mostra solo stato aggiornato e il controllo refresh, senza bottoni `Scarica`/`Aggiorna`.
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test gateway `/api/health`.
 - Settings salvate in `SharedPreferences` `nemoclaw_settings`.
 - Conversazioni/progetti salvati in `SharedPreferences` `nemoclaw_archive`.
@@ -157,7 +159,7 @@ src/NemoclawChat.Android/app/build/outputs/apk/debug/app-debug.apk
 Nota update:
 
 - Le app controllano `https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest`.
-- Tag release atteso: `vX.Y.Z`, esempio `v0.3.0`.
+- Tag release atteso: `vX.Y.Z`, esempio `v0.3.1`.
 - Android richiede APK con stesso `applicationId` e stessa firma, `versionCode` maggiore.
 - Android updater ora supporta download in-app con barra progresso e poi handoff all'installer di sistema.
 - Windows richiede asset release `.msix`, `.exe` o `.zip`; installazione automatica completa richiede installer/updater dedicato.

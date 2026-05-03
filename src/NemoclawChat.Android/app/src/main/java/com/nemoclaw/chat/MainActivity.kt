@@ -168,12 +168,12 @@ private data class UpdateCheckResult(
 
 private data class UpdateDownloadState(
     val status: String = "Controlla GitHub Releases per nuove versioni.",
-    val releaseUrl: String = AppDefaults.releasesPage,
     val releaseAssetUrl: String? = null,
     val latestVersion: String? = null,
     val hasUpdate: Boolean = false,
     val isDownloading: Boolean = false,
     val progress: Float? = null,
+    val downloadLabel: String = "",
     val downloadedApkPath: String? = null
 )
 
@@ -1276,28 +1276,42 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                             color = AppColors.Accent,
                             trackColor = Color(0xFF424242)
                         )
-                        Text(downloadProgressLabel(updateState.progress), color = AppColors.Muted, fontSize = 12.sp)
+                        Text(
+                            downloadProgressLabel(updateState.progress, updateState.downloadLabel),
+                            color = AppColors.Muted,
+                            fontSize = 12.sp
+                        )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
                             updateState = updateState.copy(
                                 status = "Controllo GitHub Releases...",
                                 progress = null,
+                                downloadLabel = "",
                                 downloadedApkPath = null,
                                 isDownloading = false
                             )
                             scope.launch {
                                 val result = checkGithubUpdate(version)
+                                val downloadedApk = if (result.hasUpdate) {
+                                    result.latestVersion?.let { findDownloadedUpdateApk(context, it) }
+                                } else {
+                                    null
+                                }
                                 updateState = updateState.copy(
-                                    status = if (result.assetUrl != null) {
+                                    status = if (downloadedApk != null) {
+                                        "Aggiornamento gia' scaricato. Premi Aggiorna per installarlo."
+                                    } else if (result.hasUpdate && result.assetUrl != null) {
                                         "${result.message} Scarica l'APK dentro l'app e poi premi Aggiorna."
                                     } else {
                                         result.message
                                     },
-                                    releaseUrl = result.releaseUrl,
                                     releaseAssetUrl = result.assetUrl,
                                     latestVersion = result.latestVersion,
-                                    hasUpdate = result.hasUpdate
+                                    hasUpdate = result.hasUpdate,
+                                    progress = if (downloadedApk != null) 1f else null,
+                                    downloadLabel = downloadedApk?.length()?.toReadableFileSize() ?: "",
+                                    downloadedApkPath = downloadedApk?.absolutePath
                                 )
                             }
                         }) {
@@ -1310,14 +1324,20 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                                     updateState = updateState.copy(
                                         status = "Scaricamento APK in corso...",
                                         isDownloading = true,
-                                        progress = 0f
+                                        progress = 0f,
+                                        downloadLabel = ""
                                     )
                                     val downloaded = downloadUpdateApk(
                                         context = context,
                                         assetUrl = assetUrl,
                                         version = updateState.latestVersion ?: version
-                                    ) { fraction, status ->
-                                        updateState = updateState.copy(progress = fraction, status = status, isDownloading = true)
+                                    ) { fraction, status, label ->
+                                        updateState = updateState.copy(
+                                            progress = fraction,
+                                            status = status,
+                                            downloadLabel = label,
+                                            isDownloading = true
+                                        )
                                     }
 
                                     updateState = if (downloaded != null) {
@@ -1325,14 +1345,16 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                                             status = "APK pronto. Premi Aggiorna per avviare l'installazione Android.",
                                             downloadedApkPath = downloaded.absolutePath,
                                             isDownloading = false,
-                                            progress = 1f
+                                            progress = 1f,
+                                            downloadLabel = downloaded.length().toReadableFileSize()
                                         )
                                     } else {
                                         updateState.copy(
-                                            status = "Download non riuscito. Riprova o apri la release.",
+                                            status = "Download non riuscito. Premi Controlla e riprova.",
                                             downloadedApkPath = null,
                                             isDownloading = false,
-                                            progress = null
+                                            progress = null,
+                                            downloadLabel = ""
                                         )
                                     }
                                 }
@@ -1348,9 +1370,6 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                             }) {
                                 Text("Aggiorna")
                             }
-                        }
-                        Button(onClick = { openUrl(context, updateState.releaseUrl) }) {
-                            Text("Release")
                         }
                     }
                 }
@@ -1619,16 +1638,17 @@ private fun normalizeVersion(value: String): String {
     return value.trim().trimStart('v', 'V')
 }
 
-private fun downloadProgressLabel(progress: Float?): String {
+private fun downloadProgressLabel(progress: Float?, label: String): String {
     val safe = (progress ?: 0f).coerceIn(0f, 1f)
-    return "${(safe * 100).toInt()}%"
+    val percent = "${(safe * 100).toInt()}%"
+    return if (label.isBlank()) percent else "$percent  $label"
 }
 
 private suspend fun downloadUpdateApk(
     context: Context,
     assetUrl: String,
     version: String,
-    onProgress: (Float, String) -> Unit
+    onProgress: (Float, String, String) -> Unit
 ): File? = withContext(Dispatchers.IO) {
     val targetDirectory = context.getExternalFilesDir(null) ?: context.cacheDir
     val targetFile = File(targetDirectory, "ChatClaw-${normalizeVersion(version)}.apk")
@@ -1667,8 +1687,13 @@ private suspend fun downloadUpdateApk(
                             val percent = (progress * 100).toInt()
                             if (percent != lastPercent) {
                                 lastPercent = percent
+                                val sizeLabel = if (totalBytes > 0L) {
+                                    "${downloadedBytes.toReadableFileSize()} / ${totalBytes.toReadableFileSize()}"
+                                } else {
+                                    downloadedBytes.toReadableFileSize()
+                                }
                                 withContext(Dispatchers.Main) {
-                                    onProgress(progress, "Scaricamento APK in corso... $percent%")
+                                    onProgress(progress, "Scaricamento APK in corso... $percent%", sizeLabel)
                                 }
                             }
                         }
@@ -1678,7 +1703,7 @@ private suspend fun downloadUpdateApk(
         }
 
         withContext(Dispatchers.Main) {
-            onProgress(1f, "Download completato. APK pronto per l'installazione.")
+            onProgress(1f, "Download completato. APK pronto per l'installazione.", targetFile.length().toReadableFileSize())
         }
         targetFile
     } catch (_: Exception) {
@@ -1715,6 +1740,33 @@ private fun installDownloadedApk(context: Context, apkPath: String): String {
         "Installer Android aperto. Conferma l'aggiornamento."
     } else {
         "Impossibile aprire l'installer Android."
+    }
+}
+
+private fun findDownloadedUpdateApk(context: Context, version: String): File? {
+    val normalizedVersion = normalizeVersion(version)
+    val targetDirectory = context.getExternalFilesDir(null) ?: context.cacheDir
+    val targetFile = File(targetDirectory, "ChatClaw-$normalizedVersion.apk")
+    return targetFile.takeIf { it.exists() }
+}
+
+private fun Long.toReadableFileSize(): String {
+    if (this <= 0L) {
+        return "0 B"
+    }
+
+    val units = listOf("B", "KB", "MB", "GB")
+    var size = this.toDouble()
+    var unitIndex = 0
+    while (size >= 1024 && unitIndex < units.lastIndex) {
+        size /= 1024.0
+        unitIndex++
+    }
+
+    return if (unitIndex == 0) {
+        "${size.toLong()} ${units[unitIndex]}"
+    } else {
+        String.format(java.util.Locale.US, "%.1f %s", size, units[unitIndex])
     }
 }
 
@@ -1988,11 +2040,6 @@ private fun appVersion(context: Context): String {
     } catch (_: Exception) {
         "debug"
     }
-}
-
-private fun openUrl(context: Context, url: String) {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    context.startActivity(intent)
 }
 
 private fun openAndroidIntent(context: Context, intent: Intent): Boolean {
