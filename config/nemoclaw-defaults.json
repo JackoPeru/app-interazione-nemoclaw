@@ -1,0 +1,23 @@
+{
+  "gateway": {
+    "baseUrl": "https://nemoclaw.local:8443",
+    "healthPath": "/api/health",
+    "modelsPath": "/api/models",
+    "chatPath": "/api/conversations/{conversationId}/messages",
+    "streamPath": "/api/conversations/{conversationId}/stream",
+    "tasksPath": "/api/tasks"
+  },
+  "nemoclaw": {
+    "provider": "custom",
+    "endpointUrl": "http://localhost:8000/v1",
+    "preferredApi": "openai-completions",
+    "chatCompletionsPath": "/v1/chat/completions",
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "compatibleApiKey": "dummy"
+  },
+  "security": {
+    "recommendedAccess": "VPN or LAN only",
+    "releaseCleartextTraffic": false,
+    "storeProviderSecretsInClient": false
+  }
+}

@@ -1,0 +1,24 @@
+# .NET / WinUI
+bin/
+obj/
+*.user
+*.rsuser
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+src/NemoclawChat.Android/app/build/
+
+# Local toolchains downloaded by Codex
+.tools/
+.android-sdk/
+
+# IDE
+.idea/
+.vs/
+*.iml
+
+# OS
+Thumbs.db
+Desktop.ini

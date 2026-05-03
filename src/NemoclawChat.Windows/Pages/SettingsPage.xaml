@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="NemoclawChat_Windows.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:NemoclawChat_Windows.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer Background="{StaticResource AppBackgroundBrush}">
+    <Grid Padding="44,36" RowSpacing="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock
+            FontSize="30"
+            FontWeight="SemiBold"
+            Foreground="White"
+            Text="Impostazioni" />
+        <StackPanel Grid.Row="1" MaxWidth="760" HorizontalAlignment="Left" Spacing="18">
+            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Il client parla al gateway; segreti NemoClaw/Ollama restano sul server." />
+            <TextBox x:Name="GatewayUrlBox" Header="Gateway URL" />
+            <TextBox x:Name="ProviderBox" Header="NemoClaw provider" />
+            <TextBox x:Name="InferenceEndpointBox" Header="Endpoint inferenza lato server" />
+            <ComboBox x:Name="PreferredApiBox" Header="API preferita" SelectedIndex="0">
+                <ComboBoxItem Content="openai-completions" />
+                <ComboBoxItem Content="openai-responses" />
+            </ComboBox>
+            <TextBox x:Name="ModelBox" Header="Modello" />
+            <ComboBox x:Name="AccessModeBox" Header="Accesso consigliato" SelectedIndex="0">
+                <ComboBoxItem Content="VPN/LAN only" />
+                <ComboBoxItem Content="LAN only" />
+                <ComboBoxItem Content="Public HTTPS gateway" />
+            </ComboBox>
+            <ToggleSwitch x:Name="DemoModeSwitch" Header="Demo mode" OffContent="Connessione reale" OnContent="Mock locali attivi" />
+            <PasswordBox x:Name="PairingCodeBox" Header="Pairing code" PlaceholderText="Codice mostrato sul server" />
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" Text="Pronto." />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button
+                    Background="{StaticResource AccentGreenBrush}"
+                    BorderThickness="0"
+                    Click="Save_Click"
+                    Content="Salva"
+                    Foreground="White" />
+                <Button Click="TestGateway_Click" Content="Test gateway" />
+                <Button Click="Reset_Click" Content="Reset default" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</Page>

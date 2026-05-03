@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "NemoclawChat.Windows (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "NemoclawChat.Windows (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="NemoclawChat_Windows.Pages.ServerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="44,36" Background="{StaticResource AppBackgroundBrush}">
+        <StackPanel MaxWidth="920" HorizontalAlignment="Left" Spacing="24">
+            <TextBlock
+                FontSize="30"
+                FontWeight="SemiBold"
+                Foreground="White"
+                Text="Server" />
+            <TextBlock
+                Foreground="{StaticResource MutedTextBrush}"
+                Text="Stato gateway, modello locale, sandbox NemoClaw e policy rete." />
+
+            <Grid ColumnSpacing="16" RowSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="8">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Gateway" />
+                        <TextBlock x:Name="GatewayText" Foreground="{StaticResource MutedTextBrush}" Text="https://nemoclaw.local:8443" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="8">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Modello" />
+                        <TextBlock x:Name="ModelText" Foreground="{StaticResource MutedTextBrush}" Text="meta-llama/Llama-3.1-8B-Instruct" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Row="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="8">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Sandbox" />
+                        <TextBlock x:Name="SandboxText" Foreground="{StaticResource MutedTextBrush}" Text="NemoClaw non attivo: demo mode" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Row="1" Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="8">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Policy rete" />
+                        <TextBlock x:Name="PolicyText" Foreground="{StaticResource MutedTextBrush}" Text="VPN/LAN only, deny by default, no segreti nel client" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </Grid>
+</Page>
