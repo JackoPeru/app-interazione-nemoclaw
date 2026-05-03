@@ -31,7 +31,7 @@ main
 Ultimo push fatto su richiesta utente:
 
 ```text
-68ab0f2 Fix Android update state flow
+fde7a24 Polish Android composer and remove seed data
 ```
 
 ## Regola Memoria
@@ -56,16 +56,17 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.3.2`.
+- Versione app: `0.4.0`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
 - Chat: invio con Enter, nuova riga con Shift+Enter, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
 - Archivio: ricerca locale + dati persistenti, filtri chat/progetti/task/server, riapertura conversazioni, segna progetto.
 - Recenti sidebar: letti dallo store locale e aggiornati quando cambia archivio; nessun elemento seed finto.
-- Ordini agente: coda task locale, creazione task, template workspace/server, approve/deny/completa; nessun task seed finto.
-- Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, contratto API atteso.
+- Chat: prova prima il gateway reale (`/api/chat/stream`, fallback `/api/chat`), poi usa fallback locale solo se abilitato nelle impostazioni.
+- Ordini agente: coda task persistente su disco, tentativo reale su gateway (`/api/tasks`), approve/deny/completa con sync gateway se disponibile e fallback locale se no.
+- Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, lettura reale di `/api/server/status` quando disponibile.
 - Profilo/About: info app/profilo locale, versione, privacy, gateway attivo.
-- Update checker: controlla GitHub Releases latest, confronta versione locale, apre release/asset Windows.
+- Update system: controlla GitHub Releases latest, scarica asset Windows in app con progresso e poi apre installer/asset da bottone `Installa update`.
 - Compatibilita storage: usa `%LOCALAPPDATA%\\ChatClaw\\...` ma migra automaticamente da `%LOCALAPPDATA%\\NemoclawChat\\...` se esiste.
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test gateway `/api/health`.
 - Settings salvate in:
@@ -84,13 +85,13 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.3.2`, versionCode `6`.
+- Versione app: `0.4.0`, versionCode `7`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
-- Chat: action bubble per menu `+`, mode `Chat`/`Agente`, mock reply differenziata `OpenClaw`, composer stabile a campo singolo, chip mode in alto a destra, salvataggio cronologia locale.
+- Chat: action bubble per menu `+`, mode `Chat`/`Agente`, tentativo gateway reale (`/api/chat/stream`, fallback `/api/chat`), fallback locale esplicito se abilitato, composer stabile a campo singolo, chip mode in alto a destra, salvataggio cronologia locale.
 - Archivio: tab mobile con ricerca locale persistente, filtri, riapertura conversazioni, salvataggio progetti, contatori, export appunti, rename/delete conversazioni salvate; nessun seed progetto/chat finto.
-- Ordini agente: coda task locale, creazione task, template, approve/deny/completa; nessun task seed finto.
-- Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, contratto API atteso.
+- Ordini agente: coda task persistente in `SharedPreferences`, creazione task con tentativo reale su gateway, approve/deny/completa con sync gateway se disponibile e fallback locale se no.
+- Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, lettura reale di `/api/server/status` quando disponibile.
 - Profilo: info Matteo/app/gateway/privacy/parita Windows.
 - Update system: controlla GitHub Releases latest, scarica APK dentro l'app con progress bar + dimensione file e poi apre installer Android con tasto `Aggiorna`.
 - Nessun bottone `Release` nella UI update Android: il flusso resta interno all'app come UniNote (`Controlla > Scarica > Aggiorna`).
@@ -98,8 +99,10 @@ Android:
 - Top bar chat Android: niente label `Demo: ...`; mostra solo brand + chip `Chat/Agente`.
 - Icona launcher Android: adaptive icon con foreground ritagliato piu' grande per ridurre il vuoto attorno al logo tra le app.
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test gateway `/api/health`.
-- Settings salvate in `SharedPreferences` `nemoclaw_settings`.
-- Conversazioni/progetti salvati in `SharedPreferences` `nemoclaw_archive`.
+- Settings salvate in `SharedPreferences` `chatclaw_settings` con migrazione automatica da `nemoclaw_settings`.
+- Conversazioni/progetti salvati in `SharedPreferences` `chatclaw_archive` con migrazione automatica da `nemoclaw_archive`.
+- Task salvati in `SharedPreferences` `chatclaw_tasks`.
+- Progetto Android ora include file root Gradle + wrapper per essere buildabile dal repo.
 
 Documentazione:
 
@@ -149,7 +152,9 @@ dotnet build .\src\NemoclawChat.Windows\NemoclawChat.Windows.csproj -c Debug -p:
 Android:
 
 ```powershell
-.\gradlew.bat :androidApp:assembleDebug
+$env:ANDROID_HOME='C:\Users\Matteo\AppData\Local\Android\Sdk'
+$env:ANDROID_SDK_ROOT=$env:ANDROID_HOME
+.\gradlew.bat assembleDebug
 ```
 
 APK debug:
@@ -164,7 +169,7 @@ Nota update:
 - Tag release atteso: `vX.Y.Z`, esempio `v0.3.2`.
 - Android richiede APK con stesso `applicationId` e stessa firma, `versionCode` maggiore.
 - Android updater ora supporta download in-app con barra progresso e poi handoff all'installer di sistema.
-- Windows richiede asset release `.msix`, `.exe` o `.zip`; installazione automatica completa richiede installer/updater dedicato.
+- Windows ora scarica asset release `.msix`, `.exe` o `.zip` dentro `%LOCALAPPDATA%\ChatClaw\updates\` e poi apre l'installer/asset.
 
 Android SDK locale:
 
@@ -191,12 +196,9 @@ src/NemoclawChat.Android/app/build/
 ## Prossimi Passi Probabili
 
 - Migliorare ulteriormente UI desktop/mobile.
-- Implementare allegati veri per menu `+`.
-- Implementare acquisizione screenshot/foto.
-- Creare `OpenClaw Gateway API`.
-- Collegare streaming chat reale.
-- Collegare task agente con approve/deny.
-- Sostituire coda task demo con gateway reale.
+- Implementare server reale `OpenClaw Gateway API`.
+- Se arriva backend definitivo, allineare i payload/contratti reali se differiscono da quelli flessibili attuali.
+- Eventuale rebrand tecnico completo dei namespace interni solo se non rompe la compatibilita update Android.
 - Aggiungere import archivio locale se richiesto.
 
 ## Preferenze Comunicazione

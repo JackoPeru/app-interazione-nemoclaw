@@ -18,7 +18,7 @@
                         Text="Ordini agente" />
                     <TextBlock
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Coda locale task con approve/deny. Gateway futuro: /api/tasks e /api/tasks/{id}/events." />
+                        Text="Coda task persistente. Usa il gateway quando disponibile, altrimenti fallback locale con audit." />
                 </StackPanel>
 
                 <Border
@@ -49,7 +49,7 @@
                                 Grid.Column="1"
                                 Header="Modalita"
                                 SelectedIndex="0">
-                                <ComboBoxItem Content="Demo" />
+                                <ComboBoxItem Content="Locale" />
                                 <ComboBoxItem Content="Gateway" />
                                 <ComboBoxItem Content="Sicuro" />
                             </ComboBox>

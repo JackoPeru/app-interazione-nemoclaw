@@ -14,6 +14,8 @@ public sealed partial class HomePage : Page
 {
     private string _mode = "Chat";
     private string? _conversationId;
+    private readonly List<ChatMessageRecord> _messageHistory = [];
+    private bool _isSending;
 
     public HomePage()
     {
@@ -44,17 +46,17 @@ public sealed partial class HomePage : Page
         }
     }
 
-    private void Send_Click(object sender, RoutedEventArgs e)
+    private async void Send_Click(object sender, RoutedEventArgs e)
     {
-        SendCurrentPrompt();
+        await SendCurrentPromptAsync();
     }
 
-    private void PromptBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    private async void PromptBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key == VirtualKey.Enter && !IsShiftPressed())
         {
             e.Handled = true;
-            SendCurrentPrompt();
+            await SendCurrentPromptAsync();
         }
     }
 
@@ -158,29 +160,47 @@ public sealed partial class HomePage : Page
     {
         _mode = "Agente";
         ModeBadge.Text = _mode;
-        AddAction("Modalita", "Agente attivo: task demo con approve/deny per azioni rischiose.");
+        AddAction("Modalita", "Agente attivo: usa il gateway se disponibile, altrimenti fallback locale con approve/deny.");
     }
 
-    private void SendCurrentPrompt()
+    private async Task SendCurrentPromptAsync()
     {
+        if (_isSending)
+        {
+            return;
+        }
+
         var prompt = PromptBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt))
         {
             return;
         }
 
-        EmptyState.Visibility = Visibility.Collapsed;
-        AddBubble("Tu", prompt, "UserBubbleBrush", HorizontalAlignment.Right);
-        PromptBox.Text = string.Empty;
+        _isSending = true;
+        SendButton.IsEnabled = false;
 
-        var modeText = _mode == "Agente"
-            ? "Creo task demo con approve/deny prima di file, rete, comandi e credenziali."
-            : "Rispondo in chat demo senza avviare task agente.";
+        try
+        {
+            EmptyState.Visibility = Visibility.Collapsed;
+            AddBubble("Tu", prompt, "UserBubbleBrush", HorizontalAlignment.Right);
+            _messageHistory.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
+            PromptBox.Text = string.Empty;
 
-        var response = $"{modeText} Preset: gateway https://openclaw.local:8443, endpoint server http://localhost:8000/v1, API /v1/chat/completions. Quando gateway sara' attivo useremo streaming reale.";
+            var result = await GatewayService.SendChatAsync(AppSettingsStore.Load(), _mode, prompt, _messageHistory);
+            AddBubble("OpenClaw", result.Message, "AssistantBubbleBrush", HorizontalAlignment.Left);
+            _messageHistory.Add(new ChatMessageRecord("OpenClaw", result.Message, DateTimeOffset.Now));
+            _conversationId = ChatArchiveStore.SaveExchange(_conversationId, _mode, prompt, result.Message, result.Source).Id;
 
-        AddBubble("OpenClaw", response, "AssistantBubbleBrush", HorizontalAlignment.Left);
-        _conversationId = ChatArchiveStore.SaveExchange(_conversationId, _mode, prompt, response).Id;
+            if (!string.Equals(result.Source, "Gateway", StringComparison.OrdinalIgnoreCase))
+            {
+                AddAction("Stato", result.StatusMessage);
+            }
+        }
+        finally
+        {
+            _isSending = false;
+            SendButton.IsEnabled = true;
+        }
     }
 
     private static bool IsShiftPressed()
@@ -212,9 +232,11 @@ public sealed partial class HomePage : Page
         _conversationId = conversation.Id;
         EmptyState.Visibility = Visibility.Collapsed;
         MessagesPanel.Children.Clear();
+        _messageHistory.Clear();
 
         foreach (var message in conversation.Messages)
         {
+            _messageHistory.Add(message);
             AddBubble(
                 message.Author,
                 message.Text,

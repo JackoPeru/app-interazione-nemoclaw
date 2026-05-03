@@ -182,17 +182,15 @@
                             PlaceholderText="Fai una domanda"
                             TextWrapping="Wrap" />
 
-                        <Button
+                        <Border
                             Grid.Column="2"
                             Padding="14,5"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Foreground="{StaticResource MutedTextBrush}">
+                            Background="Transparent">
                             <StackPanel Orientation="Horizontal" Spacing="5">
                                 <TextBlock x:Name="ModeBadge" FontSize="12" Text="Chat" />
                                 <FontIcon FontSize="10" Glyph="&#xE70D;" />
                             </StackPanel>
-                        </Button>
+                        </Border>
 
                         <Button
                             Grid.Column="3"
@@ -206,6 +204,7 @@
                         </Button>
 
                         <Button
+                            x:Name="SendButton"
                             Grid.Column="4"
                             Width="42"
                             Height="42"

@@ -7,37 +7,25 @@ namespace NemoclawChat_Windows.Pages;
 
 public sealed partial class ServerPage : Page
 {
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
-
     private AppSettings _settings = new();
 
     public ServerPage()
     {
         InitializeComponent();
-        LoadServerSnapshot();
+        _ = LoadServerSnapshotAsync();
     }
 
-    private void Refresh_Click(object sender, RoutedEventArgs e)
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
-        LoadServerSnapshot();
+        await LoadServerSnapshotAsync();
     }
 
     private async void TestGateway_Click(object sender, RoutedEventArgs e)
     {
         var healthUrl = $"{_settings.GatewayUrl.TrimEnd('/')}/api/health";
         StatusText.Text = $"Test: {healthUrl}";
-
-        try
-        {
-            using var response = await HttpClient.GetAsync(healthUrl);
-            StatusText.Text = response.IsSuccessStatusCode
-                ? "Gateway raggiungibile."
-                : $"Gateway risponde: HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = $"Gateway non raggiungibile: {ex.Message}";
-        }
+        var snapshot = await GatewayService.GetServerSnapshotAsync(_settings);
+        StatusText.Text = snapshot.StatusMessage;
     }
 
     private void ShowApiContract_Click(object sender, RoutedEventArgs e)
@@ -51,17 +39,16 @@ public sealed partial class ServerPage : Page
             "POST /api/tasks/{id}/deny -> blocca azione rischiosa";
     }
 
-    private void LoadServerSnapshot()
+    private async Task LoadServerSnapshotAsync()
     {
         _settings = AppSettingsStore.Load();
-        GatewayText.Text = _settings.GatewayUrl;
-        GatewayDetailText.Text = $"Health: {_settings.GatewayUrl.TrimEnd('/')}/api/health";
-        ModelText.Text = _settings.Model;
-        ProviderText.Text = $"Provider: {_settings.Provider} | API: {_settings.PreferredApi}";
-        InferenceText.Text = _settings.InferenceEndpoint;
-        PolicyText.Text = _settings.AccessMode;
-        StatusText.Text = _settings.DemoMode
-            ? "Demo mode attivo. Nessuna chiamata automatica al server."
-            : "Connessione reale selezionata. Usa Test gateway.";
+        var snapshot = await GatewayService.GetServerSnapshotAsync(_settings);
+        GatewayText.Text = snapshot.Gateway;
+        GatewayDetailText.Text = $"Health: {snapshot.Gateway.TrimEnd('/')}/api/health";
+        ModelText.Text = snapshot.Model;
+        ProviderText.Text = snapshot.ProviderDetail;
+        InferenceText.Text = snapshot.InferenceEndpoint;
+        PolicyText.Text = snapshot.Policy;
+        StatusText.Text = snapshot.StatusMessage;
     }
 }

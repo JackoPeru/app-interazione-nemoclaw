@@ -96,6 +96,12 @@
                             Foreground="{StaticResource MutedTextBrush}"
                             Text="Controlla GitHub Releases per nuove versioni."
                             TextWrapping="Wrap" />
+                        <ProgressBar
+                            x:Name="UpdateProgressBar"
+                            Height="8"
+                            IsIndeterminate="False"
+                            Maximum="100"
+                            Visibility="Collapsed" />
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <Button
                                 Background="{StaticResource AccentGreenBrush}"
@@ -104,10 +110,17 @@
                                 Content="Controlla update"
                                 Foreground="White" />
                             <Button
-                                x:Name="OpenReleaseButton"
-                                Click="OpenRelease_Click"
-                                Content="Apri release"
-                                IsEnabled="False" />
+                                x:Name="DownloadUpdateButton"
+                                Click="DownloadUpdate_Click"
+                                Content="Scarica update"
+                                IsEnabled="False"
+                                Visibility="Collapsed" />
+                            <Button
+                                x:Name="InstallUpdateButton"
+                                Click="InstallUpdate_Click"
+                                Content="Installa update"
+                                IsEnabled="False"
+                                Visibility="Collapsed" />
                         </StackPanel>
                     </StackPanel>
                 </Border>

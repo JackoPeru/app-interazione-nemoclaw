@@ -2,13 +2,13 @@ using System.Reflection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NemoclawChat_Windows.Services;
-using Windows.System;
 
 namespace NemoclawChat_Windows.Pages;
 
 public sealed partial class AboutPage : Page
 {
-    private string _releaseUrl = AppUpdateService.ReleasesPage;
+    private UpdateCheckResult? _lastUpdateResult;
+    private string? _downloadedAssetPath;
 
     public AboutPage()
     {
@@ -16,7 +16,7 @@ public sealed partial class AboutPage : Page
         var settings = AppSettingsStore.Load();
         VersionText.Text = CurrentVersion;
         GatewayText.Text = settings.GatewayUrl;
-        ModeText.Text = settings.DemoMode ? "Demo mode attivo" : "Connessione reale selezionata";
+        ModeText.Text = settings.DemoMode ? "Fallback locale attivo" : "Solo gateway";
         SettingsPathText.Text = "Settings: %LOCALAPPDATA%\\ChatClaw\\settings.json";
     }
 
@@ -28,18 +28,90 @@ public sealed partial class AboutPage : Page
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
         UpdateStatusText.Text = "Controllo GitHub Releases...";
-        OpenReleaseButton.IsEnabled = false;
+        UpdateProgressBar.Visibility = Visibility.Collapsed;
+        DownloadUpdateButton.Visibility = Visibility.Collapsed;
+        DownloadUpdateButton.IsEnabled = false;
+        InstallUpdateButton.Visibility = Visibility.Collapsed;
+        InstallUpdateButton.IsEnabled = false;
+        _downloadedAssetPath = null;
 
-        var result = await AppUpdateService.CheckAsync(CurrentVersion);
-        _releaseUrl = result.AssetUrl ?? result.ReleaseUrl;
-        UpdateStatusText.Text = result.AssetUrl is not null
-            ? $"{result.Message} Apri release/asset per installare sopra la versione attuale."
-            : result.Message;
-        OpenReleaseButton.IsEnabled = true;
+        _lastUpdateResult = await AppUpdateService.CheckAsync(CurrentVersion);
+        UpdateStatusText.Text = _lastUpdateResult.Message;
+
+        if (!_lastUpdateResult.HasUpdate || string.IsNullOrWhiteSpace(_lastUpdateResult.AssetUrl))
+        {
+            return;
+        }
+
+        var downloaded = AppUpdateService.FindDownloadedAsset(_lastUpdateResult.LatestVersion ?? string.Empty, _lastUpdateResult.AssetName);
+        if (downloaded is not null)
+        {
+            _downloadedAssetPath = downloaded.FullName;
+            InstallUpdateButton.Visibility = Visibility.Visible;
+            InstallUpdateButton.IsEnabled = true;
+            UpdateStatusText.Text = $"{_lastUpdateResult.Message} Asset gia' scaricato.";
+            return;
+        }
+
+        DownloadUpdateButton.Visibility = Visibility.Visible;
+        DownloadUpdateButton.IsEnabled = true;
     }
 
-    private async void OpenRelease_Click(object sender, RoutedEventArgs e)
+    private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
     {
-        await Launcher.LaunchUriAsync(new Uri(_releaseUrl));
+        if (_lastUpdateResult is null || string.IsNullOrWhiteSpace(_lastUpdateResult.AssetUrl))
+        {
+            return;
+        }
+
+        DownloadUpdateButton.IsEnabled = false;
+        UpdateProgressBar.Visibility = Visibility.Visible;
+        UpdateProgressBar.Value = 0;
+        UpdateStatusText.Text = "Download update in corso...";
+
+        var progress = new Progress<UpdateDownloadProgress>(item =>
+        {
+            UpdateProgressBar.IsIndeterminate = item.Percent is null;
+            if (item.Percent is not null)
+            {
+                UpdateProgressBar.Value = item.Percent.Value;
+            }
+
+            UpdateStatusText.Text = string.IsNullOrWhiteSpace(item.Detail)
+                ? item.Status
+                : $"{item.Status} {item.Detail}";
+        });
+
+        _downloadedAssetPath = await AppUpdateService.DownloadAssetAsync(
+            _lastUpdateResult.AssetUrl,
+            _lastUpdateResult.LatestVersion ?? CurrentVersion,
+            _lastUpdateResult.AssetName,
+            progress);
+
+        if (_downloadedAssetPath is null)
+        {
+            UpdateStatusText.Text = "Download update non riuscito.";
+            DownloadUpdateButton.IsEnabled = true;
+            UpdateProgressBar.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        UpdateStatusText.Text = "Download completato. Premi Installa update.";
+        InstallUpdateButton.Visibility = Visibility.Visible;
+        InstallUpdateButton.IsEnabled = true;
+        UpdateProgressBar.Visibility = Visibility.Collapsed;
+    }
+
+    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_downloadedAssetPath))
+        {
+            return;
+        }
+
+        var launched = await AppUpdateService.LaunchDownloadedAssetAsync(_downloadedAssetPath);
+        UpdateStatusText.Text = launched
+            ? "Installer/asset aperto. Completa l'aggiornamento da Windows."
+            : "Impossibile aprire l'asset scaricato.";
     }
 }

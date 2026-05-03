@@ -7,16 +7,16 @@ namespace NemoclawChat_Windows.Pages;
 
 public sealed partial class TasksPage : Page
 {
-    private readonly List<AgentTask> _tasks = new();
-    private int _nextTaskId = 1;
+    private List<AgentTaskRecord> _tasks = [];
 
     public TasksPage()
     {
         InitializeComponent();
+        LoadTasks();
         RenderTasks();
     }
 
-    private void QueueTask_Click(object sender, RoutedEventArgs e)
+    private async void QueueTask_Click(object sender, RoutedEventArgs e)
     {
         var title = TaskTitleBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(title))
@@ -31,17 +31,26 @@ public sealed partial class TasksPage : Page
             detail = "Mostra piano, poi chiedi approve prima di azioni rischiose.";
         }
 
-        _tasks.Insert(0, new AgentTask(
-            _nextTaskId++,
+        var task = new AgentTaskRecord(
+            Guid.NewGuid().ToString("N"),
+            null,
             title,
             SelectedComboText(TaskModeBox),
             ApprovalSwitch.IsOn ? "In attesa approvazione" : "Pronto",
             detail,
-            ApprovalSwitch.IsOn));
+            ApprovalSwitch.IsOn,
+            "Locale",
+            DateTimeOffset.Now);
+
+        _tasks.Insert(0, task);
+        PersistTasks();
 
         TaskTitleBox.Text = string.Empty;
         TaskDetailBox.Text = string.Empty;
-        TaskStatusText.Text = "Task accodato localmente.";
+        TaskStatusText.Text = "Invio task al gateway...";
+        var result = await GatewayService.QueueTaskAsync(AppSettingsStore.Load(), task);
+        UpsertTask(result.Task);
+        TaskStatusText.Text = result.Message;
         RenderTasks();
     }
 
@@ -64,36 +73,38 @@ public sealed partial class TasksPage : Page
         TaskStatusText.Text = "Template server caricato.";
     }
 
-    private void ApproveTask_Click(object sender, RoutedEventArgs e)
+    private async void ApproveTask_Click(object sender, RoutedEventArgs e)
     {
-        UpdateTaskStatus(sender, "Approvato");
+        await UpdateTaskStatusAsync(sender, TaskCommand.Approve);
     }
 
-    private void DenyTask_Click(object sender, RoutedEventArgs e)
+    private async void DenyTask_Click(object sender, RoutedEventArgs e)
     {
-        UpdateTaskStatus(sender, "Negato");
+        await UpdateTaskStatusAsync(sender, TaskCommand.Deny);
     }
 
-    private void CompleteTask_Click(object sender, RoutedEventArgs e)
+    private async void CompleteTask_Click(object sender, RoutedEventArgs e)
     {
-        UpdateTaskStatus(sender, "Completato demo");
+        await UpdateTaskStatusAsync(sender, TaskCommand.Complete);
     }
 
-    private void UpdateTaskStatus(object sender, string status)
+    private async Task UpdateTaskStatusAsync(object sender, TaskCommand command)
     {
-        if (sender is not Button { Tag: int id })
+        if (sender is not Button { Tag: string id })
         {
             return;
         }
 
-        var index = _tasks.FindIndex(task => task.Id == id);
-        if (index < 0)
+        var task = _tasks.FirstOrDefault(item => item.Id == id);
+        if (task is null)
         {
             return;
         }
 
-        _tasks[index] = _tasks[index] with { Status = status };
-        TaskStatusText.Text = $"Task #{id}: {status}.";
+        TaskStatusText.Text = $"Aggiorno task {task.Title}...";
+        var result = await GatewayService.UpdateTaskAsync(AppSettingsStore.Load(), task, command);
+        UpsertTask(result.Task);
+        TaskStatusText.Text = result.Message;
         RenderTasks();
     }
 
@@ -117,7 +128,7 @@ public sealed partial class TasksPage : Page
         }
     }
 
-    private UIElement CreateTaskCard(AgentTask task)
+    private UIElement CreateTaskCard(AgentTaskRecord task)
     {
         var statusBrush = task.Status.Contains("Negato", StringComparison.OrdinalIgnoreCase)
             ? new SolidColorBrush(Microsoft.UI.Colors.IndianRed)
@@ -129,7 +140,7 @@ public sealed partial class TasksPage : Page
 
         header.Children.Add(new TextBlock
         {
-            Text = $"#{task.Id}  {task.Title}",
+            Text = task.Title,
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             FontSize = 16
@@ -165,7 +176,7 @@ public sealed partial class TasksPage : Page
                     header,
                     new TextBlock
                     {
-                        Text = $"Modalita: {task.Mode} | Approve richiesto: {(task.RequiresApproval ? "si" : "no")}",
+                        Text = $"Modalita: {task.Mode} | Origine: {task.Source} | Approve richiesto: {(task.RequiresApproval ? "si" : "no")}",
                         Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
                         FontSize = 12
                     },
@@ -181,7 +192,7 @@ public sealed partial class TasksPage : Page
         };
     }
 
-    private static Button CreateTaskButton(string label, int taskId, RoutedEventHandler handler)
+    private static Button CreateTaskButton(string label, string taskId, RoutedEventHandler handler)
     {
         var button = new Button
         {
@@ -195,14 +206,31 @@ public sealed partial class TasksPage : Page
 
     private static string SelectedComboText(ComboBox comboBox)
     {
-        return (comboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Demo";
+        return (comboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Locale";
     }
 
-    private sealed record AgentTask(
-        int Id,
-        string Title,
-        string Mode,
-        string Status,
-        string Detail,
-        bool RequiresApproval);
+    private void LoadTasks()
+    {
+        _tasks = AgentTaskStore.Load();
+    }
+
+    private void PersistTasks()
+    {
+        AgentTaskStore.SaveAll(_tasks);
+    }
+
+    private void UpsertTask(AgentTaskRecord task)
+    {
+        var index = _tasks.FindIndex(item => item.Id == task.Id);
+        if (index >= 0)
+        {
+            _tasks[index] = task;
+        }
+        else
+        {
+            _tasks.Insert(0, task);
+        }
+
+        PersistTasks();
+    }
 }

@@ -15,7 +15,7 @@ private val DarkScheme = darkColorScheme(
 )
 
 @Composable
-fun NemoclawTheme(content: @Composable () -> Unit) {
+fun ChatClawTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkScheme,
         content = content

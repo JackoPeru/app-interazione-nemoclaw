@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -93,12 +94,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
-import com.nemoclaw.chat.ui.theme.NemoclawTheme
+import com.nemoclaw.chat.ui.theme.ChatClawTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
@@ -110,7 +113,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            NemoclawTheme {
+            ChatClawTheme {
                 ChatApp()
             }
         }
@@ -126,18 +129,23 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Profile("Profilo", Icons.Rounded.AccountCircle)
 }
 
-private data class ChatMessage(
+data class ChatMessage(
     val author: String,
     val text: String,
     val fromUser: Boolean,
     val isAction: Boolean = false
 )
 
-private data class AgentTask(
+data class AgentTask(
+    val id: String,
+    val remoteId: String? = null,
     val title: String,
     val mode: String,
     val status: String,
-    val detail: String
+    val detail: String,
+    val requiresApproval: Boolean = true,
+    val source: String = "Locale",
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 private data class ArchiveItem(
@@ -148,7 +156,7 @@ private data class ArchiveItem(
     val prompt: String
 )
 
-private data class LocalConversation(
+data class LocalConversation(
     val id: String,
     val title: String,
     val kind: String,
@@ -177,7 +185,7 @@ private data class UpdateDownloadState(
     val downloadedApkPath: String? = null
 )
 
-private data class AppSettings(
+data class AppSettings(
     val gatewayUrl: String = AppDefaults.gatewayUrl,
     val provider: String = AppDefaults.provider,
     val inferenceEndpoint: String = AppDefaults.inferenceEndpoint,
@@ -185,6 +193,27 @@ private data class AppSettings(
     val model: String = AppDefaults.model,
     val accessMode: String = AppDefaults.accessMode,
     val demoMode: Boolean = true
+)
+
+private data class GatewayChatResult(
+    val text: String,
+    val source: String,
+    val statusMessage: String,
+    val usedFallback: Boolean
+)
+
+private data class GatewayTaskResult(
+    val task: AgentTask,
+    val message: String
+)
+
+private data class ServerSnapshot(
+    val gateway: String,
+    val model: String,
+    val providerDetail: String,
+    val inferenceEndpoint: String,
+    val policy: String,
+    val statusMessage: String
 )
 
 @Composable
@@ -242,7 +271,7 @@ private fun ChatApp() {
                         selectedTab = Tab.Chat
                     }
                 )
-                Tab.Tasks -> TasksScreen(settings)
+                Tab.Tasks -> TasksScreen(context, settings)
                 Tab.Server -> ServerScreen(settings)
                 Tab.Settings -> SettingsScreen(
                     settings = settings,
@@ -270,9 +299,11 @@ private fun ChatScreen(
     onInitialPromptConsumed: () -> Unit = {}
 ) {
     val messages = remember { mutableStateListOf<ChatMessage>() }
+    val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf("Chat") }
     var activeConversationId by remember { mutableStateOf<String?>(null) }
+    var sending by remember { mutableStateOf(false) }
 
     LaunchedEffect(conversationId, initialPrompt) {
         if (!conversationId.isNullOrBlank()) {
@@ -328,14 +359,30 @@ private fun ChatScreen(
             onModeChange = { mode = it },
             onSend = {
                 val text = draft.trim()
-                if (text.isNotEmpty()) {
-                    val response = demoReply(settings, mode)
+                if (text.isNotEmpty() && !sending) {
                     messages.add(ChatMessage("Tu", text, true))
-                    messages.add(ChatMessage("OpenClaw", response, false))
-                    activeConversationId = saveConversationExchange(context, activeConversationId, mode, text, response).id
                     draft = ""
+                    sending = true
+
+                    scope.launch {
+                        val result = sendChatRequest(settings, mode, text, messages)
+                        messages.add(ChatMessage("OpenClaw", result.text, false))
+                        if (result.usedFallback) {
+                            messages.add(ChatMessage("Stato", result.statusMessage, fromUser = false, isAction = true))
+                        }
+                        activeConversationId = saveConversationExchange(
+                            context,
+                            activeConversationId,
+                            mode,
+                            text,
+                            result.text,
+                            result.source
+                        ).id
+                        sending = false
+                    }
                 }
-            }
+            },
+            isBusy = sending
         )
     }
 }
@@ -485,7 +532,8 @@ private fun Composer(
     onValueChange: (String) -> Unit,
     onAction: (String, String, String) -> Unit,
     onModeChange: (String) -> Unit,
-    onSend: () -> Unit
+    onSend: () -> Unit,
+    isBusy: Boolean
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -594,7 +642,7 @@ private fun Composer(
                             onClick = {
                                 expanded = false
                                 onModeChange("Agente")
-                                onAction("Modalita", "Agente attivo: task demo con approve/deny per azioni rischiose.", "")
+                                onAction("Modalita", "Agente attivo: usa il gateway se disponibile, altrimenti fallback locale con approve/deny.", "")
                             }
                         )
                         HorizontalDivider(color = Color(0xFF3A3A3A))
@@ -668,6 +716,7 @@ private fun Composer(
                 Button(
                     modifier = Modifier.size(44.dp),
                     onClick = onSend,
+                    enabled = value.isNotBlank() && !isBusy,
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
                     shape = CircleShape,
                     contentPadding = PaddingValues(0.dp)
@@ -839,14 +888,16 @@ private fun ArchiveCard(
 }
 
 @Composable
-private fun TasksScreen(settings: AppSettings) {
+private fun TasksScreen(context: Context, settings: AppSettings) {
+    val scope = rememberCoroutineScope()
     val tasks = remember {
         mutableStateListOf<AgentTask>().apply {
-            addAll(createInitialTasks(settings))
+            addAll(loadTasks(context))
         }
     }
     var title by remember { mutableStateOf("") }
     var detail by remember { mutableStateOf("") }
+    var requiresApproval by remember { mutableStateOf(true) }
     var status by remember { mutableStateOf("Pronto.") }
 
     LazyColumn(
@@ -858,7 +909,7 @@ private fun TasksScreen(settings: AppSettings) {
         item {
             Text("Ordini agente", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Coda locale task con approve/deny. Gateway futuro: /api/tasks e /api/tasks/{id}/events.", color = AppColors.Muted)
+            Text("Coda task persistente. Usa il gateway quando disponibile, altrimenti fallback locale con audit.", color = AppColors.Muted)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -866,33 +917,55 @@ private fun TasksScreen(settings: AppSettings) {
                     Text("Nuovo ordine", color = Color.White, fontWeight = FontWeight.SemiBold)
                     SettingsField("Titolo", title, { title = it })
                     SettingsField("Istruzioni", detail, { detail = it })
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Richiedi approve", color = Color.White, modifier = Modifier.weight(1f))
+                        Switch(checked = requiresApproval, onCheckedChange = { requiresApproval = it })
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = {
                             if (title.isBlank()) {
                                 status = "Titolo obbligatorio."
                                 return@Button
                             }
-                            tasks.add(
-                                0,
-                                AgentTask(
-                                    title = title.trim(),
-                                    mode = if (settings.demoMode) "Demo" else "Gateway",
-                                    status = "In attesa approvazione",
-                                    detail = detail.ifBlank { "Esegui con piano prima di azioni rischiose." }.trim()
-                                )
+                            val localTask = AgentTask(
+                                id = "task_${System.currentTimeMillis()}",
+                                title = title.trim(),
+                                mode = if (settings.demoMode) "Locale" else "Gateway",
+                                status = if (requiresApproval) "In attesa approvazione" else "Pronto",
+                                detail = detail.ifBlank { "Esegui con piano prima di azioni rischiose." }.trim(),
+                                requiresApproval = requiresApproval
                             )
+                            tasks.add(0, localTask)
+                            saveTasks(context, tasks)
                             title = ""
                             detail = ""
-                            status = "Task accodato."
+                            requiresApproval = true
+                            status = "Invio task al gateway..."
+
+                            scope.launch {
+                                val result = queueTaskRequest(settings, localTask)
+                                replaceTask(tasks, result.task)
+                                saveTasks(context, tasks)
+                                status = result.message
+                            }
                         }) {
                             Text("Accoda")
                         }
                         Button(onClick = {
                             title = "Analizza workspace"
                             detail = "Mostra piano, poi chiedi approve prima di leggere/modificare file."
+                            requiresApproval = true
                             status = "Template workspace caricato."
                         }) {
                             Text("Template")
+                        }
+                        Button(onClick = {
+                            title = "Controlla home-server OpenClaw"
+                            detail = "Verifica gateway, modello, sandbox e policy rete."
+                            requiresApproval = true
+                            status = "Template server caricato."
+                        }) {
+                            Text("Server")
                         }
                     }
                     Text(status, color = AppColors.Muted)
@@ -908,16 +981,28 @@ private fun TasksScreen(settings: AppSettings) {
             TaskCard(
                 task = task,
                 onApprove = {
-                    val index = tasks.indexOf(task)
-                    if (index >= 0) tasks[index] = task.copy(status = "Approvato")
+                    scope.launch {
+                        val result = updateTaskRequest(settings, task, "approve")
+                        replaceTask(tasks, result.task)
+                        saveTasks(context, tasks)
+                        status = result.message
+                    }
                 },
                 onDeny = {
-                    val index = tasks.indexOf(task)
-                    if (index >= 0) tasks[index] = task.copy(status = "Negato")
+                    scope.launch {
+                        val result = updateTaskRequest(settings, task, "deny")
+                        replaceTask(tasks, result.task)
+                        saveTasks(context, tasks)
+                        status = result.message
+                    }
                 },
                 onDone = {
-                    val index = tasks.indexOf(task)
-                    if (index >= 0) tasks[index] = task.copy(status = "Completato demo")
+                    scope.launch {
+                        val result = updateTaskRequest(settings, task, "complete")
+                        replaceTask(tasks, result.task)
+                        saveTasks(context, tasks)
+                        status = result.message
+                    }
                 }
             )
         }
@@ -937,7 +1022,7 @@ private fun TaskCard(
                 Text(task.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Text(task.status, color = AppColors.Accent, fontSize = 12.sp)
             }
-            Text("Modalita: ${task.mode}", color = AppColors.Muted, fontSize = 12.sp)
+            Text("Modalita: ${task.mode} | Origine: ${task.source} | Approve: ${if (task.requiresApproval) "si" else "no"}", color = AppColors.Muted, fontSize = 12.sp)
             Text(task.detail, color = Color.White)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onApprove) { Text("Approva") }
@@ -951,8 +1036,21 @@ private fun TaskCard(
 @Composable
 private fun ServerScreen(settings: AppSettings) {
     val scope = rememberCoroutineScope()
-    var status by remember(settings) {
-        mutableStateOf(if (settings.demoMode) "Demo mode attivo. Nessuna chiamata automatica al server." else "Pronto per test gateway.")
+    var snapshot by remember(settings) {
+        mutableStateOf(
+            ServerSnapshot(
+                gateway = settings.gatewayUrl,
+                model = settings.model,
+                providerDetail = "Provider: ${settings.provider} | API: ${settings.preferredApi}",
+                inferenceEndpoint = settings.inferenceEndpoint,
+                policy = settings.accessMode,
+                statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare il gateway." else "Solo gateway. Verifica lo stato del server."
+            )
+        )
+    }
+
+    LaunchedEffect(settings) {
+        snapshot = loadServerSnapshot(settings)
     }
 
     LazyColumn(
@@ -967,39 +1065,46 @@ private fun ServerScreen(settings: AppSettings) {
             Text("Dashboard gateway, modello locale, sandbox e policy rete.", color = AppColors.Muted)
         }
         item {
-            ServerMetric("Gateway", settings.gatewayUrl, "Health endpoint: ${settings.gatewayUrl.trimEnd('/')}/api/health")
+            ServerMetric("Gateway", snapshot.gateway, "Health endpoint: ${snapshot.gateway.trimEnd('/')}/api/health")
         }
         item {
-            ServerMetric("Modello", settings.model, "Provider: ${settings.provider} | API: ${settings.preferredApi}")
+            ServerMetric("Modello", snapshot.model, snapshot.providerDetail)
         }
         item {
-            ServerMetric("Inferenza lato server", settings.inferenceEndpoint, "Il client non parla direttamente con Ollama/local inference.")
+            ServerMetric("Inferenza lato server", snapshot.inferenceEndpoint, "Il client usa il gateway; l'inferenza resta lato server.")
         }
         item {
-            ServerMetric("Sicurezza", settings.accessMode, "Deny by default, segreti solo lato server, rete esterna dopo approve.")
+            ServerMetric("Sicurezza", snapshot.policy, "Deny by default, segreti solo lato server, rete esterna dopo approve.")
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Azioni", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text(status, color = AppColors.Muted)
+                    Text(snapshot.statusMessage, color = AppColors.Muted)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = {
                             val error = validateHttpUrl(settings.gatewayUrl, "Gateway URL")
                             if (error != null) {
-                                status = error
+                                snapshot = snapshot.copy(statusMessage = error)
                                 return@Button
                             }
                             val healthUrl = "${settings.gatewayUrl.trimEnd('/')}/api/health"
-                            status = "Test: $healthUrl"
+                            snapshot = snapshot.copy(statusMessage = "Test: $healthUrl")
                             scope.launch {
-                                status = testGateway(healthUrl)
+                                snapshot = snapshot.copy(statusMessage = testGateway(healthUrl))
                             }
                         }) {
                             Text("Test gateway")
                         }
                         Button(onClick = {
-                            status = "Contratto atteso: GET /api/health, GET /api/server/status, POST /api/chat/stream, POST /api/tasks."
+                            scope.launch {
+                                snapshot = loadServerSnapshot(settings)
+                            }
+                        }) {
+                            Text("Aggiorna stato")
+                        }
+                        Button(onClick = {
+                            snapshot = snapshot.copy(statusMessage = "Contratto atteso: GET /api/health, GET /api/server/status, POST /api/chat/stream, POST /api/tasks.")
                         }) {
                             Text("Mostra API")
                         }
@@ -1062,7 +1167,7 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
             }
         }
         item {
-            ServerMetric("Gateway", settings.gatewayUrl, if (settings.demoMode) "Demo mode attivo" else "Connessione reale selezionata")
+            ServerMetric("Gateway", settings.gatewayUrl, if (settings.demoMode) "Fallback locale attivo" else "Solo gateway")
         }
         item {
             ServerMetric("Archivio locale", "${conversations.size} elementi", "Cronologia e progetti salvati sul dispositivo.")
@@ -1222,7 +1327,7 @@ private fun SettingsScreen(
             item { SettingsField("Accesso", accessMode, { accessMode = it }) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Demo mode", color = Color.White, modifier = Modifier.weight(1f))
+                    Text("Fallback locale", color = Color.White, modifier = Modifier.weight(1f))
                     Switch(checked = demoMode, onCheckedChange = { demoMode = it })
                 }
             }
@@ -1330,6 +1435,190 @@ private fun validateRequired(value: String, label: String): String? {
     return if (value.isBlank()) "$label obbligatorio." else null
 }
 
+private suspend fun sendChatRequest(
+    settings: AppSettings,
+    mode: String,
+    prompt: String,
+    history: List<ChatMessage>
+): GatewayChatResult = withContext(Dispatchers.IO) {
+    val endpoints = listOf(
+        "${settings.gatewayUrl.trimEnd('/')}/api/chat/stream",
+        "${settings.gatewayUrl.trimEnd('/')}/api/chat"
+    )
+    val payload = JSONObject()
+        .put("mode", mode.lowercase())
+        .put("prompt", prompt)
+        .put("message", prompt)
+        .put("model", settings.model)
+        .put("provider", settings.provider)
+        .put("preferredApi", settings.preferredApi)
+        .put("accessMode", settings.accessMode)
+        .put("messages", JSONArray().apply {
+            history.filter { !it.isAction }.forEach { message ->
+                put(
+                    JSONObject()
+                        .put("role", if (message.fromUser) "user" else "assistant")
+                        .put("content", message.text)
+                )
+            }
+        })
+
+    var lastError = "errore sconosciuto"
+    for (endpoint in endpoints) {
+        try {
+            val response = postJson(endpoint, payload)
+            if (response.first in 200..299) {
+                val text = extractAssistantText(response.second)
+                if (text.isNotBlank()) {
+                    return@withContext GatewayChatResult(
+                        text = text,
+                        source = "Gateway",
+                        statusMessage = "Risposta ricevuta dal gateway.",
+                        usedFallback = false
+                    )
+                }
+                lastError = "gateway raggiunto ma senza contenuto utile"
+            } else {
+                lastError = "HTTP ${response.first}: ${extractHumanError(response.second)}"
+            }
+        } catch (ex: Exception) {
+            lastError = ex.message ?: ex.javaClass.simpleName
+        }
+    }
+
+    if (settings.demoMode) {
+        GatewayChatResult(
+            text = buildFallbackReply(settings, mode, lastError),
+            source = "Fallback locale",
+            statusMessage = "Gateway non disponibile, uso fallback locale: $lastError.",
+            usedFallback = true
+        )
+    } else {
+        GatewayChatResult(
+            text = "Gateway non raggiungibile: $lastError.",
+            source = "Errore gateway",
+            statusMessage = "Invio fallito: $lastError.",
+            usedFallback = false
+        )
+    }
+}
+
+private suspend fun queueTaskRequest(settings: AppSettings, task: AgentTask): GatewayTaskResult = withContext(Dispatchers.IO) {
+    val payload = JSONObject()
+        .put("title", task.title)
+        .put("instructions", task.detail)
+        .put("detail", task.detail)
+        .put("mode", task.mode)
+        .put("requiresApproval", task.requiresApproval)
+        .put("approvalRequired", task.requiresApproval)
+        .put("model", settings.model)
+        .put("provider", settings.provider)
+
+    try {
+        val response = postJson("${settings.gatewayUrl.trimEnd('/')}/api/tasks", payload)
+        if (response.first in 200..299) {
+            val remoteId = extractTaskId(response.second)
+            val status = extractTaskStatus(response.second) ?: task.status
+            return@withContext GatewayTaskResult(
+                task.copy(
+                    remoteId = remoteId,
+                    mode = "Gateway",
+                    status = status,
+                    source = "Gateway",
+                    updatedAt = System.currentTimeMillis()
+                ),
+                "Task creato sul gateway."
+            )
+        }
+
+        val error = "HTTP ${response.first}: ${extractHumanError(response.second)}"
+        return@withContext fallbackTaskResult(settings, task, "Creazione task fallita: $error")
+    } catch (ex: Exception) {
+        return@withContext fallbackTaskResult(settings, task, "Creazione task fallita: ${ex.message ?: ex.javaClass.simpleName}")
+    }
+}
+
+private suspend fun updateTaskRequest(settings: AppSettings, task: AgentTask, action: String): GatewayTaskResult = withContext(Dispatchers.IO) {
+    val targetStatus = when (action) {
+        "approve" -> "Approvato"
+        "deny" -> "Negato"
+        else -> "Completato"
+    }
+
+    if (task.remoteId.isNullOrBlank()) {
+        return@withContext GatewayTaskResult(
+            task.copy(
+                status = "$targetStatus locale",
+                source = "Fallback locale",
+                updatedAt = System.currentTimeMillis()
+            ),
+            "Task aggiornato in locale: $targetStatus."
+        )
+    }
+
+    try {
+        val response = postJson("${settings.gatewayUrl.trimEnd('/')}/api/tasks/${task.remoteId}/$action", JSONObject())
+        if (response.first in 200..299) {
+            return@withContext GatewayTaskResult(
+                task.copy(
+                    status = extractTaskStatus(response.second) ?: targetStatus,
+                    source = "Gateway",
+                    updatedAt = System.currentTimeMillis()
+                ),
+                "Task aggiornato sul gateway."
+            )
+        }
+
+        val error = "HTTP ${response.first}: ${extractHumanError(response.second)}"
+        return@withContext fallbackTaskResult(settings, task.copy(status = targetStatus), "Aggiornamento task fallito: $error")
+    } catch (ex: Exception) {
+        return@withContext fallbackTaskResult(settings, task.copy(status = targetStatus), "Aggiornamento task fallito: ${ex.message ?: ex.javaClass.simpleName}")
+    }
+}
+
+private suspend fun loadServerSnapshot(settings: AppSettings): ServerSnapshot = withContext(Dispatchers.IO) {
+    val healthUrl = "${settings.gatewayUrl.trimEnd('/')}/api/health"
+    val baseSnapshot = ServerSnapshot(
+        gateway = settings.gatewayUrl,
+        model = settings.model,
+        providerDetail = "Provider: ${settings.provider} | API: ${settings.preferredApi}",
+        inferenceEndpoint = settings.inferenceEndpoint,
+        policy = settings.accessMode,
+        statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare il gateway." else "Solo gateway. Verifica lo stato del server."
+    )
+
+    try {
+        val healthStatus = testGateway(healthUrl)
+        try {
+            val body = httpGet("${settings.gatewayUrl.trimEnd('/')}/api/server/status")
+            val json = JSONObject(body)
+            ServerSnapshot(
+                gateway = settings.gatewayUrl,
+                model = json.extractString("model")
+                    ?: json.extractNestedString("server", "model")
+                    ?: json.extractNestedString("runtime", "model")
+                    ?: settings.model,
+                providerDetail = "Provider: ${json.extractString("provider") ?: json.extractNestedString("server", "provider") ?: settings.provider} | API: ${json.extractString("preferredApi") ?: json.extractString("api") ?: settings.preferredApi}",
+                inferenceEndpoint = json.extractString("inferenceEndpoint")
+                    ?: json.extractNestedString("server", "inferenceEndpoint")
+                    ?: json.extractNestedString("runtime", "endpoint")
+                    ?: settings.inferenceEndpoint,
+                policy = json.extractString("accessMode")
+                    ?: json.extractString("networkPolicy")
+                    ?: json.extractNestedString("security", "networkPolicy")
+                    ?: settings.accessMode,
+                statusMessage = json.extractString("status")
+                    ?: json.extractString("message")
+                    ?: healthStatus
+            )
+        } catch (_: Exception) {
+            baseSnapshot.copy(statusMessage = if (settings.demoMode) "$healthStatus Fallback locale attivo." else "$healthStatus Solo gateway.")
+        }
+    } catch (ex: Exception) {
+        baseSnapshot.copy(statusMessage = "Gateway non raggiungibile: ${ex.message ?: ex.javaClass.simpleName}")
+    }
+}
+
 private suspend fun testGateway(healthUrl: String): String = withContext(Dispatchers.IO) {
     try {
         val connection = (URL(healthUrl).openConnection() as HttpURLConnection).apply {
@@ -1344,6 +1633,204 @@ private suspend fun testGateway(healthUrl: String): String = withContext(Dispatc
         }
     } catch (ex: Exception) {
         "Gateway non raggiungibile: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 5_000
+        readTimeout = 5_000
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("User-Agent", "ChatClaw-Android")
+    }
+
+    connection.use {
+        val stream = if (it.responseCode in 200..299) it.inputStream else it.errorStream
+        stream?.bufferedReader()?.use { reader -> reader.readText() }.orEmpty()
+    }
+}
+
+private suspend fun postJson(url: String, payload: JSONObject): Pair<Int, String> = withContext(Dispatchers.IO) {
+    val client = OkHttpClient.Builder().build()
+    val request = Request.Builder()
+        .url(url)
+        .header("Accept", "text/event-stream, application/json, text/plain")
+        .header("User-Agent", "ChatClaw-Android")
+        .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+        .build()
+
+    client.newCall(request).execute().use { response ->
+        response.code to response.body.string()
+    }
+}
+
+private fun extractAssistantText(body: String): String {
+    val trimmed = body.trim()
+    if (trimmed.isBlank()) {
+        return ""
+    }
+
+    if (trimmed.contains("data:", ignoreCase = true)) {
+        val builder = StringBuilder()
+        trimmed.lineSequence().forEach { rawLine ->
+            val line = rawLine.trim()
+            if (!line.startsWith("data:", ignoreCase = true)) return@forEach
+            val payload = line.removePrefix("data:").trim()
+            if (payload.isBlank() || payload == "[DONE]") return@forEach
+            builder.append(extractAssistantText(payload))
+        }
+        return builder.toString().trim()
+    }
+
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+        return trimmed
+    }
+
+    return try {
+        if (trimmed.startsWith("[")) {
+            val array = JSONArray(trimmed)
+            buildString {
+                for (i in 0 until array.length()) {
+                    append(extractJsonText(array.opt(i)))
+                }
+            }.trim()
+        } else {
+            extractJsonText(JSONObject(trimmed)).trim()
+        }
+    } catch (_: Exception) {
+        trimmed
+    }
+}
+
+private fun extractJsonText(value: Any?): String {
+    return when (value) {
+        is String -> value
+        is JSONObject -> {
+            listOf("text", "content", "message", "reply", "output_text").forEach { key ->
+                val text = extractJsonText(value.opt(key))
+                if (text.isNotBlank()) {
+                    return text
+                }
+            }
+
+            val choices = value.optJSONArray("choices")
+            if (choices != null) {
+                for (i in 0 until choices.length()) {
+                    val text = extractJsonText(choices.opt(i))
+                    if (text.isNotBlank()) {
+                        return text
+                    }
+                }
+            }
+
+            listOf("delta", "choice", "data").forEach { key ->
+                val text = extractJsonText(value.opt(key))
+                if (text.isNotBlank()) {
+                    return text
+                }
+            }
+            ""
+        }
+        is JSONArray -> buildString {
+            for (i in 0 until value.length()) {
+                append(extractJsonText(value.opt(i)))
+            }
+        }
+        else -> ""
+    }
+}
+
+private fun extractTaskId(body: String): String? {
+    return try {
+        val json = JSONObject(body)
+        json.extractString("id")
+            ?: json.extractString("taskId")
+            ?: json.extractNestedString("task", "id")
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun extractTaskStatus(body: String): String? {
+    return try {
+        val json = JSONObject(body)
+        json.extractString("status")
+            ?: json.extractNestedString("task", "status")
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun extractHumanError(body: String): String {
+    val trimmed = body.trim()
+    if (trimmed.isBlank()) {
+        return "errore sconosciuto"
+    }
+
+    return try {
+        val json = JSONObject(trimmed)
+        json.extractString("error")
+            ?: json.extractString("message")
+            ?: json.extractString("detail")
+            ?: trimmed
+    } catch (_: Exception) {
+        trimmed
+    }
+}
+
+private fun JSONObject.extractString(key: String): String? {
+    val value = opt(key)
+    return when (value) {
+        is String -> value.takeIf { it.isNotBlank() }
+        is JSONObject, is JSONArray -> extractJsonText(value).takeIf { it.isNotBlank() }
+        else -> null
+    }
+}
+
+private fun JSONObject.extractNestedString(parentKey: String, childKey: String): String? {
+    return optJSONObject(parentKey)?.extractString(childKey)
+}
+
+private fun buildFallbackReply(settings: AppSettings, mode: String, reason: String): String {
+    val prefix = if (mode == "Agente") {
+        "Gateway assente: preparo un ordine locale con approve/deny e tengo il contesto pronto."
+    } else {
+        "Gateway assente: uso la risposta locale di emergenza senza perdere la conversazione."
+    }
+
+    return "$prefix Preset: gateway ${settings.gatewayUrl}, endpoint server ${settings.inferenceEndpoint}, API ${settings.preferredApi}. Motivo: $reason."
+}
+
+private fun fallbackTaskResult(settings: AppSettings, task: AgentTask, message: String): GatewayTaskResult {
+    return if (settings.demoMode) {
+        GatewayTaskResult(
+            task.copy(
+                mode = "Locale",
+                status = if (task.requiresApproval) "In attesa approvazione" else "Pronto",
+                source = "Fallback locale",
+                updatedAt = System.currentTimeMillis()
+            ),
+            "$message Salvo il task in locale."
+        )
+    } else {
+        GatewayTaskResult(
+            task.copy(
+                status = "Errore gateway",
+                source = "Errore gateway",
+                updatedAt = System.currentTimeMillis()
+            ),
+            message
+        )
+    }
+}
+
+private fun replaceTask(tasks: MutableList<AgentTask>, updatedTask: AgentTask) {
+    val index = tasks.indexOfFirst { it.id == updatedTask.id }
+    if (index >= 0) {
+        tasks[index] = updatedTask
+    } else {
+        tasks.add(0, updatedTask)
     }
 }
 
@@ -1579,18 +2066,8 @@ private fun Long.toReadableFileSize(): String {
     }
 }
 
-private fun demoReply(settings: AppSettings, mode: String): String {
-    val modeText = if (mode == "Agente") {
-        "Creo task demo con approve/deny prima di file, rete, comandi e credenziali."
-    } else {
-        "Rispondo in chat demo senza avviare task agente."
-    }
-
-    return "$modeText Preset: gateway ${settings.gatewayUrl}, endpoint ${settings.inferenceEndpoint}, API ${settings.preferredApi}. Quando gateway sara' attivo useremo streaming reale."
-}
-
 private fun loadSettings(context: Context): AppSettings {
-    val prefs = context.getSharedPreferences("nemoclaw_settings", Context.MODE_PRIVATE)
+    val prefs = migratePrefs(context, CURRENT_SETTINGS_PREFS, LEGACY_SETTINGS_PREFS)
     return AppSettings(
         gatewayUrl = prefs.getString("gatewayUrl", AppDefaults.gatewayUrl) ?: AppDefaults.gatewayUrl,
         provider = prefs.getString("provider", AppDefaults.provider) ?: AppDefaults.provider,
@@ -1603,7 +2080,7 @@ private fun loadSettings(context: Context): AppSettings {
 }
 
 private fun saveSettings(context: Context, settings: AppSettings) {
-    context.getSharedPreferences("nemoclaw_settings", Context.MODE_PRIVATE)
+    context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString("gatewayUrl", settings.gatewayUrl)
         .putString("provider", settings.provider)
@@ -1636,7 +2113,8 @@ private fun saveConversationExchange(
     conversationId: String?,
     mode: String,
     prompt: String,
-    response: String
+    response: String,
+    source: String
 ): LocalConversation {
     val conversations = loadConversations(context).toMutableList()
     val index = conversations.indexOfFirst { it.id == conversationId }
@@ -1650,6 +2128,7 @@ private fun saveConversationExchange(
         val current = conversations[index]
         current.copy(
             kind = if (mode == "Agente") "Task" else current.kind,
+            description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
             prompt = prompt,
             updatedAt = now,
             messages = current.messages + newMessages
@@ -1659,7 +2138,7 @@ private fun saveConversationExchange(
             id = "conv_$now",
             title = makeTitle(prompt),
             kind = if (mode == "Agente") "Task" else "Chat",
-            description = if (mode == "Agente") "Conversazione agente con approve/deny demo." else "Conversazione chat locale.",
+            description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
             prompt = prompt,
             updatedAt = now,
             messages = newMessages
@@ -1730,13 +2209,13 @@ private fun deleteConversation(context: Context, id: String): Boolean {
 
 private fun copyArchiveToClipboard(context: Context) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("nemoclaw-archive", exportArchiveText(context)))
+    clipboard.setPrimaryClip(ClipData.newPlainText("chatclaw-archive", exportArchiveText(context)))
 }
 
 private fun exportArchiveText(context: Context): String {
     val conversations = loadConversations(context)
     if (conversations.isEmpty()) {
-    return "Archivio ChatClaw vuoto."
+        return "Archivio ChatClaw vuoto."
     }
 
     return conversations.joinToString("\n\n") { conversation ->
@@ -1748,7 +2227,7 @@ private fun exportArchiveText(context: Context): String {
 }
 
 private fun loadConversations(context: Context): List<LocalConversation> {
-    val raw = context.getSharedPreferences("nemoclaw_archive", Context.MODE_PRIVATE).getString("items", "[]") ?: "[]"
+    val raw = migratePrefs(context, CURRENT_ARCHIVE_PREFS, LEGACY_ARCHIVE_PREFS).getString("items", "[]") ?: "[]"
     return try {
         val array = JSONArray(raw)
         buildList {
@@ -1790,7 +2269,59 @@ private fun saveConversations(context: Context, conversations: List<LocalConvers
             )
         }
 
-    context.getSharedPreferences("nemoclaw_archive", Context.MODE_PRIVATE)
+    context.getSharedPreferences(CURRENT_ARCHIVE_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString("items", array.toString())
+        .apply()
+}
+
+private fun loadTasks(context: Context): List<AgentTask> {
+    val raw = migratePrefs(context, CURRENT_TASKS_PREFS, LEGACY_TASKS_PREFS).getString("items", "[]") ?: "[]"
+    return try {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                add(
+                    AgentTask(
+                        id = obj.optString("id"),
+                        remoteId = obj.optString("remoteId").ifBlank { null },
+                        title = obj.optString("title"),
+                        mode = obj.optString("mode", "Locale"),
+                        status = obj.optString("status", "Pronto"),
+                        detail = obj.optString("detail"),
+                        requiresApproval = obj.optBoolean("requiresApproval", true),
+                        source = obj.optString("source", "Locale"),
+                        updatedAt = obj.optLong("updatedAt")
+                    )
+                )
+            }
+        }.sortedByDescending { it.updatedAt }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun saveTasks(context: Context, tasks: List<AgentTask>) {
+    val array = JSONArray()
+    tasks.sortedByDescending { it.updatedAt }
+        .take(200)
+        .forEach { task ->
+            array.put(
+                JSONObject()
+                    .put("id", task.id)
+                    .put("remoteId", task.remoteId)
+                    .put("title", task.title)
+                    .put("mode", task.mode)
+                    .put("status", task.status)
+                    .put("detail", task.detail)
+                    .put("requiresApproval", task.requiresApproval)
+                    .put("source", task.source)
+                    .put("updatedAt", task.updatedAt)
+            )
+        }
+
+    context.getSharedPreferences(CURRENT_TASKS_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString("items", array.toString())
         .apply()
@@ -1849,6 +2380,37 @@ private fun openAndroidIntent(context: Context, intent: Intent): Boolean {
         false
     }
 }
+
+private fun migratePrefs(context: Context, currentName: String, legacyName: String): SharedPreferences {
+    val current = context.getSharedPreferences(currentName, Context.MODE_PRIVATE)
+    if (current.all.isNotEmpty()) {
+        return current
+    }
+
+    val legacy = context.getSharedPreferences(legacyName, Context.MODE_PRIVATE)
+    if (legacy.all.isNotEmpty()) {
+        val editor = current.edit()
+        legacy.all.forEach { (key, value) ->
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is Float -> editor.putFloat(key, value)
+            }
+        }
+        editor.apply()
+    }
+
+    return current
+}
+
+private const val CURRENT_SETTINGS_PREFS = "chatclaw_settings"
+private const val LEGACY_SETTINGS_PREFS = "nemoclaw_settings"
+private const val CURRENT_ARCHIVE_PREFS = "chatclaw_archive"
+private const val LEGACY_ARCHIVE_PREFS = "nemoclaw_archive"
+private const val CURRENT_TASKS_PREFS = "chatclaw_tasks"
+private const val LEGACY_TASKS_PREFS = "nemoclaw_tasks"
 
 private object AppDefaults {
       const val gatewayUrl = "https://openclaw.local:8443"

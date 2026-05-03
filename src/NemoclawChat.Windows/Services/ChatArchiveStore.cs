@@ -84,7 +84,8 @@ public static class ChatArchiveStore
         string? conversationId,
         string mode,
         string prompt,
-        string response)
+        string response,
+        string source)
     {
         var items = Load();
         var conversation = string.IsNullOrWhiteSpace(conversationId)
@@ -99,14 +100,17 @@ public static class ChatArchiveStore
                 Title = MakeTitle(prompt),
                 Kind = mode == "Agente" ? "Task" : "Chat",
                 Description = mode == "Agente"
-                    ? "Conversazione agente con approve/deny demo."
-                    : "Conversazione chat locale.",
+                    ? $"Conversazione agente via {source}."
+                    : $"Conversazione chat via {source}.",
                 Prompt = prompt
             };
             items.Insert(0, conversation);
         }
 
         conversation.Kind = mode == "Agente" ? "Task" : conversation.Kind;
+        conversation.Description = mode == "Agente"
+            ? $"Conversazione agente via {source}."
+            : $"Conversazione chat via {source}.";
         conversation.Prompt = prompt;
         conversation.UpdatedAt = DateTimeOffset.Now;
         conversation.Messages.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
