@@ -4,7 +4,9 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using NemoclawChat_Windows.Services;
+using Windows.Storage.Pickers;
 using Windows.System;
+using WinRT.Interop;
 
 namespace NemoclawChat_Windows.Pages;
 
@@ -71,22 +73,54 @@ public sealed partial class HomePage : Page
         PromptBox.Text = "Crea un task agente sicuro con richiesta approve/deny prima di ogni azione rischiosa.";
     }
 
-    private void AttachFile_Click(object sender, RoutedEventArgs e)
+    private async void AttachFile_Click(object sender, RoutedEventArgs e)
     {
-        AddAction("File task", "File picker non collegato ancora. Preparo contesto task con allegato e conferma utente.");
-        PromptBox.Text = AppendPrompt("Allega un file al prossimo task e analizzalo nel contesto NemoClaw.");
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add("*");
+
+        if (App.MainWindow is not null)
+        {
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.MainWindow));
+        }
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            AddAction("File task", "Selezione file annullata.");
+            return;
+        }
+
+        AddAction("File task", $"File selezionato: {file.Name}");
+        PromptBox.Text = AppendPrompt($"Usa questo file come contesto per il task: {file.Path}");
     }
 
-    private void CaptureScreenshot_Click(object sender, RoutedEventArgs e)
+    private async void CaptureScreenshot_Click(object sender, RoutedEventArgs e)
     {
-        AddAction("Screenshot", "Cattura screenshot sara' collegata a tool desktop; per ora aggiungo richiesta al prompt.");
+        var launched = await Launcher.LaunchUriAsync(new Uri("ms-screenclip:"));
+        AddAction(
+            "Screenshot",
+            launched
+                ? "Strumento cattura di Windows aperto. Incolla o salva lo screenshot, poi allegalo al task."
+                : "Impossibile aprire lo strumento cattura. Usa una cattura manuale e allega il file al task.");
         PromptBox.Text = AppendPrompt("Usa uno screenshot come contesto visivo per capire lo stato dell'app o del server.");
     }
 
-    private void TakePhoto_Click(object sender, RoutedEventArgs e)
+    private async void TakePhoto_Click(object sender, RoutedEventArgs e)
     {
-        AddAction("Foto", "Fotocamera non collegata ancora. Azione pronta per camera picker.");
+        var launched = await Launcher.LaunchUriAsync(new Uri("microsoft.windows.camera:"));
+        AddAction(
+            "Foto",
+            launched
+                ? "App Fotocamera aperta. Salva la foto e allegala al task quando pronta."
+                : "Impossibile aprire Fotocamera. Scatta o seleziona una foto manualmente e allegala al task.");
         PromptBox.Text = AppendPrompt("Acquisisci una foto e usala come allegato per la conversazione.");
+    }
+
+    private void VoiceNote_Click(object sender, RoutedEventArgs e)
+    {
+        AddAction("Voce", "Nota vocale preparata. Usa dettatura Windows o scrivi qui il testo da inviare.");
+        PromptBox.Text = AppendPrompt("Trascrivi questa nota vocale e usala come contesto: ");
+        PromptBox.Focus(FocusState.Programmatic);
     }
 
     private void CreateImage_Click(object sender, RoutedEventArgs e)

@@ -13,6 +13,7 @@ src/NemoclawChat.Android/app/build/
 # Local toolchains downloaded by Codex
 .tools/
 .android-sdk/
+dist/
 
 # IDE
 .idea/

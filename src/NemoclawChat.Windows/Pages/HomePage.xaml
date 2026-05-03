@@ -164,6 +164,7 @@
                             Height="38"
                             Background="Transparent"
                             BorderThickness="0"
+                            Click="VoiceNote_Click"
                             Foreground="{StaticResource MutedTextBrush}">
                             <FontIcon FontSize="16" Glyph="&#xE720;" />
                         </Button>

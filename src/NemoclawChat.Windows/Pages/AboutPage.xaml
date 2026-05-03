@@ -88,6 +88,35 @@
                         </StackPanel>
                     </Border>
                 </Grid>
+
+                <Border
+                    Padding="22"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="#FF3A3A3A"
+                    BorderThickness="1"
+                    CornerRadius="18">
+                    <StackPanel Spacing="12">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Aggiornamenti" />
+                        <TextBlock
+                            x:Name="UpdateStatusText"
+                            Foreground="{StaticResource MutedTextBrush}"
+                            Text="Controlla GitHub Releases per nuove versioni."
+                            TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button
+                                Background="{StaticResource AccentGreenBrush}"
+                                BorderThickness="0"
+                                Click="CheckUpdates_Click"
+                                Content="Controlla update"
+                                Foreground="White" />
+                            <Button
+                                x:Name="OpenReleaseButton"
+                                Click="OpenRelease_Click"
+                                Content="Apri release"
+                                IsEnabled="False" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </Grid>
     </ScrollViewer>

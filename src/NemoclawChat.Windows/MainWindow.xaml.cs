@@ -31,6 +31,8 @@ public sealed partial class MainWindow : Window
     {
         _sidebarCollapsed = !_sidebarCollapsed;
         Sidebar.Visibility = _sidebarCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        SidebarColumn.Width = _sidebarCollapsed ? new GridLength(0) : new GridLength(280);
+        RestoreSidebarButton.Visibility = _sidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void NewChat_Click(object sender, RoutedEventArgs e)

@@ -1,7 +1,13 @@
 package com.nemoclaw.chat
 
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
+import android.speech.RecognizerIntent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -82,7 +88,8 @@ private enum class Tab(val label: String) {
     Archive("Archivio"),
     Tasks("Ordini"),
     Server("Server"),
-    Settings("Impostazioni")
+    Settings("Impostazioni"),
+    Profile("Profilo")
 }
 
 private data class ChatMessage(
@@ -115,6 +122,14 @@ private data class LocalConversation(
     val prompt: String,
     val updatedAt: Long,
     val messages: List<ChatMessage>
+)
+
+private data class UpdateCheckResult(
+    val hasUpdate: Boolean,
+    val latestVersion: String?,
+    val message: String,
+    val releaseUrl: String,
+    val assetUrl: String?
 )
 
 private data class AppSettings(
@@ -188,6 +203,7 @@ private fun ChatApp() {
                         saveSettings(context, settings)
                     }
                 )
+                Tab.Profile -> ProfileScreen(context, settings)
             }
         }
     }
@@ -248,6 +264,7 @@ private fun ChatScreen(
             }
         }
         Composer(
+            context = context,
             value = draft,
             mode = mode,
             onValueChange = { draft = it },
@@ -385,6 +402,7 @@ private fun MessageBubble(message: ChatMessage) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Composer(
+    context: Context,
     value: String,
     mode: String,
     onValueChange: (String) -> Unit,
@@ -421,15 +439,31 @@ private fun Composer(
                     ) {
                         DropdownMenuItem(text = { Text("[file]  Aggiungi file al task", color = Color.White) }, onClick = {
                             expanded = false
-                            queueAction("File task", "File picker Android da collegare: prepara il task con allegato e conferma utente.", "Allega un file al prossimo task e analizzalo nel contesto NemoClaw.")
+                            val opened = openAndroidIntent(
+                                context,
+                                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                    addCategory(Intent.CATEGORY_OPENABLE)
+                                    type = "*/*"
+                                }
+                            )
+                            queueAction(
+                                "File task",
+                                if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
+                                "Allega un file al prossimo task e analizzalo nel contesto NemoClaw."
+                            )
                         })
                         DropdownMenuItem(text = { Text("[shot]  Cattura screenshot", color = Color.White) }, onClick = {
                             expanded = false
-                            queueAction("Screenshot", "Cattura schermo da collegare con permesso Android; per ora aggiungo richiesta al prompt.", "Usa uno screenshot come contesto visivo per capire app o server.")
+                            queueAction("Screenshot", "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.", "Usa uno screenshot come contesto visivo per capire app o server.")
                         })
                         DropdownMenuItem(text = { Text("[cam]  Scatta foto", color = Color.White) }, onClick = {
                             expanded = false
-                            queueAction("Foto", "Camera picker Android da collegare: azione pronta per allegato immagine.", "Acquisisci una foto e usala come allegato per la conversazione.")
+                            val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+                            queueAction(
+                                "Foto",
+                                if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
+                                "Acquisisci una foto e usala come allegato per la conversazione."
+                            )
                         })
                         DropdownMenuItem(text = { Text("[chat]  Modalita: Chat", color = Color.White) }, onClick = {
                             expanded = false
@@ -483,7 +517,20 @@ private fun Composer(
                         fontSize = 12.sp
                     )
                 }
-                IconButton(onClick = {}) {
+                IconButton(onClick = {
+                    val opened = openAndroidIntent(
+                        context,
+                        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per NemoClaw")
+                        }
+                    )
+                    onAction(
+                        "Voce",
+                        if (opened) "Dettatura Android aperta. Inserisci o rifinisci il testo nel prompt." else "Dettatura non disponibile su questo dispositivo. Scrivi la nota vocale nel prompt.",
+                        "Trascrivi questa nota vocale e usala come contesto: "
+                    )
+                }) {
                     Text("mic", color = AppColors.Muted, fontSize = 12.sp)
                 }
                 Button(
@@ -510,6 +557,9 @@ private fun ArchiveScreen(
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("Tutto") }
     var status by remember { mutableStateOf("Pronto.") }
+    val savedConversations = remember(refreshKey) { loadConversations(context) }
+    val savedProjects = savedConversations.count { it.kind == "Progetto" }
+    val savedChats = savedConversations.count { it.kind == "Chat" || it.kind == "Task" }
     val results = archive.filter { item ->
         (filter == "Tutto" || item.kind == filter) &&
             (query.isBlank() ||
@@ -527,7 +577,35 @@ private fun ArchiveScreen(
         item {
             Text("Archivio", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Ricerca locale demo per chat, progetti e task recenti.", color = AppColors.Muted)
+            Text("Ricerca locale persistente per chat, progetti e task recenti.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Stato archivio", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Conversazioni: $savedChats | Progetti: $savedProjects | Totale salvati: ${savedConversations.size}", color = AppColors.Muted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            copyArchiveToClipboard(context)
+                            status = "Archivio copiato negli appunti."
+                        }) {
+                            Text("Export")
+                        }
+                        Button(onClick = {
+                            filter = "Progetto"
+                            status = "Filtro: Progetto"
+                        }) {
+                            Text("Progetti")
+                        }
+                        Button(onClick = {
+                            filter = "Chat"
+                            status = "Filtro: Chat"
+                        }) {
+                            Text("Recenti")
+                        }
+                    }
+                }
+            }
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -569,6 +647,26 @@ private fun ArchiveScreen(
                     val saved = saveProjectConversation(context, item.title, item.description, item.prompt)
                     status = "Progetto salvato localmente: ${saved.title}"
                     refreshKey++
+                },
+                onRename = { newTitle ->
+                    if (item.id == null) {
+                        status = "Apri o salva prima di rinominare."
+                    } else if (renameConversation(context, item.id, newTitle)) {
+                        status = "Rinominato: $newTitle"
+                        refreshKey++
+                    } else {
+                        status = "Elemento non trovato."
+                    }
+                },
+                onDelete = {
+                    if (item.id == null) {
+                        status = "Template non eliminabile."
+                    } else if (deleteConversation(context, item.id)) {
+                        status = "Eliminato: ${item.title}"
+                        refreshKey++
+                    } else {
+                        status = "Elemento non trovato."
+                    }
                 }
             )
         }
@@ -579,8 +677,12 @@ private fun ArchiveScreen(
 private fun ArchiveCard(
     item: ArchiveItem,
     onOpen: () -> Unit,
-    onPin: () -> Unit
+    onPin: () -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit
 ) {
+    var renameText by remember(item.id, item.title) { mutableStateOf(item.title) }
+
     Card(colors = CardDefaults.cardColors(containerColor = AppColors.AssistantBubble), shape = RoundedCornerShape(20.dp)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -589,9 +691,16 @@ private fun ArchiveCard(
             }
             Text(item.description, color = AppColors.Muted)
             Text(item.prompt, color = Color.White, fontSize = 13.sp)
+            if (item.id != null) {
+                SettingsField("Rinomina", renameText, { renameText = it })
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onOpen) { Text("Apri") }
                 Button(onClick = onPin) { Text("Segna") }
+                if (item.id != null) {
+                    Button(onClick = { onRename(renameText.trim()) }) { Text("Rinomina") }
+                    Button(onClick = onDelete) { Text("Elimina") }
+                }
             }
         }
     }
@@ -781,6 +890,90 @@ private fun ServerMetric(title: String, value: String, detail: String) {
 }
 
 @Composable
+private fun ProfileScreen(context: Context, settings: AppSettings) {
+    val scope = rememberCoroutineScope()
+    val conversations = remember { loadConversations(context) }
+    val version = remember { appVersion(context) }
+    var updateStatus by remember { mutableStateOf("Controlla GitHub Releases per nuove versioni.") }
+    var releaseUrl by remember { mutableStateOf(AppDefaults.releasesPage) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("Profilo", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Profilo locale. Nessun account cloud, nessun token provider nel client.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(24.dp)) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier.size(56.dp),
+                        color = Color(0xFF9B59B6),
+                        shape = CircleShape
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("MP", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                        }
+                    }
+                    Column(modifier = Modifier.padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Matteo", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Home-server NemoClaw locale", color = AppColors.Muted)
+                        Text("App: $version", color = AppColors.Muted, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+        item {
+            ServerMetric("Gateway", settings.gatewayUrl, if (settings.demoMode) "Demo mode attivo" else "Connessione reale selezionata")
+        }
+        item {
+            ServerMetric("Archivio locale", "${conversations.size} elementi", "SharedPreferences: nemoclaw_archive")
+        }
+        item {
+            ServerMetric("Privacy", "Locale-first", "Chat/settings restano sul dispositivo finche' non colleghi il gateway. Segreti solo lato server.")
+        }
+        item {
+            ServerMetric("Parita Windows", "Allineata", "Chat, archivio, progetti/recenti, ordini, server, settings e profilo presenti anche su Android.")
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Aggiornamenti", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(updateStatus, color = AppColors.Muted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            updateStatus = "Controllo GitHub Releases..."
+                            scope.launch {
+                                val result = checkGithubUpdate(version)
+                                releaseUrl = result.assetUrl ?: result.releaseUrl
+                                updateStatus = if (result.assetUrl != null) {
+                                    "${result.message} Apri asset/APK e installa sopra questa app."
+                                } else {
+                                    result.message
+                                }
+                            }
+                        }) {
+                            Text("Controlla")
+                        }
+                        Button(onClick = { openUrl(context, releaseUrl) }) {
+                            Text("Apri release")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsScreen(
     settings: AppSettings,
     onSave: (AppSettings) -> Unit,
@@ -940,12 +1133,104 @@ private suspend fun testGateway(healthUrl: String): String = withContext(Dispatc
     }
 }
 
+private suspend fun checkGithubUpdate(localVersion: String): UpdateCheckResult = withContext(Dispatchers.IO) {
+    try {
+        val connection = (URL(AppDefaults.latestReleaseApi).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 10_000
+            readTimeout = 10_000
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("User-Agent", "NemoclawChat-Android")
+        }
+
+        connection.use {
+            val code = it.responseCode
+            if (code !in 200..299) {
+                return@withContext UpdateCheckResult(
+                    hasUpdate = false,
+                    latestVersion = null,
+                    message = "Nessuna release GitHub trovata. Crea una release con tag vX.Y.Z e asset APK.",
+                    releaseUrl = AppDefaults.releasesPage,
+                    assetUrl = null
+                )
+            }
+
+            val body = it.inputStream.bufferedReader().use { reader -> reader.readText() }
+            val json = JSONObject(body)
+            val latest = normalizeVersion(json.optString("tag_name"))
+            val releaseUrl = json.optString("html_url", AppDefaults.releasesPage)
+            val assetUrl = findReleaseAsset(json.optJSONArray("assets") ?: JSONArray(), ".apk")
+            val hasUpdate = compareVersions(latest, localVersion) > 0
+            var message = if (hasUpdate) {
+                "Aggiornamento disponibile: $localVersion -> $latest."
+            } else {
+                "App aggiornata. Versione locale: $localVersion, GitHub: $latest."
+            }
+            if (hasUpdate && assetUrl == null) {
+                message += " Release trovata, ma manca asset Android .apk."
+            }
+
+            UpdateCheckResult(
+                hasUpdate = hasUpdate,
+                latestVersion = latest,
+                message = message,
+                releaseUrl = releaseUrl,
+                assetUrl = assetUrl
+            )
+        }
+    } catch (ex: Exception) {
+        UpdateCheckResult(
+            hasUpdate = false,
+            latestVersion = null,
+            message = "Controllo update non riuscito: ${ex.message ?: ex.javaClass.simpleName}",
+            releaseUrl = AppDefaults.releasesPage,
+            assetUrl = null
+        )
+    }
+}
+
 private inline fun <T : HttpURLConnection, R> T.use(block: (T) -> R): R {
     return try {
         block(this)
     } finally {
         disconnect()
     }
+}
+
+private fun findReleaseAsset(assets: JSONArray, suffix: String): String? {
+    for (i in 0 until assets.length()) {
+        val asset = assets.getJSONObject(i)
+        val name = asset.optString("name")
+        if (name.endsWith(suffix, ignoreCase = true)) {
+            return asset.optString("browser_download_url")
+        }
+    }
+
+    return null
+}
+
+private fun compareVersions(latest: String, local: String): Int {
+    val latestParts = parseVersionParts(latest)
+    val localParts = parseVersionParts(local)
+    for (i in 0 until maxOf(latestParts.size, localParts.size)) {
+        val left = latestParts.getOrElse(i) { 0 }
+        val right = localParts.getOrElse(i) { 0 }
+        if (left != right) return left.compareTo(right)
+    }
+
+    return 0
+}
+
+private fun parseVersionParts(value: String): List<Int> {
+    return normalizeVersion(value)
+        .substringBefore('-')
+        .substringBefore('+')
+        .split('.')
+        .map { it.toIntOrNull() ?: 0 }
+}
+
+private fun normalizeVersion(value: String): String {
+    return value.trim().trimStart('v', 'V')
 }
 
 private fun demoReply(settings: AppSettings, mode: String): String {
@@ -1086,6 +1371,46 @@ private fun saveProjectConversation(
     return project
 }
 
+private fun renameConversation(context: Context, id: String, newTitle: String): Boolean {
+    if (newTitle.isBlank()) return false
+
+    val conversations = loadConversations(context).toMutableList()
+    val index = conversations.indexOfFirst { it.id == id }
+    if (index < 0) return false
+
+    conversations[index] = conversations[index].copy(title = newTitle, updatedAt = System.currentTimeMillis())
+    saveConversations(context, conversations)
+    return true
+}
+
+private fun deleteConversation(context: Context, id: String): Boolean {
+    val conversations = loadConversations(context).toMutableList()
+    val removed = conversations.removeAll { it.id == id }
+    if (removed) {
+        saveConversations(context, conversations)
+    }
+    return removed
+}
+
+private fun copyArchiveToClipboard(context: Context) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("nemoclaw-archive", exportArchiveText(context)))
+}
+
+private fun exportArchiveText(context: Context): String {
+    val conversations = loadConversations(context)
+    if (conversations.isEmpty()) {
+        return "Nemoclaw archive vuoto."
+    }
+
+    return conversations.joinToString("\n\n") { conversation ->
+        val messages = conversation.messages.joinToString("\n") { message ->
+            "${message.author}: ${message.text}"
+        }
+        "## ${conversation.title}\nTipo: ${conversation.kind}\nPrompt: ${conversation.prompt}\n$messages"
+    }
+}
+
 private fun loadConversations(context: Context): List<LocalConversation> {
     val raw = context.getSharedPreferences("nemoclaw_archive", Context.MODE_PRIVATE).getString("items", "[]") ?: "[]"
     return try {
@@ -1171,6 +1496,29 @@ private fun makeTitle(prompt: String): String {
     return if (oneLine.length <= 46) oneLine else oneLine.take(46).trimEnd() + "..."
 }
 
+private fun appVersion(context: Context): String {
+    return try {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        info.versionName ?: "debug"
+    } catch (_: Exception) {
+        "debug"
+    }
+}
+
+private fun openUrl(context: Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    context.startActivity(intent)
+}
+
+private fun openAndroidIntent(context: Context, intent: Intent): Boolean {
+    return try {
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
 private object AppDefaults {
     const val gatewayUrl = "https://nemoclaw.local:8443"
     const val provider = "custom"
@@ -1178,6 +1526,8 @@ private object AppDefaults {
     const val preferredApi = "openai-completions -> /v1/chat/completions"
     const val model = "meta-llama/Llama-3.1-8B-Instruct"
     const val accessMode = "VPN/LAN only"
+    const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"
+    const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"
 }
 
 private object AppColors {

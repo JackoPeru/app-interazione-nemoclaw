@@ -10,7 +10,7 @@
     mc:Ignorable="d">
     <Grid Background="{StaticResource AppBackgroundBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="280" />
+            <ColumnDefinition x:Name="SidebarColumn" Width="280" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
@@ -157,6 +157,24 @@
             <Grid
                 x:Name="DragRegion"
                 Background="{StaticResource AppBackgroundBrush}">
+                <StackPanel
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Padding="16,0,0,0">
+                    <Button
+                        x:Name="RestoreSidebarButton"
+                        Width="32"
+                        Height="32"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Click="CollapseSidebar_Click"
+                        Foreground="{StaticResource MutedTextBrush}"
+                        Visibility="Collapsed">
+                        <FontIcon FontSize="14" Glyph="&#xE8A0;" />
+                    </Button>
+                </StackPanel>
+
                 <StackPanel
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"

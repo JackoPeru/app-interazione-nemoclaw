@@ -30,7 +30,7 @@ main
 Ultimo push fatto su richiesta utente:
 
 ```text
-647af12 Add composer action icons
+78386bf Add local chat archive persistence
 ```
 
 ## Regola Memoria
@@ -55,13 +55,16 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
+- Versione app: `0.2.1`.
 - UI: dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
+- Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
 - Chat: invio con Enter, nuova riga con Shift+Enter, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
 - Archivio: ricerca locale + dati persistenti, filtri chat/progetti/task/server, riapertura conversazioni, segna progetto.
 - Recenti sidebar: letti dallo store locale e aggiornati quando cambia archivio.
 - Ordini agente: coda task locale, creazione task, template workspace/server, approve/deny/completa.
 - Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, contratto API atteso.
 - Profilo/About: info app/profilo locale, versione, privacy, gateway attivo.
+- Update checker: controlla GitHub Releases latest, confronta versione locale, apre release/asset Windows.
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test gateway `/api/health`.
 - Settings salvate in:
 
@@ -79,11 +82,15 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- UI: dark stile ChatGPT mobile, composer largo, menu `+`, settings reali.
+- Versione app: `0.2.1`, versionCode `3`.
+- UI: dark stile ChatGPT mobile, composer largo, menu `+`, settings reali, profilo locale.
+- Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
 - Chat: action bubble per menu `+`, mode `Chat`/`Agente`, mock reply differenziata, menu ASCII senza mojibake, salvataggio cronologia locale.
-- Archivio: tab mobile con ricerca locale persistente, filtri, riapertura conversazioni, salvataggio progetti.
+- Archivio: tab mobile con ricerca locale persistente, filtri, riapertura conversazioni, salvataggio progetti, contatori, export appunti, rename/delete conversazioni salvate.
 - Ordini agente: coda task locale, creazione task, template, approve/deny/completa.
 - Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, contratto API atteso.
+- Profilo: info Matteo/app/gateway/privacy/parita Windows.
+- Update checker: controlla GitHub Releases latest, confronta versione locale, apre release/asset APK.
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test gateway `/api/health`.
 - Settings salvate in `SharedPreferences` `nemoclaw_settings`.
 - Conversazioni/progetti salvati in `SharedPreferences` `nemoclaw_archive`.
@@ -152,6 +159,19 @@ Android:
 .\gradlew.bat :androidApp:assembleDebug
 ```
 
+APK debug:
+
+```text
+src/NemoclawChat.Android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Nota update:
+
+- Le app controllano `https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest`.
+- Tag release atteso: `vX.Y.Z`, esempio `v0.2.1`.
+- Android richiede APK con stesso `applicationId` e stessa firma, `versionCode` maggiore.
+- Windows richiede asset release `.msix`, `.exe` o `.zip`; installazione automatica completa richiede installer/updater dedicato.
+
 Android SDK locale:
 
 ```text
@@ -183,7 +203,7 @@ src/NemoclawChat.Android/app/build/
 - Collegare streaming chat reale.
 - Collegare task agente con approve/deny.
 - Sostituire coda task demo con gateway reale.
-- Aggiungere export/import archivio locale se richiesto.
+- Aggiungere import archivio locale se richiesto.
 
 ## Preferenze Comunicazione
 
