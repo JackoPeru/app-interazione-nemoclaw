@@ -31,7 +31,7 @@ main
 Ultimo push fatto su richiesta utente:
 
 ```text
-fde7a24 Polish Android composer and remove seed data
+a656f16 Release ChatClaw 0.4.0
 ```
 
 ## Regola Memoria
