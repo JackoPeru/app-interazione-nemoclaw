@@ -32,7 +32,7 @@ main
 Ultimo push fatto su richiesta utente:
 
 ```text
-a656f16 Release ChatClaw 0.4.0
+1b4997f Release ChatClaw 0.5.0
 ```
 
 ## Regola Memoria
