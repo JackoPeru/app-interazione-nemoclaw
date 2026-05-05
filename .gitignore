@@ -23,3 +23,8 @@ dist/
 # OS
 Thumbs.db
 Desktop.ini
+
+# Build / Release
+publish/
+release_assets*/
+update_assets/

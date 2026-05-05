@@ -57,7 +57,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.5.0`.
+- Versione app: `0.5.1`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent claw blue `#2DA8FF`, testo muted `#A2ADBF`, bubble utente blu `#1F4FA8`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -93,7 +93,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.5.0`, versionCode `8`.
+- Versione app: `0.5.1`, versionCode `9`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent claw blue `#2DA8FF`, testo muted `#A2ADBF`, bubble utente blu `#1F4FA8`, empty state con wash blu e logo grande.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
