@@ -22,6 +22,8 @@
         <StackPanel Grid.Row="1" MaxWidth="760" HorizontalAlignment="Left" Spacing="18">
             <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Il client parla al gateway; segreti OpenClaw/Ollama restano sul server." />
             <TextBox x:Name="GatewayUrlBox" Header="Gateway URL" />
+            <TextBox x:Name="GatewayWsUrlBox" Header="Gateway WebSocket URL" PlaceholderText="wss://openclaw.local:8443" />
+            <TextBox x:Name="AdminBridgeUrlBox" Header="ChatClaw Admin Bridge URL" PlaceholderText="https://openclaw.local:9443" />
             <TextBox x:Name="ProviderBox" Header="OpenClaw provider" />
             <TextBox x:Name="InferenceEndpointBox" Header="Endpoint inferenza lato server" />
             <ComboBox x:Name="PreferredApiBox" Header="API preferita" SelectedIndex="0">
@@ -35,7 +37,7 @@
                 <ComboBoxItem Content="Public HTTPS gateway" />
             </ComboBox>
             <ToggleSwitch x:Name="DemoModeSwitch" Header="Fallback locale" OffContent="Solo gateway" OnContent="Fallback locale attivo" />
-            <PasswordBox x:Name="PairingCodeBox" Header="Pairing code" PlaceholderText="Codice mostrato sul server" />
+            <PasswordBox x:Name="PairingCodeBox" Header="Token/password Gateway" PlaceholderText="Lascia vuoto per mantenere quello salvato" />
             <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" Text="Pronto." />
             <StackPanel Orientation="Horizontal" Spacing="10">
                 <Button
@@ -45,6 +47,7 @@
                     Content="Salva"
                     Foreground="White" />
                 <Button Click="TestGateway_Click" Content="Test gateway" />
+                <Button Click="TestGatewayWs_Click" Content="Test WS" />
                 <Button Click="Reset_Click" Content="Reset default" />
             </StackPanel>
         </StackPanel>

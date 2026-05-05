@@ -11,6 +11,7 @@ Target:
 - UI moderna chatbot: dark, composer largo, menu `+`, modalita `Chat`/`Agente`.
 - App name: `ChatClaw`.
 - Gateway comune futuro: `OpenClaw Gateway API`.
+- Direzione nuova: ChatClaw deve diventare console operatore OpenClaw, non solo frontend REST.
 
 ## Regola Git
 
@@ -56,7 +57,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.4.0`.
+- Versione app: `0.5.0`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
 - Chat: invio con Enter, nuova riga con Shift+Enter, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
@@ -65,6 +66,12 @@ Windows:
 - Chat: prova prima il gateway reale (`/api/chat/stream`, fallback `/api/chat`), poi usa fallback locale solo se abilitato nelle impostazioni.
 - Ordini agente: coda task persistente su disco, tentativo reale su gateway (`/api/tasks`), approve/deny/completa con sync gateway se disponibile e fallback locale se no.
 - Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, lettura reale di `/api/server/status` quando disponibile.
+- Gateway OpenClaw WS: pagina Server include test WebSocket ufficiale, handshake RPC `connect` con `minProtocol/maxProtocol=3`, ruolo `operator`, auth token nel frame, probe metodi `status`, `system-presence`, `models.status`, `models.list`, `plugins.list`, `channels.status`, `nodes.list`, `exec.approvals.get`.
+- Console Operatore: pagina dedicata con RPC manuale e preset reali per dashboard, modelli, plugin, approvals, config, log, canali, cron, nodi, security, memoria, secrets e update. Ogni azione chiama Gateway WS; metodo non supportato viene mostrato come errore reale.
+- Console Fase 2/3: controlli dedicati per `exec.approval.resolve`, `config.get/patch/apply`, `workspace.files.list/read/write`, Admin Bridge status/doctor/security audit/restart/tail log.
+- Settings: aggiunto `GatewayWsUrl`, default `wss://openclaw.local:8443`.
+- Settings: aggiunto `AdminBridgeUrl`, default `https://openclaw.local:9443`.
+- Credenziale Gateway: token/password salvato in Windows Credential Locker; campo vuoto mantiene segreto esistente, reset lo elimina.
 - Profilo/About: info app/profilo locale, versione, privacy, gateway attivo.
 - Update system: controlla GitHub Releases latest, scarica asset Windows in app con progresso e poi apre installer/asset da bottone `Installa update`.
 - Compatibilita storage: usa `%LOCALAPPDATA%\\ChatClaw\\...` ma migra automaticamente da `%LOCALAPPDATA%\\NemoclawChat\\...` se esiste.
@@ -85,13 +92,19 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.4.0`, versionCode `7`.
+- Versione app: `0.5.0`, versionCode `8`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
 - Chat: action bubble per menu `+`, mode `Chat`/`Agente`, tentativo gateway reale (`/api/chat/stream`, fallback `/api/chat`), fallback locale esplicito se abilitato, composer stabile a campo singolo, chip mode in alto a destra, salvataggio cronologia locale.
 - Archivio: tab mobile con ricerca locale persistente, filtri, riapertura conversazioni, salvataggio progetti, contatori, export appunti, rename/delete conversazioni salvate; nessun seed progetto/chat finto.
 - Ordini agente: coda task persistente in `SharedPreferences`, creazione task con tentativo reale su gateway, approve/deny/completa con sync gateway se disponibile e fallback locale se no.
 - Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, lettura reale di `/api/server/status` quando disponibile.
+- Gateway OpenClaw WS: pagina Server include test WebSocket ufficiale, handshake RPC `connect` con `minProtocol/maxProtocol=3`, ruolo `operator`, auth token nel frame, probe metodi `status`, `system-presence`, `models.status`, `models.list`, `plugins.list`, `channels.status`, `nodes.list`, `exec.approvals.get`.
+- Console Operatore: tab dedicata con RPC manuale e preset reali per dashboard, modelli, plugin, approvals, config, log, canali, cron, nodi, security, memoria, secrets e update. Ogni azione chiama Gateway WS; metodo non supportato viene mostrato come errore reale.
+- Console Fase 2/3: controlli dedicati per `exec.approval.resolve`, `config.get/patch/apply`, `workspace.files.list/read/write`, Admin Bridge status/doctor/security audit/restart/tail log.
+- Settings: aggiunto `gatewayWsUrl`, default `wss://openclaw.local:8443`.
+- Settings: aggiunto `adminBridgeUrl`, default `https://openclaw.local:9443`.
+- Credenziale Gateway: token/password cifrato con Android Keystore AES-GCM e salvato in `chatclaw_settings`; campo vuoto mantiene segreto esistente, reset lo elimina.
 - Profilo: info Matteo/app/gateway/privacy/parita Windows.
 - Update system: controlla GitHub Releases latest, scarica APK dentro l'app con progress bar + dimensione file e poi apre installer Android con tasto `Aggiorna`.
 - Nessun bottone `Release` nella UI update Android: il flusso resta interno all'app come UniNote (`Controlla > Scarica > Aggiorna`).
@@ -108,7 +121,17 @@ Documentazione:
 
 - `docs/windows-desktop-guide.md`
 - `docs/android-app-guide.md`
+- `docs/openclaw-operator-console-implementation.md`
 - `config/nemoclaw-defaults.json`
+
+Admin Bridge:
+
+- Progetto: `src/ChatClaw.AdminBridge`
+- Stack: ASP.NET Core minimal API, .NET 8.
+- Auth: bearer token da `CHATCLAW_ADMIN_TOKEN`.
+- File root: `CHATCLAW_ADMIN_ROOTS`.
+- Audit log: `~/.chatclaw-admin-bridge/audit.log` o `CHATCLAW_ADMIN_AUDIT`.
+- Endpoints reali: `/v1/status`, `/v1/actions/{doctor|security-audit|update-openclaw|plugin-list|restart-gateway}`, `/v1/logs/tail`, `/v1/files/list`, `/v1/files/read`, `/v1/files/write`.
 
 ## Preset OpenClaw
 
@@ -116,6 +139,9 @@ Usare questi default finche' server reale non esiste:
 
 ```text
 Gateway URL: https://openclaw.local:8443
+Gateway WS URL: wss://openclaw.local:8443
+Gateway WS protocol: 3
+Gateway WS role/scopes: operator / operator.read, operator.approvals, operator.config, operator.logs
 Provider: custom
 Endpoint inferenza lato server: http://localhost:8000/v1
 API: /v1/chat/completions
@@ -127,6 +153,7 @@ Nota architetturale:
 
 - App non devono parlare direttamente con NemoClaw/Ollama/local inference.
 - App devono parlare al futuro `OpenClaw Gateway API`.
+- Control plane primario: OpenClaw Gateway WebSocket ufficiale. REST `/api/*` resta fallback legacy fino a backend reale.
 - Segreti/provider token restano lato server.
 
 ## UI Composer
@@ -147,6 +174,12 @@ Windows:
 
 ```powershell
 dotnet build .\src\NemoclawChat.Windows\NemoclawChat.Windows.csproj -c Debug -p:Platform=x64
+```
+
+Admin Bridge:
+
+```powershell
+dotnet build .\src\ChatClaw.AdminBridge\ChatClaw.AdminBridge.csproj -c Debug
 ```
 
 Android:
@@ -196,8 +229,11 @@ src/NemoclawChat.Android/app/build/
 ## Prossimi Passi Probabili
 
 - Migliorare ulteriormente UI desktop/mobile.
-- Implementare server reale `OpenClaw Gateway API`.
+- Migliorare UI verticale oltre console unica: pagine separate per approvals realtime, config diff/rollback visuale, file/workspace manager, Admin Bridge, security center avanzato.
 - Se arriva backend definitivo, allineare i payload/contratti reali se differiscono da quelli flessibili attuali.
+- Prossima milestone: trasformare i probe WS in pagine operative vere: approvazioni exec realtime, modelli/provider, plugin/skills, log/audit, nodi, workspace, config patch, security center.
+- Migliorare pairing completo: QR/pairing device e revoca dispositivi. Base credenziali sicure gia' presente: Windows Credential Locker, Android Keystore.
+- Collegare evento `exec.approval.requested` e RPC `exec.approval.resolve` quando Gateway reale disponibile.
 - Eventuale rebrand tecnico completo dei namespace interni solo se non rompe la compatibilita update Android.
 - Aggiungere import archivio locale se richiesto.
 

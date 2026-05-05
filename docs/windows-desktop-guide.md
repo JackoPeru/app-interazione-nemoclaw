@@ -32,8 +32,9 @@ L'app Windows non deve parlare direttamente con CLI/sandbox NemoClaw. Serve un s
 
 ```text
 Windows App
-  -> HTTPS/SSE/WebSocket
-Nemoclaw Gateway API su home-server
+  -> OpenClaw Gateway WebSocket control plane
+  -> REST/SSE fallback legacy
+OpenClaw Gateway su home-server
   -> NemoClaw CLI/OpenShell/local inference
   -> Ollama/vLLM/OpenAI-compatible local endpoint
 ```
@@ -46,6 +47,15 @@ Perche gateway:
 - Audit, autorizzazioni, rate limit, pairing e policy restano lato server.
 
 ## Gateway richiesto
+
+Contratto primario: WebSocket Gateway OpenClaw ufficiale.
+
+- URL: `ws://` o `wss://`, default `wss://openclaw.local:8443`.
+- Primo frame client: RPC `connect` con `minProtocol=3`, `maxProtocol=3`, ruolo `operator`, scopes operatore e `auth.token` se presente.
+- RPC base usate dal client: `status`, `system-presence`, `models.status`, `models.list`, `plugins.list`, `channels.status`, `nodes.list`, `exec.approvals.get`.
+- Approvals: richieste reali da evento `exec.approval.requested`, risoluzione futura con `exec.approval.resolve`.
+
+Contratto REST legacy/fallback:
 
 Contratto minimo che la app si aspetta:
 

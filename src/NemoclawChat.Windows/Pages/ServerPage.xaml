@@ -89,6 +89,43 @@
                         </Border>
                     </StackPanel>
                 </Border>
+
+                <Border
+                    Padding="22"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="#FF3A3A3A"
+                    BorderThickness="1"
+                    CornerRadius="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Gateway OpenClaw WS" />
+                        <TextBlock x:Name="GatewayWsText" Foreground="White" TextWrapping="Wrap" />
+                        <TextBlock
+                            Foreground="{StaticResource MutedTextBrush}"
+                            FontSize="12"
+                            Text="Protocollo ufficiale: connect frame, ruolo operator, scopes, RPC. Pairing/token usati solo per test in questa build."
+                            TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <PasswordBox
+                                x:Name="GatewaySecretBox"
+                                Width="280"
+                                Header="Token/password temporaneo"
+                                PlaceholderText="Vuoto = usa segreto salvato" />
+                            <Button
+                                Background="{StaticResource AccentGreenBrush}"
+                                BorderThickness="0"
+                                Click="TestGatewayWs_Click"
+                                Content="Test WS RPC"
+                                Foreground="White" />
+                        </StackPanel>
+                        <Border Padding="14" Background="{StaticResource AssistantBubbleBrush}" CornerRadius="12">
+                            <TextBlock
+                                x:Name="GatewayWsResultText"
+                                Foreground="{StaticResource MutedTextBrush}"
+                                Text="Nessun probe WS eseguito."
+                                TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </Grid>
     </ScrollViewer>

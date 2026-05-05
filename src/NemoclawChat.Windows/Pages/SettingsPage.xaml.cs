@@ -19,12 +19,17 @@ public sealed partial class SettingsPage : Page
     {
         var settings = AppSettingsStore.Load();
         GatewayUrlBox.Text = settings.GatewayUrl;
+        GatewayWsUrlBox.Text = GatewayWebSocketService.NormalizeWebSocketUrl(settings.GatewayWsUrl, settings.GatewayUrl);
+        AdminBridgeUrlBox.Text = settings.AdminBridgeUrl;
         ProviderBox.Text = settings.Provider;
         InferenceEndpointBox.Text = settings.InferenceEndpoint;
         ModelBox.Text = settings.Model;
         DemoModeSwitch.IsOn = settings.DemoMode;
         SelectComboItem(PreferredApiBox, settings.PreferredApi);
         SelectComboItem(AccessModeBox, settings.AccessMode);
+        PairingCodeBox.PlaceholderText = GatewayCredentialStore.HasSecret()
+            ? "Segreto salvato nel Credential Locker"
+            : "Token/password o pairing code Gateway";
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -38,7 +43,30 @@ public sealed partial class SettingsPage : Page
         }
 
         AppSettingsStore.Save(settings);
-        StatusText.Text = "Impostazioni salvate. Pairing code non salvato per sicurezza.";
+        if (!string.IsNullOrWhiteSpace(PairingCodeBox.Password))
+        {
+            GatewayCredentialStore.SaveSecret(PairingCodeBox.Password);
+            PairingCodeBox.Password = string.Empty;
+        }
+
+        StatusText.Text = GatewayCredentialStore.HasSecret()
+            ? "Impostazioni salvate. Segreto Gateway salvato in Credential Locker."
+            : "Impostazioni salvate. Nessun segreto Gateway salvato.";
+    }
+
+    private async void TestGatewayWs_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = ReadSettings();
+        var error = ValidateWebSocket(settings.GatewayWsUrl);
+        if (error is not null)
+        {
+            StatusText.Text = error;
+            return;
+        }
+
+        StatusText.Text = $"Test WS: {settings.GatewayWsUrl}";
+        var probe = await GatewayWebSocketService.ProbeAsync(settings, ReadGatewaySecret());
+        StatusText.Text = $"{probe.Status} {probe.Details}";
     }
 
     private async void TestGateway_Click(object sender, RoutedEventArgs e)
@@ -70,8 +98,16 @@ public sealed partial class SettingsPage : Page
     private void Reset_Click(object sender, RoutedEventArgs e)
     {
         AppSettingsStore.Reset();
+        GatewayCredentialStore.DeleteSecret();
         LoadSettings();
         StatusText.Text = "Default ripristinati.";
+    }
+
+    private string ReadGatewaySecret()
+    {
+        return string.IsNullOrWhiteSpace(PairingCodeBox.Password)
+            ? GatewayCredentialStore.LoadSecret()
+            : PairingCodeBox.Password;
     }
 
     private AppSettings ReadSettings()
@@ -79,6 +115,8 @@ public sealed partial class SettingsPage : Page
         return new AppSettings
         {
             GatewayUrl = GatewayUrlBox.Text.Trim(),
+            GatewayWsUrl = GatewayWebSocketService.NormalizeWebSocketUrl(GatewayWsUrlBox.Text.Trim(), GatewayUrlBox.Text.Trim()),
+            AdminBridgeUrl = AdminBridgeUrlBox.Text.Trim(),
             Provider = ProviderBox.Text.Trim(),
             InferenceEndpoint = InferenceEndpointBox.Text.Trim(),
             PreferredApi = SelectedComboText(PreferredApiBox),
@@ -91,11 +129,29 @@ public sealed partial class SettingsPage : Page
     private static string? Validate(AppSettings settings)
     {
         return ValidateGateway(settings.GatewayUrl)
+            ?? ValidateWebSocket(settings.GatewayWsUrl)
+            ?? ValidateHttpUrl(settings.AdminBridgeUrl, "Admin Bridge URL")
             ?? ValidateRequired(settings.Provider, "Provider")
             ?? ValidateHttpUrl(settings.InferenceEndpoint, "Endpoint inferenza")
             ?? ValidateRequired(settings.PreferredApi, "API preferita")
             ?? ValidateRequired(settings.Model, "Modello")
             ?? ValidateRequired(settings.AccessMode, "Accesso");
+    }
+
+    private static string? ValidateWebSocket(string gatewayWsUrl)
+    {
+        if (string.IsNullOrWhiteSpace(gatewayWsUrl))
+        {
+            return "Gateway WebSocket URL obbligatorio.";
+        }
+
+        if (!Uri.TryCreate(gatewayWsUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != "ws" && uri.Scheme != "wss"))
+        {
+            return "Gateway WebSocket URL deve essere ws/wss valido.";
+        }
+
+        return null;
     }
 
     private static string? ValidateGateway(string gatewayUrl)

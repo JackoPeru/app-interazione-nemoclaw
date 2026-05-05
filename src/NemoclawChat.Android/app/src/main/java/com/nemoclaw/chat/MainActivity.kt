@@ -9,7 +9,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.Settings
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.speech.RecognizerIntent
+import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -51,6 +54,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -89,6 +93,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -96,16 +101,27 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.nemoclaw.chat.ui.theme.ChatClawTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.security.KeyStore
+import java.util.UUID
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -125,6 +141,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Archive("Archivio", Icons.Rounded.FolderOpen),
     Tasks("Ordini", Icons.Rounded.TaskAlt),
     Server("Server", Icons.Rounded.Dns),
+    Operator("Console", Icons.Rounded.Terminal),
     Settings("Imposta", Icons.Rounded.Tune),
     Profile("Profilo", Icons.Rounded.AccountCircle)
 }
@@ -187,6 +204,8 @@ private data class UpdateDownloadState(
 
 data class AppSettings(
     val gatewayUrl: String = AppDefaults.gatewayUrl,
+    val gatewayWsUrl: String = AppDefaults.gatewayWsUrl,
+    val adminBridgeUrl: String = AppDefaults.adminBridgeUrl,
     val provider: String = AppDefaults.provider,
     val inferenceEndpoint: String = AppDefaults.inferenceEndpoint,
     val preferredApi: String = AppDefaults.preferredApi,
@@ -214,6 +233,29 @@ private data class ServerSnapshot(
     val inferenceEndpoint: String,
     val policy: String,
     val statusMessage: String
+)
+
+private data class GatewayWsProbe(
+    val wsUrl: String,
+    val connected: Boolean,
+    val status: String,
+    val detail: String,
+    val capabilityLines: List<String> = emptyList()
+)
+
+private data class GatewayRpcCallResult(
+    val method: String,
+    val success: Boolean,
+    val status: String,
+    val rawJson: String,
+    val summary: String
+)
+
+private data class OperatorPreset(
+    val group: String,
+    val label: String,
+    val method: String,
+    val params: String
 )
 
 @Composable
@@ -273,6 +315,7 @@ private fun ChatApp() {
                 )
                 Tab.Tasks -> TasksScreen(context, settings)
                 Tab.Server -> ServerScreen(settings)
+                Tab.Operator -> OperatorScreen(context, settings)
                 Tab.Settings -> SettingsScreen(
                     settings = settings,
                     onSave = {
@@ -282,6 +325,7 @@ private fun ChatApp() {
                     onReset = {
                         settings = AppSettings()
                         saveSettings(context, settings)
+                        deleteGatewaySecret(context)
                     }
                 )
                 Tab.Profile -> ProfileScreen(context, settings)
@@ -1035,7 +1079,18 @@ private fun TaskCard(
 
 @Composable
 private fun ServerScreen(settings: AppSettings) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var wsProbe by remember(settings) {
+        mutableStateOf(
+            GatewayWsProbe(
+                wsUrl = normalizeGatewayWsUrl(settings.gatewayWsUrl, settings.gatewayUrl),
+                connected = false,
+                status = "Nessun probe WS eseguito.",
+                detail = "Usa Test WS RPC per verificare control plane OpenClaw."
+            )
+        )
+    }
     var snapshot by remember(settings) {
         mutableStateOf(
             ServerSnapshot(
@@ -1066,6 +1121,9 @@ private fun ServerScreen(settings: AppSettings) {
         }
         item {
             ServerMetric("Gateway", snapshot.gateway, "Health endpoint: ${snapshot.gateway.trimEnd('/')}/api/health")
+        }
+        item {
+            ServerMetric("Gateway WS", wsProbe.wsUrl, wsProbe.status)
         }
         item {
             ServerMetric("Modello", snapshot.model, snapshot.providerDetail)
@@ -1112,6 +1170,29 @@ private fun ServerScreen(settings: AppSettings) {
                 }
             }
         }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Control plane OpenClaw", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(wsProbe.detail, color = AppColors.Muted)
+                    Button(onClick = {
+                        wsProbe = wsProbe.copy(status = "Connessione WS...", detail = "Handshake connect protocollo 3 in corso.")
+                        scope.launch {
+                            wsProbe = probeGatewayWs(settings, loadGatewaySecret(context))
+                        }
+                    }) {
+                        Text("Test WS RPC")
+                    }
+                    if (wsProbe.capabilityLines.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            wsProbe.capabilityLines.forEach { line ->
+                                Text(line, color = AppColors.Muted, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1123,6 +1204,199 @@ private fun ServerMetric(title: String, value: String, detail: String) {
             Text(value, color = Color.White)
             Text(detail, color = AppColors.Muted, fontSize = 12.sp)
         }
+    }
+}
+
+@Composable
+private fun OperatorScreen(context: Context, settings: AppSettings) {
+    val scope = rememberCoroutineScope()
+    var method by remember { mutableStateOf("status") }
+    var params by remember { mutableStateOf("{}") }
+    var approvalId by remember { mutableStateOf("") }
+    var baseHash by remember { mutableStateOf("") }
+    var configPatch by remember { mutableStateOf("{\"ops\":[]}") }
+    var workspacePath by remember { mutableStateOf("") }
+    var workspaceText by remember { mutableStateOf("") }
+    var adminPath by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("Pronto.") }
+    var summary by remember { mutableStateOf("Nessuna risposta.") }
+    var raw by remember { mutableStateOf("") }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("Console", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("RPC reali verso OpenClaw Gateway WS. Nessun preset locale.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Preset RPC", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    OPERATOR_PRESETS.groupBy { it.group }.forEach { (group, presets) ->
+                        Text(group, color = AppColors.Muted, fontSize = 12.sp)
+                        presets.forEach { preset ->
+                            Button(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    method = preset.method
+                                    params = preset.params
+                                    status = "RPC ${preset.method}..."
+                                    summary = "Attesa risposta Gateway..."
+                                    raw = ""
+                                    scope.launch {
+                                        val result = gatewayRpcCall(settings, loadGatewaySecret(context), preset.method, preset.params)
+                                        status = result.status
+                                        summary = result.summary
+                                        raw = result.rawJson.ifBlank { result.summary }
+                                    }
+                                }
+                            ) {
+                                Text(preset.label)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Approvazioni exec", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Approval ID", approvalId, { approvalId = it })
+                    OperatorActionButton("Pending") { runOperatorRpc(context, settings, "exec.approvals.get", "{}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Allow once") { runOperatorRpc(context, settings, "exec.approval.resolve", "{\"id\":\"${approvalId.jsonEscaped()}\",\"decision\":\"allow-once\"}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Allow always") { runOperatorRpc(context, settings, "exec.approval.resolve", "{\"id\":\"${approvalId.jsonEscaped()}\",\"decision\":\"allow-always\"}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Deny") { runOperatorRpc(context, settings, "exec.approval.resolve", "{\"id\":\"${approvalId.jsonEscaped()}\",\"decision\":\"deny\"}", { status = it }, { summary = it }, { raw = it }) }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Config patch", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("baseHash", baseHash, { baseHash = it })
+                    SettingsField("Patch JSON", configPatch, { configPatch = it })
+                    OperatorActionButton("Leggi config") { runOperatorRpc(context, settings, "config.get", "{}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Patch config") { runOperatorRpc(context, settings, "config.patch", "{\"baseHash\":\"${baseHash.jsonEscaped()}\",\"patch\":$configPatch}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Apply config") { runOperatorRpc(context, settings, "config.apply", "{\"baseHash\":\"${baseHash.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Workspace / file", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Path consentito", workspacePath, { workspacePath = it })
+                    SettingsField("Testo file", workspaceText, { workspaceText = it })
+                    OperatorActionButton("Lista") { runOperatorRpc(context, settings, "workspace.files.list", "{\"path\":\"${workspacePath.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Leggi") { runOperatorRpc(context, settings, "workspace.files.read", "{\"path\":\"${workspacePath.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Scrivi") { runOperatorRpc(context, settings, "workspace.files.write", "{\"path\":\"${workspacePath.jsonEscaped()}\",\"text\":\"${workspaceText.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Admin Bridge", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Path/log", adminPath, { adminPath = it })
+                    OperatorActionButton("Status") { runAdminBridge(context, settings, "GET", "/v1/status", null, { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Doctor") { runAdminBridge(context, settings, "POST", "/v1/actions/doctor", null, { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Audit") { runAdminBridge(context, settings, "POST", "/v1/actions/security-audit", null, { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Restart") { runAdminBridge(context, settings, "POST", "/v1/actions/restart-gateway", null, { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Tail log") { runAdminBridge(context, settings, "POST", "/v1/logs/tail", JSONObject().put("path", adminPath).put("lines", 200), { status = it }, { summary = it }, { raw = it }) }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("RPC manuale", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Metodo", method, { method = it })
+                    SettingsField("Params JSON", params, { params = it })
+                    Button(onClick = {
+                        status = "RPC ${method.trim()}..."
+                        summary = "Attesa risposta Gateway..."
+                        raw = ""
+                        scope.launch {
+                            val result = gatewayRpcCall(settings, loadGatewaySecret(context), method, params)
+                            status = result.status
+                            summary = result.summary
+                            raw = result.rawJson.ifBlank { result.summary }
+                        }
+                    }) {
+                        Text("Esegui RPC")
+                    }
+                    Text(status, color = AppColors.Muted)
+                    Text(summary, color = AppColors.Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Text(
+                    modifier = Modifier.padding(16.dp),
+                    text = raw.ifBlank { "Nessuna risposta." },
+                    color = Color.White,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OperatorActionButton(label: String, onClick: () -> Unit) {
+    Button(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
+        Text(label)
+    }
+}
+
+private fun runOperatorRpc(
+    context: Context,
+    settings: AppSettings,
+    method: String,
+    params: String,
+    setStatus: (String) -> Unit,
+    setSummary: (String) -> Unit,
+    setRaw: (String) -> Unit
+) {
+    setStatus("RPC $method...")
+    setSummary("Attesa risposta Gateway...")
+    setRaw("")
+    kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+        val result = gatewayRpcCall(settings, loadGatewaySecret(context), method, params)
+        setStatus(result.status)
+        setSummary(result.summary)
+        setRaw(result.rawJson.ifBlank { result.summary })
+    }
+}
+
+private fun runAdminBridge(
+    context: Context,
+    settings: AppSettings,
+    method: String,
+    path: String,
+    payload: JSONObject?,
+    setStatus: (String) -> Unit,
+    setSummary: (String) -> Unit,
+    setRaw: (String) -> Unit
+) {
+    setStatus("Admin Bridge $path...")
+    setSummary("Attesa risposta Admin Bridge...")
+    setRaw("")
+    kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+        val result = adminBridgeCall(settings, loadGatewaySecret(context), method, path, payload)
+        setStatus(result.status)
+        setSummary(result.summary)
+        setRaw(result.rawJson.ifBlank { result.summary })
     }
 }
 
@@ -1298,8 +1572,12 @@ private fun SettingsScreen(
     onSave: (AppSettings) -> Unit,
     onReset: () -> Unit
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var gatewayUrl by remember(settings) { mutableStateOf(settings.gatewayUrl) }
+    var gatewayWsUrl by remember(settings) { mutableStateOf(normalizeGatewayWsUrl(settings.gatewayWsUrl, settings.gatewayUrl)) }
+    var adminBridgeUrl by remember(settings) { mutableStateOf(settings.adminBridgeUrl) }
+    var gatewaySecret by remember(settings) { mutableStateOf("") }
     var provider by remember(settings) { mutableStateOf(settings.provider) }
     var inferenceEndpoint by remember(settings) { mutableStateOf(settings.inferenceEndpoint) }
     var preferredApi by remember(settings) { mutableStateOf(settings.preferredApi) }
@@ -1320,6 +1598,15 @@ private fun SettingsScreen(
         Spacer(modifier = Modifier.height(18.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { SettingsField("Gateway URL", gatewayUrl, { gatewayUrl = it }) }
+            item { SettingsField("Gateway WebSocket URL", gatewayWsUrl, { gatewayWsUrl = it }) }
+            item { SettingsField("ChatClaw Admin Bridge URL", adminBridgeUrl, { adminBridgeUrl = it }) }
+            item {
+                SettingsPasswordField(
+                    label = if (hasGatewaySecret(context)) "Token/password Gateway (gia' salvato)" else "Token/password Gateway",
+                    value = gatewaySecret,
+                    onValueChange = { gatewaySecret = it }
+                )
+            }
             item { SettingsField("Provider", provider, { provider = it }) }
             item { SettingsField("Inferenza lato server", inferenceEndpoint, { inferenceEndpoint = it }) }
             item { SettingsField("API preferita", preferredApi, { preferredApi = it }) }
@@ -1341,44 +1628,87 @@ private fun SettingsScreen(
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = {
-                        val candidate = AppSettings(
-                            gatewayUrl = gatewayUrl.trim(),
-                            provider = provider.trim(),
-                            inferenceEndpoint = inferenceEndpoint.trim(),
-                            preferredApi = preferredApi.trim(),
-                            model = model.trim(),
-                            accessMode = accessMode.trim(),
-                            demoMode = demoMode
-                        )
-                        val error = validateSettings(candidate)
-                        if (error == null) {
-                            onSave(candidate)
-                            status = "Impostazioni salvate. Pairing code non salvato per sicurezza."
-                        } else {
-                            status = error
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = {
+                            val candidate = AppSettings(
+                                gatewayUrl = gatewayUrl.trim(),
+                                gatewayWsUrl = normalizeGatewayWsUrl(gatewayWsUrl.trim(), gatewayUrl.trim()),
+                                adminBridgeUrl = adminBridgeUrl.trim(),
+                                provider = provider.trim(),
+                                inferenceEndpoint = inferenceEndpoint.trim(),
+                                preferredApi = preferredApi.trim(),
+                                model = model.trim(),
+                                accessMode = accessMode.trim(),
+                                demoMode = demoMode
+                            )
+                            val error = validateSettings(candidate)
+                            if (error == null) {
+                                onSave(candidate)
+                                if (gatewaySecret.isNotBlank()) {
+                                    saveGatewaySecret(context, gatewaySecret)
+                                    gatewaySecret = ""
+                                }
+                                status = if (hasGatewaySecret(context)) {
+                                    "Impostazioni salvate. Segreto Gateway cifrato in Android Keystore."
+                                } else {
+                                    "Impostazioni salvate. Nessun segreto Gateway salvato."
+                                }
+                            } else {
+                                status = error
+                            }
+                        }) {
+                            Text("Salva")
                         }
-                    }) {
-                        Text("Salva")
-                    }
-                    Button(onClick = {
-                        val error = validateHttpUrl(gatewayUrl, "Gateway URL")
-                        if (error != null) {
-                            status = error
-                            return@Button
-                        }
-
-                        val healthUrl = "${gatewayUrl.trimEnd('/')}/api/health"
-                        status = "Test: $healthUrl"
+                        Button(onClick = {
+                            val candidate = AppSettings(
+                                gatewayUrl = gatewayUrl.trim(),
+                                gatewayWsUrl = normalizeGatewayWsUrl(gatewayWsUrl.trim(), gatewayUrl.trim()),
+                                adminBridgeUrl = adminBridgeUrl.trim(),
+                                provider = provider.trim(),
+                                inferenceEndpoint = inferenceEndpoint.trim(),
+                                preferredApi = preferredApi.trim(),
+                                model = model.trim(),
+                                accessMode = accessMode.trim(),
+                                demoMode = demoMode
+                            )
+                            val error = validateWsUrl(candidate.gatewayWsUrl, "Gateway WebSocket URL")
+                            if (error != null) {
+                                status = error
+                                return@Button
+                            }
+                        status = "Test WS: ${candidate.gatewayWsUrl}"
                         scope.launch {
-                            status = testGateway(healthUrl)
+                            val probe = probeGatewayWs(candidate, gatewaySecret.ifBlank { loadGatewaySecret(context) })
+                            status = "${probe.status} ${probe.detail}"
                         }
-                    }) {
-                        Text("Test")
+                        }) {
+                            Text("Test WS")
+                        }
                     }
-                    Button(onClick = onReset) {
-                        Text("Reset")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = {
+                            val error = validateHttpUrl(gatewayUrl, "Gateway URL")
+                            if (error != null) {
+                                status = error
+                                return@Button
+                            }
+
+                            val healthUrl = "${gatewayUrl.trimEnd('/')}/api/health"
+                            status = "Test: $healthUrl"
+                            scope.launch {
+                                status = testGateway(healthUrl)
+                            }
+                        }) {
+                            Text("Test REST")
+                        }
+                        Button(onClick = {
+                            deleteGatewaySecret(context)
+                            gatewaySecret = ""
+                            onReset()
+                        }) {
+                            Text("Reset")
+                        }
                     }
                 }
             }
@@ -1405,6 +1735,26 @@ private fun SettingsField(label: String, value: String, onValueChange: (String) 
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsPasswordField(label: String, value: String, onValueChange: (String) -> Unit) {
+    TextField(
+        modifier = Modifier.fillMaxWidth(),
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, color = AppColors.Muted) },
+        visualTransformation = PasswordVisualTransformation(),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = AppColors.Composer,
+            unfocusedContainerColor = AppColors.Composer,
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            focusedIndicatorColor = AppColors.Accent,
+            unfocusedIndicatorColor = Color.Transparent
+        )
+    )
+}
+
 private fun appendPrompt(current: String, addition: String): String {
     val trimmed = current.trim()
     return if (trimmed.isEmpty()) addition else "$trimmed\n$addition"
@@ -1412,11 +1762,25 @@ private fun appendPrompt(current: String, addition: String): String {
 
 private fun validateSettings(settings: AppSettings): String? {
     return validateHttpUrl(settings.gatewayUrl, "Gateway URL")
+        ?: validateWsUrl(settings.gatewayWsUrl, "Gateway WebSocket URL")
+        ?: validateHttpUrl(settings.adminBridgeUrl, "Admin Bridge URL")
         ?: validateRequired(settings.provider, "Provider")
         ?: validateHttpUrl(settings.inferenceEndpoint, "Endpoint inferenza")
         ?: validateRequired(settings.preferredApi, "API preferita")
         ?: validateRequired(settings.model, "Modello")
         ?: validateRequired(settings.accessMode, "Accesso")
+}
+
+private fun validateWsUrl(value: String, label: String): String? {
+    if (value.isBlank()) return "$label obbligatorio."
+
+    return try {
+        val uri = URI(value)
+        val scheme = uri.scheme.orEmpty().lowercase()
+        if ((scheme == "ws" || scheme == "wss") && uri.host != null) null else "$label deve essere URL ws/wss valido."
+    } catch (_: Exception) {
+        "$label deve essere URL ws/wss valido."
+    }
 }
 
 private fun validateHttpUrl(value: String, label: String): String? {
@@ -1636,6 +2000,228 @@ private suspend fun testGateway(healthUrl: String): String = withContext(Dispatc
     }
 }
 
+private suspend fun probeGatewayWs(settings: AppSettings, authSecret: String?): GatewayWsProbe = withContext(Dispatchers.IO) {
+    val wsUrl = normalizeGatewayWsUrl(settings.gatewayWsUrl, settings.gatewayUrl)
+    val error = validateWsUrl(wsUrl, "Gateway WebSocket URL")
+    if (error != null) {
+        return@withContext GatewayWsProbe(wsUrl, false, error, "Usa ws:// o wss://.")
+    }
+
+    try {
+        val client = OkHttpClient.Builder().build()
+        val responses = mutableListOf<String>()
+        val messages = CompletableDeferred<MutableList<String>>()
+        val requestBuilder = Request.Builder()
+            .url(wsUrl)
+            .header("User-Agent", "ChatClaw-Android")
+        if (!authSecret.isNullOrBlank()) {
+            requestBuilder.header("Authorization", "Bearer ${authSecret.trim()}")
+        }
+
+        lateinit var socket: WebSocket
+        socket = client.newWebSocket(
+            requestBuilder.build(),
+            object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.send(buildConnectFrame(authSecret))
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    responses += text
+                    if (responses.size == 1) {
+                        GATEWAY_WS_RPC_METHODS.forEach { method ->
+                            webSocket.send(buildRpcFrame(method))
+                        }
+                    }
+                    if (responses.size >= GATEWAY_WS_RPC_METHODS.size + 1 && !messages.isCompleted) {
+                        messages.complete(responses)
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (!messages.isCompleted) {
+                        messages.completeExceptionally(t)
+                    }
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!messages.isCompleted) {
+                        messages.completeExceptionally(IllegalStateException("Socket chiuso: $code $reason"))
+                    }
+                }
+            }
+        )
+
+        val received = withTimeout(8_000) {
+            messages.await()
+        }
+        socket.close(1000, "probe complete")
+        client.dispatcher.executorService.shutdown()
+
+        val hello = received.firstOrNull().orEmpty()
+        val lines = received.drop(1).mapIndexed { index, frame ->
+            "${GATEWAY_WS_RPC_METHODS[index]}: ${summarizeGatewayFrame(frame)}"
+        }
+        GatewayWsProbe(
+            wsUrl = wsUrl,
+            connected = true,
+            status = "Gateway WS connesso.",
+            detail = "Handshake: ${summarizeGatewayFrame(hello)}",
+            capabilityLines = lines
+        )
+    } catch (ex: Exception) {
+        GatewayWsProbe(
+            wsUrl = wsUrl,
+            connected = false,
+            status = "Gateway WS non raggiungibile.",
+            detail = ex.message ?: ex.javaClass.simpleName
+        )
+    }
+}
+
+private suspend fun gatewayRpcCall(
+    settings: AppSettings,
+    authSecret: String?,
+    method: String,
+    rawParams: String
+): GatewayRpcCallResult = withContext(Dispatchers.IO) {
+    val targetMethod = method.trim()
+    if (targetMethod.isBlank()) {
+        return@withContext GatewayRpcCallResult(method, false, "Metodo RPC obbligatorio.", "", "")
+    }
+
+    val params = try {
+        JSONObject(rawParams.ifBlank { "{}" })
+    } catch (ex: Exception) {
+        return@withContext GatewayRpcCallResult(targetMethod, false, "Parametri JSON non validi.", "", ex.message ?: ex.javaClass.simpleName)
+    }
+
+    val wsUrl = normalizeGatewayWsUrl(settings.gatewayWsUrl, settings.gatewayUrl)
+    val error = validateWsUrl(wsUrl, "Gateway WebSocket URL")
+    if (error != null) {
+        return@withContext GatewayRpcCallResult(targetMethod, false, error, "", "Usa ws:// o wss://.")
+    }
+
+    try {
+        val client = OkHttpClient.Builder().build()
+        val responseMessage = CompletableDeferred<String>()
+        val requestId = UUID.randomUUID().toString()
+        val requestBuilder = Request.Builder()
+            .url(wsUrl)
+            .header("User-Agent", "ChatClaw-Android")
+        if (!authSecret.isNullOrBlank()) {
+            requestBuilder.header("Authorization", "Bearer ${authSecret.trim()}")
+        }
+
+        lateinit var socket: WebSocket
+        socket = client.newWebSocket(
+            requestBuilder.build(),
+            object : WebSocketListener() {
+                private var rpcSent = false
+
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.send(buildConnectFrame(authSecret))
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val json = runCatching { JSONObject(text) }.getOrNull()
+                    if (json?.optString("id") == requestId && !responseMessage.isCompleted) {
+                        responseMessage.complete(text)
+                    } else if (!rpcSent) {
+                        rpcSent = true
+                        webSocket.send(buildRpcFrame(targetMethod, params, requestId))
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (!responseMessage.isCompleted) {
+                        responseMessage.completeExceptionally(t)
+                    }
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!responseMessage.isCompleted) {
+                        responseMessage.completeExceptionally(IllegalStateException("Socket chiuso: $code $reason"))
+                    }
+                }
+            }
+        )
+
+        val raw = withTimeout(12_000) { responseMessage.await() }
+        socket.close(1000, "rpc complete")
+        client.dispatcher.executorService.shutdown()
+
+        val json = JSONObject(raw)
+        val failed = json.has("error")
+        GatewayRpcCallResult(
+            method = targetMethod,
+            success = !failed,
+            status = if (failed) "RPC errore." else "RPC completata.",
+            rawJson = prettyJson(raw),
+            summary = summarizeGatewayFrame(raw)
+        )
+    } catch (ex: Exception) {
+        GatewayRpcCallResult(
+            method = targetMethod,
+            success = false,
+            status = "RPC fallita.",
+            rawJson = "",
+            summary = ex.message ?: ex.javaClass.simpleName
+        )
+    }
+}
+
+private suspend fun adminBridgeCall(
+    settings: AppSettings,
+    token: String?,
+    method: String,
+    path: String,
+    payload: JSONObject?
+): GatewayRpcCallResult = withContext(Dispatchers.IO) {
+    val baseUrl = settings.adminBridgeUrl.trimEnd('/')
+    val error = validateHttpUrl(baseUrl, "Admin Bridge URL")
+    if (error != null) {
+        return@withContext GatewayRpcCallResult(path, false, error, "", "Usa http/https valido.")
+    }
+
+    try {
+        val client = OkHttpClient.Builder().build()
+        val builder = Request.Builder()
+            .url("$baseUrl$path")
+            .header("Accept", "application/json")
+            .header("User-Agent", "ChatClaw-Android")
+        if (!token.isNullOrBlank()) {
+            builder.header("Authorization", "Bearer ${token.trim()}")
+        }
+
+        val request = when (method.uppercase()) {
+            "GET" -> builder.get().build()
+            else -> builder
+                .method(method.uppercase(), (payload ?: JSONObject()).toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+        }
+
+        client.newCall(request).execute().use { response ->
+            val body = response.body.string()
+            GatewayRpcCallResult(
+                method = path,
+                success = response.isSuccessful,
+                status = if (response.isSuccessful) "Admin Bridge OK." else "Admin Bridge HTTP ${response.code}.",
+                rawJson = prettyJson(body),
+                summary = summarizeGatewayFrame(body)
+            )
+        }
+    } catch (ex: Exception) {
+        GatewayRpcCallResult(
+            method = path,
+            success = false,
+            status = "Admin Bridge fallito.",
+            rawJson = "",
+            summary = ex.message ?: ex.javaClass.simpleName
+        )
+    }
+}
+
 private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
@@ -1663,6 +2249,157 @@ private suspend fun postJson(url: String, payload: JSONObject): Pair<Int, String
     client.newCall(request).execute().use { response ->
         response.code to response.body.string()
     }
+}
+
+private val GATEWAY_WS_RPC_METHODS = listOf(
+    "status",
+    "system-presence",
+    "models.status",
+    "models.list",
+    "plugins.list",
+    "channels.status",
+    "nodes.list",
+    "exec.approvals.get"
+)
+
+private val OPERATOR_PRESETS = listOf(
+    OperatorPreset("Dashboard", "Status", "status", "{}"),
+    OperatorPreset("Dashboard", "Presenza", "system-presence", "{}"),
+    OperatorPreset("Dashboard", "Log recenti", "logs.tail", "{\"sinceMs\":600000,\"limit\":100}"),
+    OperatorPreset("Modelli", "Stato modelli", "models.status", "{}"),
+    OperatorPreset("Modelli", "Lista modelli", "models.list", "{}"),
+    OperatorPreset("Modelli", "Scan provider", "models.scan", "{}"),
+    OperatorPreset("Plugin", "Lista plugin", "plugins.list", "{}"),
+    OperatorPreset("Plugin", "Doctor plugin", "plugins.doctor", "{}"),
+    OperatorPreset("Approvazioni", "Pending exec", "exec.approvals.get", "{}"),
+    OperatorPreset("Config", "Leggi config", "config.get", "{}"),
+    OperatorPreset("Canali", "Stato canali", "channels.status", "{}"),
+    OperatorPreset("Canali", "Lista canali", "channels.list", "{}"),
+    OperatorPreset("Cron", "Stato cron", "cron.status", "{}"),
+    OperatorPreset("Cron", "Lista cron", "cron.list", "{\"all\":true}"),
+    OperatorPreset("Nodi", "Lista nodi", "nodes.list", "{}"),
+    OperatorPreset("Security", "Audit sicurezza", "security.audit", "{\"deep\":true}"),
+    OperatorPreset("Memoria", "Stato memoria", "memory.status", "{}"),
+    OperatorPreset("Secrets", "Audit secrets", "secrets.audit", "{}"),
+    OperatorPreset("Secrets", "Reload secrets", "secrets.reload", "{}"),
+    OperatorPreset("Update", "Update stack", "update.run", "{}")
+)
+
+private fun normalizeGatewayWsUrl(wsUrl: String, gatewayUrl: String): String {
+    val candidate = wsUrl.ifBlank { gatewayUrl }.ifBlank { AppDefaults.gatewayWsUrl }
+    return try {
+        val uri = URI(candidate)
+        val scheme = when (uri.scheme.orEmpty().lowercase()) {
+            "https" -> "wss"
+            "http" -> "ws"
+            "ws", "wss" -> uri.scheme.lowercase()
+            else -> "wss"
+        }
+        URI(
+            scheme,
+            uri.userInfo,
+            uri.host,
+            uri.port,
+            uri.path.takeUnless { it.isNullOrBlank() },
+            uri.query,
+            uri.fragment
+        ).toString().trimEnd('/')
+    } catch (_: Exception) {
+        AppDefaults.gatewayWsUrl
+    }
+}
+
+private fun buildConnectFrame(authSecret: String?): String {
+    return JSONObject()
+        .put("type", "req")
+        .put("id", UUID.randomUUID().toString())
+        .put("method", "connect")
+        .put(
+            "params",
+            JSONObject()
+                .put("minProtocol", 3)
+                .put("maxProtocol", 3)
+                .put(
+                    "client",
+                    JSONObject()
+                        .put("id", "chatclaw-android")
+                        .put("version", "0.5.0")
+                        .put("platform", "android")
+                        .put("mode", "operator")
+                )
+                .put("role", "operator")
+                .put("scopes", JSONArray(listOf("operator.read", "operator.write", "operator.approvals", "operator.pairing")))
+                .put("caps", JSONArray())
+                .put("commands", JSONArray())
+                .put("permissions", JSONObject())
+                .put("auth", if (authSecret.isNullOrBlank()) JSONObject.NULL else JSONObject().put("token", authSecret.trim()))
+                .put("locale", "it-IT")
+                .put("userAgent", "ChatClaw-Android/0.5.0")
+                .put(
+                    "device",
+                    JSONObject()
+                        .put("id", "chatclaw-android")
+                        .put("signedAt", System.currentTimeMillis())
+                )
+        )
+        .toString()
+}
+
+private fun buildRpcFrame(method: String): String {
+    return buildRpcFrame(method, JSONObject(), UUID.randomUUID().toString())
+}
+
+private fun buildRpcFrame(method: String, params: JSONObject, id: String): String {
+    return JSONObject()
+        .put("type", "req")
+        .put("id", id)
+        .put("method", method)
+        .put("params", params)
+        .toString()
+}
+
+private fun summarizeGatewayFrame(frame: String): String {
+    return try {
+        val json = JSONObject(frame)
+        val error = json.opt("error")
+        if (error != null) {
+            "errore: ${extractGatewayText(error).ifBlank { error.toString() }}".limitText(180)
+        } else {
+            val value = json.opt("result") ?: json.opt("data") ?: json.opt("payload") ?: json.opt("params") ?: frame
+            extractGatewayText(value).ifBlank { value.toString() }.limitText(180)
+        }
+    } catch (_: Exception) {
+        frame.limitText(180)
+    }
+}
+
+private fun extractGatewayText(value: Any?): String {
+    return when (value) {
+        is String -> value
+        is JSONObject -> listOf("message", "status", "version", "name", "id")
+            .firstNotNullOfOrNull { key -> value.optString(key).takeIf { it.isNotBlank() } }
+            .orEmpty()
+        else -> ""
+    }
+}
+
+private fun prettyJson(raw: String): String {
+    return try {
+        JSONObject(raw).toString(2)
+    } catch (_: Exception) {
+        raw
+    }
+}
+
+private fun String.limitText(maxLength: Int): String {
+    return if (length <= maxLength) this else take(maxLength) + "..."
+}
+
+private fun String.jsonEscaped(): String {
+    return replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
 }
 
 private fun extractAssistantText(body: String): String {
@@ -2070,6 +2807,8 @@ private fun loadSettings(context: Context): AppSettings {
     val prefs = migratePrefs(context, CURRENT_SETTINGS_PREFS, LEGACY_SETTINGS_PREFS)
     return AppSettings(
         gatewayUrl = prefs.getString("gatewayUrl", AppDefaults.gatewayUrl) ?: AppDefaults.gatewayUrl,
+        gatewayWsUrl = prefs.getString("gatewayWsUrl", AppDefaults.gatewayWsUrl) ?: AppDefaults.gatewayWsUrl,
+        adminBridgeUrl = prefs.getString("adminBridgeUrl", AppDefaults.adminBridgeUrl) ?: AppDefaults.adminBridgeUrl,
         provider = prefs.getString("provider", AppDefaults.provider) ?: AppDefaults.provider,
         inferenceEndpoint = prefs.getString("inferenceEndpoint", AppDefaults.inferenceEndpoint) ?: AppDefaults.inferenceEndpoint,
         preferredApi = prefs.getString("preferredApi", AppDefaults.preferredApi) ?: AppDefaults.preferredApi,
@@ -2083,6 +2822,8 @@ private fun saveSettings(context: Context, settings: AppSettings) {
     context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString("gatewayUrl", settings.gatewayUrl)
+        .putString("gatewayWsUrl", settings.gatewayWsUrl)
+        .putString("adminBridgeUrl", settings.adminBridgeUrl)
         .putString("provider", settings.provider)
         .putString("inferenceEndpoint", settings.inferenceEndpoint)
         .putString("preferredApi", settings.preferredApi)
@@ -2090,6 +2831,66 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .putString("accessMode", settings.accessMode)
         .putBoolean("demoMode", settings.demoMode)
         .apply()
+}
+
+private fun hasGatewaySecret(context: Context): Boolean {
+    return !loadGatewaySecret(context).isNullOrBlank()
+}
+
+private fun loadGatewaySecret(context: Context): String? {
+    val encoded = context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .getString(GATEWAY_SECRET_PREF_KEY, null)
+        ?: return null
+
+    return try {
+        val packed = Base64.decode(encoded, Base64.NO_WRAP)
+        if (packed.size <= 12) return null
+        val iv = packed.copyOfRange(0, 12)
+        val ciphertext = packed.copyOfRange(12, packed.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateGatewaySecretKey(), GCMParameterSpec(128, iv))
+        String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun saveGatewaySecret(context: Context, secret: String) {
+    if (secret.isBlank()) return
+
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.ENCRYPT_MODE, getOrCreateGatewaySecretKey())
+    val ciphertext = cipher.doFinal(secret.trim().toByteArray(Charsets.UTF_8))
+    val packed = cipher.iv + ciphertext
+    context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(GATEWAY_SECRET_PREF_KEY, Base64.encodeToString(packed, Base64.NO_WRAP))
+        .apply()
+}
+
+private fun deleteGatewaySecret(context: Context) {
+    context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(GATEWAY_SECRET_PREF_KEY)
+        .apply()
+}
+
+private fun getOrCreateGatewaySecretKey(): SecretKey {
+    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    (keyStore.getEntry(GATEWAY_SECRET_KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey?.let {
+        return it
+    }
+
+    val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+    val spec = KeyGenParameterSpec.Builder(
+        GATEWAY_SECRET_KEY_ALIAS,
+        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+    )
+        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+        .build()
+    keyGenerator.init(spec)
+    return keyGenerator.generateKey()
 }
 
 private fun loadArchiveItems(context: Context): List<ArchiveItem> {
@@ -2411,9 +3212,13 @@ private const val CURRENT_ARCHIVE_PREFS = "chatclaw_archive"
 private const val LEGACY_ARCHIVE_PREFS = "nemoclaw_archive"
 private const val CURRENT_TASKS_PREFS = "chatclaw_tasks"
 private const val LEGACY_TASKS_PREFS = "nemoclaw_tasks"
+private const val GATEWAY_SECRET_PREF_KEY = "gatewaySecretCiphertext"
+private const val GATEWAY_SECRET_KEY_ALIAS = "chatclaw_gateway_secret"
 
 private object AppDefaults {
-      const val gatewayUrl = "https://openclaw.local:8443"
+    const val gatewayUrl = "https://openclaw.local:8443"
+    const val gatewayWsUrl = "wss://openclaw.local:8443"
+    const val adminBridgeUrl = "https://openclaw.local:9443"
     const val provider = "custom"
     const val inferenceEndpoint = "http://localhost:8000/v1"
     const val preferredApi = "openai-completions -> /v1/chat/completions"

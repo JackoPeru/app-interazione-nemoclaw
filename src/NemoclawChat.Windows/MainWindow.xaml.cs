@@ -72,6 +72,11 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(ServerPage));
     }
 
+    private void Operator_Click(object sender, RoutedEventArgs e)
+    {
+        ContentFrame.Navigate(typeof(OperatorPage));
+    }
+
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         ContentFrame.Navigate(typeof(SettingsPage));

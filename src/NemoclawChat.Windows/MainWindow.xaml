@@ -88,6 +88,12 @@
                             <TextBlock Text="Server" />
                         </StackPanel>
                     </Button>
+                    <Button Click="Operator_Click" Style="{StaticResource SidebarButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon FontSize="15" Glyph="&#xE950;" />
+                            <TextBlock Text="Console" />
+                        </StackPanel>
+                    </Button>
                     <Button Click="Settings_Click" Style="{StaticResource SidebarButtonStyle}">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE713;" />

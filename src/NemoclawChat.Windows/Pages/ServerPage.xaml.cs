@@ -28,6 +28,20 @@ public sealed partial class ServerPage : Page
         StatusText.Text = snapshot.StatusMessage;
     }
 
+    private async void TestGatewayWs_Click(object sender, RoutedEventArgs e)
+    {
+        GatewayWsResultText.Text = "Connessione WS e handshake OpenClaw...";
+        var secret = string.IsNullOrWhiteSpace(GatewaySecretBox.Password)
+            ? GatewayCredentialStore.LoadSecret()
+            : GatewaySecretBox.Password;
+        var probe = await GatewayWebSocketService.ProbeAsync(_settings, secret);
+        GatewayWsResultText.Text =
+            $"{probe.Status}\n{probe.Details}\n\n" +
+            (probe.CapabilityLines.Count == 0
+                ? "Nessuna RPC capability letta."
+                : string.Join("\n", probe.CapabilityLines));
+    }
+
     private void ShowApiContract_Click(object sender, RoutedEventArgs e)
     {
         ContractText.Text =
@@ -45,6 +59,7 @@ public sealed partial class ServerPage : Page
         var snapshot = await GatewayService.GetServerSnapshotAsync(_settings);
         GatewayText.Text = snapshot.Gateway;
         GatewayDetailText.Text = $"Health: {snapshot.Gateway.TrimEnd('/')}/api/health";
+        GatewayWsText.Text = GatewayWebSocketService.NormalizeWebSocketUrl(_settings.GatewayWsUrl, _settings.GatewayUrl);
         ModelText.Text = snapshot.Model;
         ProviderText.Text = snapshot.ProviderDetail;
         InferenceText.Text = snapshot.InferenceEndpoint;
