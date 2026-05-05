@@ -36,18 +36,19 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Border
-                        Width="34"
-                        Height="34"
+                        Width="40"
+                        Height="40"
+                        Background="#FF0A0F16"
                         CornerRadius="12">
                         <Image
-                            Width="34"
-                            Height="34"
+                            Width="40"
+                            Height="40"
                             Source="ms-appx:///Assets/ChatClawLogo.png"
                             Stretch="UniformToFill" />
                     </Border>
                     <TextBlock
                         Grid.Column="1"
-                        FontSize="18"
+                        FontSize="20"
                         FontWeight="SemiBold"
                         Foreground="White"
                         Text="ChatClaw" />
@@ -201,8 +202,10 @@
                     Spacing="10">
                     <Border
                         Padding="10,5"
-                        Background="#FF2A2A2A"
-                        CornerRadius="12">
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrushSoft}"
+                        BorderThickness="1"
+                        CornerRadius="18">
                         <TextBlock
                             FontSize="12"
                             Foreground="{StaticResource MutedTextBrush}"

@@ -251,8 +251,10 @@ public sealed partial class HomePage : Page
         {
             MaxWidth = 720,
             Padding = new Thickness(18, 14, 18, 14),
-            CornerRadius = new CornerRadius(18),
+            CornerRadius = new CornerRadius(20),
             Background = (Brush)Application.Current.Resources[brushKey],
+            BorderBrush = (Brush)Application.Current.Resources["BorderBrushSoft"],
+            BorderThickness = new Thickness(1),
             HorizontalAlignment = alignment,
             Child = new StackPanel
             {

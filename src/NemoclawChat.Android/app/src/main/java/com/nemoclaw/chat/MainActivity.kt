@@ -87,6 +87,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -277,7 +278,7 @@ private fun ChatApp() {
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Color.White,
                             selectedTextColor = Color.White,
-                            indicatorColor = Color(0xFF2E425D),
+                            indicatorColor = AppColors.NavIndicator,
                             unselectedIconColor = AppColors.Muted,
                             unselectedTextColor = AppColors.Muted
                         ),
@@ -476,6 +477,11 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0x1A2DA8FF), AppColors.Background, AppColors.Background)
+                )
+            )
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
@@ -523,7 +529,7 @@ private fun createInitialTasks(@Suppress("UNUSED_PARAMETER") settings: AppSettin
 
 @Composable
 private fun SuggestionButton(text: String, onClick: () -> Unit) {
-    Surface(
+        Surface(
         modifier = Modifier.clickable(onClick = onClick),
         color = AppColors.Surface,
         shape = RoundedCornerShape(18.dp)
@@ -624,7 +630,7 @@ private fun Composer(
                     DropdownMenu(
                         expanded = expanded,
                         onDismissRequest = { expanded = false },
-                        containerColor = AppColors.Surface
+                        containerColor = AppColors.Elevated
                     ) {
                         DropdownMenuItem(
                             text = { Text("Aggiungi file al task", color = Color.White) },
@@ -670,7 +676,7 @@ private fun Composer(
                                 )
                             }
                         )
-                        HorizontalDivider(color = Color(0xFF3A3A3A))
+                        HorizontalDivider(color = AppColors.Border)
                         DropdownMenuItem(
                             text = { Text("Passa a modalita Chat", color = Color.White) },
                             leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null, tint = Color.White) },
@@ -689,7 +695,7 @@ private fun Composer(
                                 onAction("Modalita", "Agente attivo: usa il gateway se disponibile, altrimenti fallback locale con approve/deny.", "")
                             }
                         )
-                        HorizontalDivider(color = Color(0xFF3A3A3A))
+                        HorizontalDivider(color = AppColors.Border)
                         DropdownMenuItem(
                             text = { Text("Crea immagine", color = Color.White) },
                             leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
@@ -3229,12 +3235,16 @@ private object AppDefaults {
 }
 
 private object AppColors {
-    val Background = Color(0xFF212121)
-    val Sidebar = Color(0xFF171717)
-    val Composer = Color(0xFF303030)
-    val Surface = Color(0xFF2B2B2B)
-    val AssistantBubble = Color(0xFF282828)
-    val UserBubble = Color(0xFF3A3A3A)
-    val Muted = Color(0xFFB4B4B4)
-      val Accent = Color(0xFF3EA6FF)
-  }
+    val Background = Color(0xFF0F1115)
+    val Sidebar = Color(0xFF14171D)
+    val Composer = Color(0xFF1A1E26)
+    val Surface = Color(0xFF1A1E26)
+    val Elevated = Color(0xFF232831)
+    val AssistantBubble = Color(0xFF1F242E)
+    val UserBubble = Color(0xFF1F4FA8)
+    val Muted = Color(0xFFA2ADBF)
+    val Faint = Color(0xFF6B7585)
+    val Accent = Color(0xFF2DA8FF)
+    val NavIndicator = Color(0xFF2E425D)
+    val Border = Color(0xFF232932)
+}

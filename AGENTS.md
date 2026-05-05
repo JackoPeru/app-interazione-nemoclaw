@@ -8,7 +8,7 @@ Target:
 
 - App desktop Windows.
 - App Android.
-- UI moderna chatbot: dark, composer largo, menu `+`, modalita `Chat`/`Agente`.
+- UI moderna chatbot: dark premium operator console, composer largo, menu `+`, modalita `Chat`/`Agente`.
 - App name: `ChatClaw`.
 - Gateway comune futuro: `OpenClaw Gateway API`.
 - Direzione nuova: ChatClaw deve diventare console operatore OpenClaw, non solo frontend REST.
@@ -59,6 +59,7 @@ Windows:
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
 - Versione app: `0.5.0`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
+- UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent claw blue `#2DA8FF`, testo muted `#A2ADBF`, bubble utente blu `#1F4FA8`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
 - Chat: invio con Enter, nuova riga con Shift+Enter, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
 - Archivio: ricerca locale + dati persistenti, filtri chat/progetti/task/server, riapertura conversazioni, segna progetto.
@@ -94,6 +95,7 @@ Android:
 - Stack: Kotlin, Jetpack Compose, Gradle.
 - Versione app: `0.5.0`, versionCode `8`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
+- UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent claw blue `#2DA8FF`, testo muted `#A2ADBF`, bubble utente blu `#1F4FA8`, empty state con wash blu e logo grande.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
 - Chat: action bubble per menu `+`, mode `Chat`/`Agente`, tentativo gateway reale (`/api/chat/stream`, fallback `/api/chat`), fallback locale esplicito se abilitato, composer stabile a campo singolo, chip mode in alto a destra, salvataggio cronologia locale.
 - Archivio: tab mobile con ricerca locale persistente, filtri, riapertura conversazioni, salvataggio progetti, contatori, export appunti, rename/delete conversazioni salvate; nessun seed progetto/chat finto.

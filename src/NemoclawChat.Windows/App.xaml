@@ -9,25 +9,38 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
-            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FF212121" />
-            <SolidColorBrush x:Key="SidebarBrush" Color="#FF171717" />
-            <SolidColorBrush x:Key="SidebarHoverBrush" Color="#FF2F2F2F" />
-            <SolidColorBrush x:Key="ComposerBrush" Color="#FF303030" />
-            <SolidColorBrush x:Key="SurfaceBrush" Color="#FF2B2B2B" />
-            <SolidColorBrush x:Key="AssistantBubbleBrush" Color="#FF282828" />
-            <SolidColorBrush x:Key="UserBubbleBrush" Color="#FF3A3A3A" />
-            <SolidColorBrush x:Key="MutedTextBrush" Color="#FFB4B4B4" />
-            <SolidColorBrush x:Key="AccentGreenBrush" Color="#FF3EA6FF" />
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FF0F1115" />
+            <SolidColorBrush x:Key="SidebarBrush" Color="#FF14171D" />
+            <SolidColorBrush x:Key="SidebarHoverBrush" Color="#FF232831" />
+            <SolidColorBrush x:Key="ComposerBrush" Color="#FF1A1E26" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#FF1A1E26" />
+            <SolidColorBrush x:Key="ElevatedSurfaceBrush" Color="#FF232831" />
+            <SolidColorBrush x:Key="AssistantBubbleBrush" Color="#FF1F242E" />
+            <SolidColorBrush x:Key="UserBubbleBrush" Color="#FF1F4FA8" />
+            <SolidColorBrush x:Key="MutedTextBrush" Color="#FFA2ADBF" />
+            <SolidColorBrush x:Key="FaintTextBrush" Color="#FF6B7585" />
+            <SolidColorBrush x:Key="AccentGreenBrush" Color="#FF2DA8FF" />
+            <SolidColorBrush x:Key="AccentHoverBrush" Color="#FF4FB6FF" />
+            <SolidColorBrush x:Key="BorderBrushSoft" Color="#FF232932" />
+            <SolidColorBrush x:Key="BorderBrushStrong" Color="#FF2E3540" />
 
             <Style x:Key="SidebarButtonStyle" TargetType="Button">
                 <Setter Property="HorizontalAlignment" Value="Stretch" />
                 <Setter Property="HorizontalContentAlignment" Value="Left" />
-                <Setter Property="MinHeight" Value="38" />
-                <Setter Property="Padding" Value="12,8" />
-                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="Padding" Value="12,9" />
+                <Setter Property="CornerRadius" Value="14" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="Foreground" Value="White" />
                 <Setter Property="BorderThickness" Value="0" />
+            </Style>
+
+            <Style x:Key="PremiumCardBorderStyle" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="20" />
+                <Setter Property="Padding" Value="16" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

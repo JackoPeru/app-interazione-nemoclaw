@@ -25,9 +25,18 @@
                     VerticalAlignment="Center"
                     MaxWidth="820">
                     <StackPanel HorizontalAlignment="Center" Spacing="18">
+                        <Border
+                            Width="108"
+                            Height="108"
+                            Background="#FF0A0F16"
+                            CornerRadius="28">
+                            <Image
+                                Source="ms-appx:///Assets/ChatClawLogo.png"
+                                Stretch="UniformToFill" />
+                        </Border>
                         <TextBlock
                             HorizontalAlignment="Center"
-                            FontSize="24"
+                            FontSize="30"
                             FontWeight="SemiBold"
                             Foreground="White"
                             Text="Che vuoi fare oggi, Matteo?" />
@@ -45,7 +54,7 @@
                             <Button
                                 Padding="14,8"
                                 Background="{StaticResource SurfaceBrush}"
-                                BorderBrush="#FF3D3D3D"
+                                BorderBrush="{StaticResource BorderBrushSoft}"
                                 Click="PromptSetup_Click"
                                 Content="Prepara setup OpenClaw"
                                 CornerRadius="18"
@@ -54,7 +63,7 @@
                                 Grid.Column="1"
                                 Padding="14,8"
                                 Background="{StaticResource SurfaceBrush}"
-                                BorderBrush="#FF3D3D3D"
+                                BorderBrush="{StaticResource BorderBrushSoft}"
                                 Click="PromptHealth_Click"
                                 Content="Controlla server"
                                 CornerRadius="18"
@@ -63,7 +72,7 @@
                                 Grid.Column="2"
                                 Padding="14,8"
                                 Background="{StaticResource SurfaceBrush}"
-                                BorderBrush="#FF3D3D3D"
+                                BorderBrush="{StaticResource BorderBrushSoft}"
                                 Click="PromptAgent_Click"
                                 Content="Crea ordine agente"
                                 CornerRadius="18"
@@ -91,9 +100,9 @@
                 MinHeight="58"
                 HorizontalAlignment="Center"
                 Background="{StaticResource ComposerBrush}"
-                BorderBrush="#FF3D3D3D"
+                BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
-                CornerRadius="28">
+                CornerRadius="30">
                 <Grid Padding="14,8,10,8" RowSpacing="2">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -184,8 +193,9 @@
 
                         <Border
                             Grid.Column="2"
-                            Padding="14,5"
-                            Background="Transparent">
+                            Padding="12,6"
+                            Background="{StaticResource ElevatedSurfaceBrush}"
+                            CornerRadius="18">
                             <StackPanel Orientation="Horizontal" Spacing="5">
                                 <TextBlock x:Name="ModeBadge" FontSize="12" Text="Chat" />
                                 <FontIcon FontSize="10" Glyph="&#xE70D;" />
