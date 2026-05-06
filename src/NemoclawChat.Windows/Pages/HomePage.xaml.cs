@@ -151,16 +151,26 @@ public sealed partial class HomePage : Page
 
     private void SetModeChat_Click(object sender, RoutedEventArgs e)
     {
-        _mode = "Chat";
-        ModeBadge.Text = _mode;
+        SetMode("Chat");
         AddAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.");
     }
 
     private void SetModeAgent_Click(object sender, RoutedEventArgs e)
     {
-        _mode = "Agente";
-        ModeBadge.Text = _mode;
+        SetMode("Agente");
         AddAction("Modalita", "Agente attivo: usa il gateway se disponibile, altrimenti fallback locale con approve/deny.");
+    }
+
+    private void ToggleMode_Click(object sender, RoutedEventArgs e)
+    {
+        SetMode(_mode == "Agente" ? "Chat" : "Agente");
+    }
+
+    private void SetMode(string mode)
+    {
+        _mode = mode;
+        ModeBadge.Text = _mode;
+        ModeToggleIcon.Glyph = _mode == "Agente" ? "\uE7BE" : "\uE8BD";
     }
 
     private async Task SendCurrentPromptAsync()

@@ -154,6 +154,18 @@ public static class ChatArchiveStore
             .ToList();
     }
 
+    public static bool Delete(string id)
+    {
+        var items = Load();
+        var removed = items.RemoveAll(item => item.Id == id) > 0;
+        if (removed)
+        {
+            SaveAll(items);
+        }
+
+        return removed;
+    }
+
     private static void SaveAll(List<ConversationRecord> items)
     {
         var ordered = items

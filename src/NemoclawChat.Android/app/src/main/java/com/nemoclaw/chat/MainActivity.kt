@@ -375,7 +375,12 @@ private fun ChatScreen(
             .imePadding()
             .navigationBarsPadding()
     ) {
-        TopBar(mode)
+        TopBar(
+            mode = mode,
+            onModeToggle = {
+                mode = if (mode == "Agente") "Chat" else "Agente"
+            }
+        )
         Box(modifier = Modifier.weight(1f)) {
             if (messages.isEmpty()) {
                 EmptyState(onPrompt = { draft = it })
@@ -433,7 +438,7 @@ private fun ChatScreen(
 }
 
 @Composable
-private fun TopBar(mode: String) {
+private fun TopBar(mode: String, onModeToggle: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -459,7 +464,11 @@ private fun TopBar(mode: String) {
         }
         Spacer(modifier = Modifier.weight(1f))
         val modeIcon = if (mode == "Agente") Icons.Rounded.SmartToy else Icons.Rounded.ChatBubbleOutline
-        Surface(color = AppColors.Surface, shape = RoundedCornerShape(18.dp)) {
+        Surface(
+            modifier = Modifier.clickable(onClick = onModeToggle),
+            color = AppColors.Surface,
+            shape = RoundedCornerShape(18.dp)
+        ) {
             Row(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2329,7 +2338,7 @@ private fun buildConnectFrame(authSecret: String?): String {
                     "client",
                     JSONObject()
                         .put("id", "chatclaw-android")
-                        .put("version", "0.5.0")
+                        .put("version", "0.5.2")
                         .put("platform", "android")
                         .put("mode", "operator")
                 )
@@ -2340,7 +2349,7 @@ private fun buildConnectFrame(authSecret: String?): String {
                 .put("permissions", JSONObject())
                 .put("auth", if (authSecret.isNullOrBlank()) JSONObject.NULL else JSONObject().put("token", authSecret.trim()))
                 .put("locale", "it-IT")
-                .put("userAgent", "ChatClaw-Android/0.5.0")
+                .put("userAgent", "ChatClaw-Android/0.5.2")
                 .put(
                     "device",
                     JSONObject()

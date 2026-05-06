@@ -32,7 +32,7 @@ main
 Ultimo push fatto su richiesta utente:
 
 ```text
-1b4997f Release ChatClaw 0.5.0
+a61ca39 Release ChatClaw 0.5.1 - Increment version for in-app updater
 ```
 
 ## Regola Memoria
@@ -57,12 +57,12 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.5.1`.
+- Versione app: `0.5.2`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent claw blue `#2DA8FF`, testo muted `#A2ADBF`, bubble utente blu `#1F4FA8`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
-- Chat: invio con Enter, nuova riga con Shift+Enter, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
-- Archivio: ricerca locale + dati persistenti, filtri chat/progetti/task/server, riapertura conversazioni, segna progetto.
+- Chat: invio con Enter, nuova riga con Shift+Enter, chip `Chat`/`Agente` in alto a destra cliccabile, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
+- Archivio: ricerca locale + dati persistenti, filtri chat/progetti/task/server, riapertura conversazioni, segna progetto, eliminazione elementi salvati.
 - Recenti sidebar: letti dallo store locale e aggiornati quando cambia archivio; nessun elemento seed finto.
 - Chat: prova prima il gateway reale (`/api/chat/stream`, fallback `/api/chat`), poi usa fallback locale solo se abilitato nelle impostazioni.
 - Ordini agente: coda task persistente su disco, tentativo reale su gateway (`/api/tasks`), approve/deny/completa con sync gateway se disponibile e fallback locale se no.
@@ -93,11 +93,11 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.5.1`, versionCode `9`.
+- Versione app: `0.5.2`, versionCode `10`.
 - Brand/UI: `ChatClaw`, logo nuovo applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent claw blue `#2DA8FF`, testo muted `#A2ADBF`, bubble utente blu `#1F4FA8`, empty state con wash blu e logo grande.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
-- Chat: action bubble per menu `+`, mode `Chat`/`Agente`, tentativo gateway reale (`/api/chat/stream`, fallback `/api/chat`), fallback locale esplicito se abilitato, composer stabile a campo singolo, chip mode in alto a destra, salvataggio cronologia locale.
+- Chat: action bubble per menu `+`, mode `Chat`/`Agente`, chip mode in alto a destra cliccabile, tentativo gateway reale (`/api/chat/stream`, fallback `/api/chat`), fallback locale esplicito se abilitato, composer stabile a campo singolo, salvataggio cronologia locale.
 - Archivio: tab mobile con ricerca locale persistente, filtri, riapertura conversazioni, salvataggio progetti, contatori, export appunti, rename/delete conversazioni salvate; nessun seed progetto/chat finto.
 - Ordini agente: coda task persistente in `SharedPreferences`, creazione task con tentativo reale su gateway, approve/deny/completa con sync gateway se disponibile e fallback locale se no.
 - Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, lettura reale di `/api/server/status` quando disponibile.

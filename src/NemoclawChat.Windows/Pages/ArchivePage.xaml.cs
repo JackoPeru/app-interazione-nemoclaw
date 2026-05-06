@@ -59,6 +59,31 @@ public sealed partial class ArchivePage : Page
         RenderResults();
     }
 
+    private void DeleteSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected?.ConversationId is null)
+        {
+            StatusText.Text = "Elemento non eliminabile.";
+            return;
+        }
+
+        var title = _selected.Title;
+        if (!ChatArchiveStore.Delete(_selected.ConversationId))
+        {
+            StatusText.Text = "Elemento non trovato.";
+            return;
+        }
+
+        _selected = null;
+        DetailTitleText.Text = "Seleziona elemento";
+        DetailBodyText.Text = "Qui vedi dettagli e prompt dell'elemento selezionato.";
+        OpenButton.IsEnabled = false;
+        PinButton.IsEnabled = false;
+        DeleteButton.IsEnabled = false;
+        StatusText.Text = $"Eliminato: {title}.";
+        RenderResults();
+    }
+
     private void SelectItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: ArchiveItem item })
@@ -71,6 +96,7 @@ public sealed partial class ArchivePage : Page
         DetailBodyText.Text = $"{item.Kind}\n{item.Description}\n\nPrompt:\n{item.Prompt}";
         OpenButton.IsEnabled = true;
         PinButton.IsEnabled = true;
+        DeleteButton.IsEnabled = item.ConversationId is not null;
         StatusText.Text = "Elemento selezionato.";
     }
 

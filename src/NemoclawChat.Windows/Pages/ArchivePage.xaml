@@ -96,6 +96,14 @@
                         Click="PinSelected_Click"
                         Content="Segna progetto"
                         IsEnabled="False" />
+                    <Button
+                        x:Name="DeleteButton"
+                        Background="#FF5A1F2B"
+                        BorderBrush="#FF7A2B3A"
+                        Click="DeleteSelected_Click"
+                        Content="Elimina"
+                        Foreground="White"
+                        IsEnabled="False" />
                     <TextBlock
                         x:Name="StatusText"
                         Foreground="{StaticResource MutedTextBrush}"
