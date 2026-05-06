@@ -19,6 +19,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +47,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CropFree
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Image
@@ -913,6 +916,7 @@ private fun ArchiveScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ArchiveCard(
     item: ArchiveItem,
@@ -928,13 +932,25 @@ private fun ArchiveCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(item.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Text(item.kind, color = AppColors.Accent, fontSize = 12.sp)
+                if (item.id != null) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Rounded.Delete,
+                            contentDescription = "Elimina elemento archivio",
+                            tint = Color(0xFFFF7B8E)
+                        )
+                    }
+                }
             }
             Text(item.description, color = AppColors.Muted)
             Text(item.prompt, color = Color.White, fontSize = 13.sp)
             if (item.id != null) {
                 SettingsField("Rinomina", renameText, { renameText = it })
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Button(onClick = onOpen) { Text("Apri") }
                 Button(onClick = onPin) { Text("Segna") }
                 if (item.id != null) {
@@ -2338,7 +2354,7 @@ private fun buildConnectFrame(authSecret: String?): String {
                     "client",
                     JSONObject()
                         .put("id", "chatclaw-android")
-                        .put("version", "0.5.2")
+                        .put("version", "0.5.3")
                         .put("platform", "android")
                         .put("mode", "operator")
                 )
@@ -2349,7 +2365,7 @@ private fun buildConnectFrame(authSecret: String?): String {
                 .put("permissions", JSONObject())
                 .put("auth", if (authSecret.isNullOrBlank()) JSONObject.NULL else JSONObject().put("token", authSecret.trim()))
                 .put("locale", "it-IT")
-                .put("userAgent", "ChatClaw-Android/0.5.2")
+                .put("userAgent", "ChatClaw-Android/0.5.3")
                 .put(
                     "device",
                     JSONObject()

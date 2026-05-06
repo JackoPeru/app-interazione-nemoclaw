@@ -68,7 +68,7 @@ dotnet build .\src\ChatClaw.AdminBridge\ChatClaw.AdminBridge.csproj -c Debug
 Ultima release pubblicata:
 
 ```text
-v0.5.2
+v0.5.3
 ```
 
 Asset attesi dagli updater:
