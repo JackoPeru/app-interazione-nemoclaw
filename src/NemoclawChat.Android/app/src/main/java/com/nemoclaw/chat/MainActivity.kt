@@ -63,6 +63,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -800,6 +801,7 @@ private fun ArchiveScreen(
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("Tutto") }
     var status by remember { mutableStateOf("Pronto.") }
+    var pendingDelete by remember { mutableStateOf<ArchiveItem?>(null) }
     val savedConversations = remember(refreshKey) { loadConversations(context) }
     val savedProjects = savedConversations.count { it.kind == "Progetto" }
     val savedChats = savedConversations.count { it.kind == "Chat" || it.kind == "Task" }
@@ -827,7 +829,10 @@ private fun ArchiveScreen(
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Stato archivio", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text("Conversazioni: $savedChats | Progetti: $savedProjects | Totale salvati: ${savedConversations.size}", color = AppColors.Muted)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Button(onClick = {
                             copyArchiveToClipboard(context)
                             status = "Archivio copiato negli appunti."
@@ -854,7 +859,10 @@ private fun ArchiveScreen(
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SettingsField("Cerca", query, { query = it })
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         listOf("Tutto", "Chat", "Progetto", "Task", "Server").forEach { option ->
                             Button(
                                 onClick = {
@@ -904,15 +912,58 @@ private fun ArchiveScreen(
                 onDelete = {
                     if (item.id == null) {
                         status = "Template non eliminabile."
-                    } else if (deleteConversation(context, item.id)) {
-                        status = "Eliminato: ${item.title}"
-                        refreshKey++
                     } else {
-                        status = "Elemento non trovato."
+                        pendingDelete = item
                     }
                 }
             )
         }
+    }
+
+    pendingDelete?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            containerColor = AppColors.Surface,
+            title = {
+                Text("Conferma eliminazione", color = Color.White, fontWeight = FontWeight.SemiBold)
+            },
+            text = {
+                Text(
+                    "Vuoi eliminare davvero \"${item.title}\" dall'archivio locale?",
+                    color = AppColors.Muted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingDelete = null
+                        if (item.id != null && deleteConversation(context, item.id)) {
+                            status = "Eliminato: ${item.title}"
+                            refreshKey++
+                        } else {
+                            status = "Elemento non trovato."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF8E2E3F),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("Elimina")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { pendingDelete = null },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AppColors.AssistantBubble,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("Annulla")
+                }
+            }
+        )
     }
 }
 
@@ -996,7 +1047,10 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                         Text("Richiedi approve", color = Color.White, modifier = Modifier.weight(1f))
                         Switch(checked = requiresApproval, onCheckedChange = { requiresApproval = it })
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Button(onClick = {
                             if (title.isBlank()) {
                                 status = "Titolo obbligatorio."
@@ -1099,7 +1153,10 @@ private fun TaskCard(
             }
             Text("Modalita: ${task.mode} | Origine: ${task.source} | Approve: ${if (task.requiresApproval) "si" else "no"}", color = AppColors.Muted, fontSize = 12.sp)
             Text(task.detail, color = Color.White)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Button(onClick = onApprove) { Text("Approva") }
                 Button(onClick = onDeny) { Text("Nega") }
                 Button(onClick = onDone) { Text("Completa") }
@@ -1170,7 +1227,10 @@ private fun ServerScreen(settings: AppSettings) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Azioni", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text(snapshot.statusMessage, color = AppColors.Muted)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Button(onClick = {
                             val error = validateHttpUrl(settings.gatewayUrl, "Gateway URL")
                             if (error != null) {
@@ -1501,7 +1561,10 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                             fontSize = 12.sp
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Button(onClick = {
                             updateState = updateState.copy(
                                 status = "Controllo GitHub Releases...",
@@ -1660,7 +1723,10 @@ private fun SettingsScreen(
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Button(onClick = {
                             val candidate = AppSettings(
                                 gatewayUrl = gatewayUrl.trim(),
@@ -1717,7 +1783,10 @@ private fun SettingsScreen(
                             Text("Test WS")
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Button(onClick = {
                             val error = validateHttpUrl(gatewayUrl, "Gateway URL")
                             if (error != null) {
@@ -2354,7 +2423,7 @@ private fun buildConnectFrame(authSecret: String?): String {
                     "client",
                     JSONObject()
                         .put("id", "chatclaw-android")
-                        .put("version", "0.5.3")
+                        .put("version", "0.5.4")
                         .put("platform", "android")
                         .put("mode", "operator")
                 )
@@ -2365,7 +2434,7 @@ private fun buildConnectFrame(authSecret: String?): String {
                 .put("permissions", JSONObject())
                 .put("auth", if (authSecret.isNullOrBlank()) JSONObject.NULL else JSONObject().put("token", authSecret.trim()))
                 .put("locale", "it-IT")
-                .put("userAgent", "ChatClaw-Android/0.5.3")
+                .put("userAgent", "ChatClaw-Android/0.5.4")
                 .put(
                     "device",
                     JSONObject()

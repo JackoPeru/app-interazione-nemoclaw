@@ -59,7 +59,7 @@ public sealed partial class ArchivePage : Page
         RenderResults();
     }
 
-    private void DeleteSelected_Click(object sender, RoutedEventArgs e)
+    private async void DeleteSelected_Click(object sender, RoutedEventArgs e)
     {
         if (_selected?.ConversationId is null)
         {
@@ -68,6 +68,23 @@ public sealed partial class ArchivePage : Page
         }
 
         var title = _selected.Title;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Conferma eliminazione",
+            Content = $"Vuoi eliminare davvero \"{title}\" dall'archivio locale?",
+            PrimaryButtonText = "Elimina",
+            CloseButtonText = "Annulla",
+            DefaultButton = ContentDialogButton.Close
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
+        {
+            StatusText.Text = "Eliminazione annullata.";
+            return;
+        }
+
         if (!ChatArchiveStore.Delete(_selected.ConversationId))
         {
             StatusText.Text = "Elemento non trovato.";

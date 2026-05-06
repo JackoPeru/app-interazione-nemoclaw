@@ -184,7 +184,7 @@ public static class GatewayWebSocketService
                 client = new
                 {
                     id = "chatclaw-windows",
-                    version = "0.5.3",
+                    version = "0.5.4",
                     platform = "windows",
                     mode = "operator"
                 },
@@ -201,7 +201,7 @@ public static class GatewayWebSocketService
                 permissions = new { },
                 auth = string.IsNullOrWhiteSpace(authSecret) ? null : new { token = authSecret.Trim() },
                 locale = "it-IT",
-                userAgent = "ChatClaw-Windows/0.5.3",
+                userAgent = "ChatClaw-Windows/0.5.4",
                 device = new
                 {
                     id = BuildDeviceId(),
