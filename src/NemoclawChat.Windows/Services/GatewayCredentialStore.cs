@@ -4,8 +4,10 @@ namespace NemoclawChat_Windows.Services;
 
 public static class GatewayCredentialStore
 {
-    private const string Resource = "ChatClaw.OpenClawGateway";
-    private const string UserName = "operator";
+    private const string Resource = "HermesHub.ApiKey";
+    private const string LegacyResource = "ChatClaw.OpenClawGateway";
+    private const string UserName = "hermes";
+    private const string LegacyUserName = "operator";
 
     public static bool HasSecret()
     {
@@ -23,7 +25,7 @@ public static class GatewayCredentialStore
         }
         catch
         {
-            return string.Empty;
+            return LoadLegacySecret();
         }
     }
 
@@ -49,6 +51,21 @@ public static class GatewayCredentialStore
         catch
         {
             // Nothing to delete or credential locker unavailable.
+        }
+    }
+
+    private static string LoadLegacySecret()
+    {
+        try
+        {
+            var vault = new PasswordVault();
+            var credential = vault.Retrieve(LegacyResource, LegacyUserName);
+            credential.RetrievePassword();
+            return credential.Password ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 }

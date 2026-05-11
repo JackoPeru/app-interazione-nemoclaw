@@ -28,7 +28,7 @@ public sealed partial class TasksPage : Page
         var detail = TaskDetailBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(detail))
         {
-            detail = "Mostra piano, poi chiedi approve prima di azioni rischiose.";
+            detail = "Mostra piano, poi esegui il job Hermes solo quando richiesto.";
         }
 
         var task = new AgentTaskRecord(
@@ -47,7 +47,7 @@ public sealed partial class TasksPage : Page
 
         TaskTitleBox.Text = string.Empty;
         TaskDetailBox.Text = string.Empty;
-        TaskStatusText.Text = "Invio task al gateway...";
+        TaskStatusText.Text = "Invio job a Hermes...";
         var result = await GatewayService.QueueTaskAsync(AppSettingsStore.Load(), task);
         UpsertTask(result.Task);
         TaskStatusText.Text = result.Message;
@@ -57,7 +57,7 @@ public sealed partial class TasksPage : Page
     private void LoadWorkspaceTemplate_Click(object sender, RoutedEventArgs e)
     {
         TaskTitleBox.Text = "Analizza workspace";
-        TaskDetailBox.Text = "Ispeziona il progetto, individua rischi, proponi piano, poi chiedi approve prima di modificare file.";
+        TaskDetailBox.Text = "Ispeziona il progetto con Hermes Agent, individua rischi e proponi un piano operativo.";
         TaskModeBox.SelectedIndex = 2;
         ApprovalSwitch.IsOn = true;
         TaskStatusText.Text = "Template workspace caricato.";
@@ -66,8 +66,8 @@ public sealed partial class TasksPage : Page
     private void LoadServerTemplate_Click(object sender, RoutedEventArgs e)
     {
         var settings = AppSettingsStore.Load();
-        TaskTitleBox.Text = "Controlla home-server OpenClaw";
-        TaskDetailBox.Text = $"Verifica gateway {settings.GatewayUrl}, modello {settings.Model}, sandbox e policy rete.";
+        TaskTitleBox.Text = "Controlla home-server Hermes";
+        TaskDetailBox.Text = $"Verifica API {settings.GatewayUrl}, modello {settings.Model}, health e capabilities.";
         TaskModeBox.SelectedIndex = settings.DemoMode ? 0 : 1;
         ApprovalSwitch.IsOn = true;
         TaskStatusText.Text = "Template server caricato.";
@@ -101,7 +101,7 @@ public sealed partial class TasksPage : Page
             return;
         }
 
-        TaskStatusText.Text = $"Aggiorno task {task.Title}...";
+        TaskStatusText.Text = $"Aggiorno job {task.Title}...";
         var result = await GatewayService.UpdateTaskAsync(AppSettingsStore.Load(), task, command);
         UpsertTask(result.Task);
         TaskStatusText.Text = result.Message;
@@ -116,7 +116,7 @@ public sealed partial class TasksPage : Page
         {
             TasksPanel.Children.Add(new TextBlock
             {
-                Text = "Nessun ordine ancora.",
+                Text = "Nessun job ancora.",
                 Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
             });
             return;
@@ -157,9 +157,9 @@ public sealed partial class TasksPage : Page
         header.Children.Add(status);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        actions.Children.Add(CreateTaskButton("Approva", task.Id, ApproveTask_Click));
-        actions.Children.Add(CreateTaskButton("Nega", task.Id, DenyTask_Click));
-        actions.Children.Add(CreateTaskButton("Completa", task.Id, CompleteTask_Click));
+        actions.Children.Add(CreateTaskButton("Run", task.Id, ApproveTask_Click));
+        actions.Children.Add(CreateTaskButton("Pausa", task.Id, DenyTask_Click));
+        actions.Children.Add(CreateTaskButton("Elimina", task.Id, CompleteTask_Click));
 
         return new Border
         {

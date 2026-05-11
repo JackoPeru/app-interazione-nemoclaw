@@ -15,16 +15,16 @@
                         FontSize="30"
                         FontWeight="SemiBold"
                         Foreground="White"
-                        Text="Console Operatore" />
+                        Text="Runs" />
                     <TextBlock
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="RPC reali verso OpenClaw Gateway WS. Nessun preset e' locale: ogni azione chiama il Gateway." />
+                        Text="Operazioni reali verso Hermes Agent API: health, models, capabilities, runs e jobs." />
                 </StackPanel>
 
                 <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                     <StackPanel Spacing="12">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Preset RPC" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="Se il Gateway non supporta un metodo, vedrai errore RPC reale." TextWrapping="Wrap" />
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Preset Hermes" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="Ogni preset chiama un endpoint Hermes reale; errori HTTP restano visibili." TextWrapping="Wrap" />
                         <VariableSizedWrapGrid x:Name="PresetPanel" Orientation="Horizontal" />
                     </StackPanel>
                 </Border>
@@ -37,19 +37,19 @@
 
                     <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="12">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="RPC manuale" />
-                            <TextBox x:Name="MethodBox" Header="Metodo" Text="status" />
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Endpoint manuale" />
+                            <TextBox x:Name="MethodBox" Header="Metodo + path" Text="GET /health" />
                             <TextBox
                                 x:Name="ParamsBox"
                                 AcceptsReturn="True"
-                                Header="Params JSON"
+                                Header="Body JSON"
                                 MinHeight="160"
                                 TextWrapping="Wrap" />
                             <Button
                                 Background="{StaticResource AccentGreenBrush}"
                                 BorderThickness="0"
                                 Click="RunRpc_Click"
-                                Content="Esegui RPC"
+                                Content="Esegui"
                                 Foreground="White" />
                             <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" Text="Pronto." TextWrapping="Wrap" />
                         </StackPanel>
@@ -57,7 +57,7 @@
 
                     <Border Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="12">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Risposta Gateway" />
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Risposta Hermes" />
                             <TextBlock x:Name="SummaryText" Foreground="{StaticResource MutedTextBrush}" Text="Nessuna risposta." TextWrapping="Wrap" />
                             <TextBox
                                 x:Name="ResultBox"
@@ -83,47 +83,47 @@
 
                     <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="10">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Approvazioni exec" />
-                            <TextBox x:Name="ApprovalIdBox" Header="Approval ID" />
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Jobs" />
+                            <TextBox x:Name="ApprovalIdBox" Header="Job ID" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Click="RefreshApprovals_Click" Content="Pending" />
-                                <Button Click="ApproveOnce_Click" Content="Allow once" />
-                                <Button Click="ApproveAlways_Click" Content="Allow always" />
-                                <Button Click="DenyApproval_Click" Content="Deny" />
+                                <Button Click="RefreshApprovals_Click" Content="Lista" />
+                                <Button Click="ApproveOnce_Click" Content="Run" />
+                                <Button Click="ApproveAlways_Click" Content="Run" />
+                                <Button Click="DenyApproval_Click" Content="Pausa" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
 
                     <Border Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="10">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Config patch" />
-                            <TextBox x:Name="ConfigBaseHashBox" Header="baseHash" />
-                            <TextBox x:Name="ConfigPatchBox" AcceptsReturn="True" Header="Patch JSON" MinHeight="96" TextWrapping="Wrap" />
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Runs manuali" />
+                            <TextBox x:Name="ConfigBaseHashBox" Header="Run ID" />
+                            <TextBox x:Name="ConfigPatchBox" AcceptsReturn="True" Header="Input JSON/string" MinHeight="96" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Click="ReadConfig_Click" Content="Leggi" />
-                                <Button Click="PatchConfig_Click" Content="Patch" />
-                                <Button Click="ApplyConfig_Click" Content="Apply" />
+                                <Button Click="ReadConfig_Click" Content="Capabilities" />
+                                <Button Click="PatchConfig_Click" Content="Crea run" />
+                                <Button Click="ApplyConfig_Click" Content="Models" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
 
                     <Border Grid.Row="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="10">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Workspace / file" />
-                            <TextBox x:Name="WorkspacePathBox" Header="Path consentito" PlaceholderText="~/openclaw-workspace" />
-                            <TextBox x:Name="WorkspaceTextBox" AcceptsReturn="True" Header="Testo file" MinHeight="96" TextWrapping="Wrap" />
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Diagnostica" />
+                            <TextBox x:Name="WorkspacePathBox" Header="Filtro job" PlaceholderText="opzionale" />
+                            <TextBox x:Name="WorkspaceTextBox" AcceptsReturn="True" Header="Input run rapido" MinHeight="96" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Click="WorkspaceList_Click" Content="Lista" />
-                                <Button Click="WorkspaceRead_Click" Content="Leggi" />
-                                <Button Click="WorkspaceWrite_Click" Content="Scrivi" />
+                                <Button Click="WorkspaceList_Click" Content="Jobs" />
+                                <Button Click="WorkspaceRead_Click" Content="Health" />
+                                <Button Click="WorkspaceWrite_Click" Content="Run" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Row="1" Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <Border Grid.Row="1" Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18" Visibility="Collapsed">
                         <StackPanel Spacing="10">
                             <TextBlock Foreground="White" FontWeight="SemiBold" Text="Admin Bridge" />
-                            <TextBox x:Name="AdminPathBox" Header="Path/log" PlaceholderText="/home/matteo/openclaw-workspace" />
+                            <TextBox x:Name="AdminPathBox" Header="Path/log" PlaceholderText="/home/matteo/hermes-workspace" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Click="AdminStatus_Click" Content="Status" />
                                 <Button Click="AdminDoctor_Click" Content="Doctor" />

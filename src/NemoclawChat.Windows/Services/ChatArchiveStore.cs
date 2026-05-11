@@ -11,6 +11,7 @@ public sealed class ConversationRecord
     public string Kind { get; set; } = "Chat";
     public string Description { get; set; } = string.Empty;
     public string Prompt { get; set; } = string.Empty;
+    public string PreviousResponseId { get; set; } = string.Empty;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public List<ChatMessageRecord> Messages { get; set; } = [];
 }
@@ -85,7 +86,8 @@ public static class ChatArchiveStore
         string mode,
         string prompt,
         string response,
-        string source)
+        string source,
+        string? previousResponseId = null)
     {
         var items = Load();
         var conversation = string.IsNullOrWhiteSpace(conversationId)
@@ -112,9 +114,13 @@ public static class ChatArchiveStore
             ? $"Conversazione agente via {source}."
             : $"Conversazione chat via {source}.";
         conversation.Prompt = prompt;
+        if (!string.IsNullOrWhiteSpace(previousResponseId))
+        {
+            conversation.PreviousResponseId = previousResponseId;
+        }
         conversation.UpdatedAt = DateTimeOffset.Now;
         conversation.Messages.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
-        conversation.Messages.Add(new ChatMessageRecord("OpenClaw", response, DateTimeOffset.Now));
+        conversation.Messages.Add(new ChatMessageRecord("Hermes", response, DateTimeOffset.Now));
         SaveAll(items);
         return conversation;
     }

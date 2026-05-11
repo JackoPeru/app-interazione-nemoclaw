@@ -19,7 +19,7 @@ public sealed partial class SettingsPage : Page
     {
         var settings = AppSettingsStore.Load();
         GatewayUrlBox.Text = settings.GatewayUrl;
-        GatewayWsUrlBox.Text = GatewayWebSocketService.NormalizeWebSocketUrl(settings.GatewayWsUrl, settings.GatewayUrl);
+        GatewayWsUrlBox.Text = settings.GatewayWsUrl;
         AdminBridgeUrlBox.Text = settings.AdminBridgeUrl;
         ProviderBox.Text = settings.Provider;
         InferenceEndpointBox.Text = settings.InferenceEndpoint;
@@ -28,8 +28,8 @@ public sealed partial class SettingsPage : Page
         SelectComboItem(PreferredApiBox, settings.PreferredApi);
         SelectComboItem(AccessModeBox, settings.AccessMode);
         PairingCodeBox.PlaceholderText = GatewayCredentialStore.HasSecret()
-            ? "Segreto salvato nel Credential Locker"
-            : "Token/password o pairing code Gateway";
+            ? "API key salvata nel Credential Locker"
+            : "Hermes API key";
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -50,23 +50,15 @@ public sealed partial class SettingsPage : Page
         }
 
         StatusText.Text = GatewayCredentialStore.HasSecret()
-            ? "Impostazioni salvate. Segreto Gateway salvato in Credential Locker."
-            : "Impostazioni salvate. Nessun segreto Gateway salvato.";
+            ? "Impostazioni salvate. Hermes API key salvata in Credential Locker."
+            : "Impostazioni salvate. Nessuna Hermes API key salvata.";
     }
 
     private async void TestGatewayWs_Click(object sender, RoutedEventArgs e)
     {
         var settings = ReadSettings();
-        var error = ValidateWebSocket(settings.GatewayWsUrl);
-        if (error is not null)
-        {
-            StatusText.Text = error;
-            return;
-        }
-
-        StatusText.Text = $"Test WS: {settings.GatewayWsUrl}";
-        var probe = await GatewayWebSocketService.ProbeAsync(settings, ReadGatewaySecret());
-        StatusText.Text = $"{probe.Status} {probe.Details}";
+        StatusText.Text = "Lettura capabilities Hermes...";
+        StatusText.Text = await GatewayService.SendHermesRequestAsync(settings, HttpMethod.Get, "/v1/capabilities");
     }
 
     private async void TestGateway_Click(object sender, RoutedEventArgs e)
@@ -79,19 +71,17 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var healthUrl = $"{settings.GatewayUrl.TrimEnd('/')}/api/health";
+        var healthUrl = $"{GatewayService.HermesRoot(settings)}/health";
         StatusText.Text = $"Test: {healthUrl}";
 
         try
         {
-            using var response = await HttpClient.GetAsync(healthUrl);
-            StatusText.Text = response.IsSuccessStatusCode
-                ? "Gateway raggiungibile."
-                : $"Gateway risponde: {(int)response.StatusCode} {response.ReasonPhrase}";
+            var snapshot = await GatewayService.GetServerSnapshotAsync(settings);
+            StatusText.Text = snapshot.StatusMessage;
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"Gateway non raggiungibile: {ex.Message}";
+            StatusText.Text = $"Hermes non raggiungibile: {ex.Message}";
         }
     }
 
@@ -115,8 +105,10 @@ public sealed partial class SettingsPage : Page
         return new AppSettings
         {
             GatewayUrl = GatewayUrlBox.Text.Trim(),
-            GatewayWsUrl = GatewayWebSocketService.NormalizeWebSocketUrl(GatewayWsUrlBox.Text.Trim(), GatewayUrlBox.Text.Trim()),
-            AdminBridgeUrl = AdminBridgeUrlBox.Text.Trim(),
+            GatewayWsUrl = string.Empty,
+            AdminBridgeUrl = GatewayUrlBox.Text.Trim().TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+                ? GatewayUrlBox.Text.Trim().TrimEnd('/')[..^3]
+                : GatewayUrlBox.Text.Trim().TrimEnd('/'),
             Provider = ProviderBox.Text.Trim(),
             InferenceEndpoint = InferenceEndpointBox.Text.Trim(),
             PreferredApi = SelectedComboText(PreferredApiBox),
@@ -129,8 +121,6 @@ public sealed partial class SettingsPage : Page
     private static string? Validate(AppSettings settings)
     {
         return ValidateGateway(settings.GatewayUrl)
-            ?? ValidateWebSocket(settings.GatewayWsUrl)
-            ?? ValidateHttpUrl(settings.AdminBridgeUrl, "Admin Bridge URL")
             ?? ValidateRequired(settings.Provider, "Provider")
             ?? ValidateHttpUrl(settings.InferenceEndpoint, "Endpoint inferenza")
             ?? ValidateRequired(settings.PreferredApi, "API preferita")
@@ -156,7 +146,7 @@ public sealed partial class SettingsPage : Page
 
     private static string? ValidateGateway(string gatewayUrl)
     {
-        return ValidateHttpUrl(gatewayUrl, "Gateway URL");
+        return ValidateHttpUrl(gatewayUrl, "Hermes API URL");
     }
 
     private static string? ValidateHttpUrl(string value, string label)

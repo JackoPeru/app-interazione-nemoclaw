@@ -16,7 +16,7 @@ public sealed partial class AboutPage : Page
         var settings = AppSettingsStore.Load();
         VersionText.Text = CurrentVersion;
         GatewayText.Text = settings.GatewayUrl;
-        ModeText.Text = settings.DemoMode ? "Fallback locale attivo" : "Solo gateway";
+        ModeText.Text = settings.DemoMode ? "Fallback locale attivo" : "Solo Hermes";
         SettingsPathText.Text = "Settings: %LOCALAPPDATA%\\ChatClaw\\settings.json";
     }
 

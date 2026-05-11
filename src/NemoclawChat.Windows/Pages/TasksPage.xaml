@@ -15,10 +15,10 @@
                         FontSize="30"
                         FontWeight="SemiBold"
                         Foreground="White"
-                        Text="Ordini agente" />
+                        Text="Jobs" />
                     <TextBlock
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Coda task persistente. Usa il gateway quando disponibile, altrimenti fallback locale con audit." />
+                        Text="Coda Jobs persistente. Usa Hermes Jobs API quando disponibile, altrimenti fallback locale." />
                 </StackPanel>
 
                 <Border
@@ -28,7 +28,7 @@
                     BorderThickness="1"
                     CornerRadius="18">
                     <StackPanel Spacing="14">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Nuovo ordine" />
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Nuovo job" />
                         <Grid ColumnSpacing="12" RowSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="2*" />
@@ -42,7 +42,7 @@
 
                             <TextBox
                                 x:Name="TaskTitleBox"
-                                Header="Titolo task"
+                                Header="Titolo job"
                                 PlaceholderText="Es. Analizza workspace" />
                             <ComboBox
                                 x:Name="TaskModeBox"
@@ -50,7 +50,7 @@
                                 Header="Modalita"
                                 SelectedIndex="0">
                                 <ComboBoxItem Content="Locale" />
-                                <ComboBoxItem Content="Gateway" />
+                                <ComboBoxItem Content="Hermes" />
                                 <ComboBoxItem Content="Sicuro" />
                             </ComboBox>
                             <TextBox
@@ -60,12 +60,12 @@
                                 AcceptsReturn="True"
                                 Header="Istruzioni"
                                 MaxHeight="140"
-                                PlaceholderText="Mostra piano, poi chiedi approve prima di azioni rischiose."
+                                PlaceholderText="Descrivi il job da eseguire tramite Hermes Agent."
                                 TextWrapping="Wrap" />
                             <ToggleSwitch
                                 x:Name="ApprovalSwitch"
                                 Grid.Row="2"
-                                Header="Richiedi approve prima di file, rete e comandi"
+                                Header="Richiedi conferma prima di azioni rischiose"
                                 IsOn="True" />
                         </Grid>
 
@@ -78,7 +78,7 @@
                                 Background="{StaticResource AccentGreenBrush}"
                                 BorderThickness="0"
                                 Click="QueueTask_Click"
-                                Content="Accoda task"
+                                Content="Crea job"
                                 Foreground="White" />
                             <Button Click="LoadWorkspaceTemplate_Click" Content="Template workspace" />
                             <Button Click="LoadServerTemplate_Click" Content="Template server" />

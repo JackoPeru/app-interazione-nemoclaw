@@ -86,7 +86,7 @@ public static class GatewayWebSocketService
             return new GatewayWebSocketProbe(
                 wsUrl,
                 true,
-                "Gateway WS connesso. Handshake OpenClaw riuscito.",
+                "Gateway WS legacy connesso. Handshake riuscito.",
                 SummarizeFrame(hello),
                 lines);
         }

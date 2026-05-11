@@ -1,0 +1,21 @@
+{
+  "hermes": {
+    "apiUrl": "http://hermes.local:8642/v1",
+    "healthUrl": "http://hermes.local:8642/health",
+    "detailedHealthUrl": "http://hermes.local:8642/health/detailed",
+    "capabilitiesPath": "/v1/capabilities",
+    "modelsPath": "/v1/models",
+    "responsesPath": "/v1/responses",
+    "chatCompletionsPath": "/v1/chat/completions",
+    "runsPath": "/v1/runs",
+    "jobsPath": "/api/jobs",
+    "model": "hermes-agent",
+    "preferredApi": "openai-responses"
+  },
+  "security": {
+    "recommendedAccess": "Tailscale/LAN",
+    "authHeader": "Authorization: Bearer <Hermes API key>",
+    "releaseCleartextTraffic": true,
+    "storeProviderSecretsInClient": false
+  }
+}

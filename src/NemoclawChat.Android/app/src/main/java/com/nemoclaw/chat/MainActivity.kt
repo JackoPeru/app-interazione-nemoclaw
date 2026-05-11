@@ -144,9 +144,9 @@ class MainActivity : ComponentActivity() {
 private enum class Tab(val label: String, val icon: ImageVector) {
     Chat("Chat", Icons.Rounded.ChatBubbleOutline),
     Archive("Archivio", Icons.Rounded.FolderOpen),
-    Tasks("Ordini", Icons.Rounded.TaskAlt),
-    Server("Server", Icons.Rounded.Dns),
-    Operator("Console", Icons.Rounded.Terminal),
+    Tasks("Jobs", Icons.Rounded.TaskAlt),
+    Server("Hermes", Icons.Rounded.Dns),
+    Operator("Runs", Icons.Rounded.Terminal),
     Settings("Imposta", Icons.Rounded.Tune),
     Profile("Profilo", Icons.Rounded.AccountCircle)
 }
@@ -185,7 +185,8 @@ data class LocalConversation(
     val description: String,
     val prompt: String,
     val updatedAt: Long,
-    val messages: List<ChatMessage>
+    val messages: List<ChatMessage>,
+    val previousResponseId: String? = null
 )
 
 private data class UpdateCheckResult(
@@ -223,7 +224,8 @@ private data class GatewayChatResult(
     val text: String,
     val source: String,
     val statusMessage: String,
-    val usedFallback: Boolean
+    val usedFallback: Boolean,
+    val responseId: String? = null
 )
 
 private data class GatewayTaskResult(
@@ -319,7 +321,7 @@ private fun ChatApp() {
                     }
                 )
                 Tab.Tasks -> TasksScreen(context, settings)
-                Tab.Server -> ServerScreen(settings)
+                Tab.Server -> ServerScreen(context, settings)
                 Tab.Operator -> OperatorScreen(context, settings)
                 Tab.Settings -> SettingsScreen(
                     settings = settings,
@@ -352,6 +354,7 @@ private fun ChatScreen(
     var draft by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf("Chat") }
     var activeConversationId by remember { mutableStateOf<String?>(null) }
+    var previousResponseId by remember { mutableStateOf<String?>(null) }
     var sending by remember { mutableStateOf(false) }
 
     LaunchedEffect(conversationId, initialPrompt) {
@@ -359,6 +362,7 @@ private fun ChatScreen(
             val saved = loadConversation(context, conversationId)
             if (saved != null) {
                 activeConversationId = saved.id
+                previousResponseId = saved.previousResponseId
                 messages.clear()
                 messages.addAll(saved.messages)
             }
@@ -419,19 +423,22 @@ private fun ChatScreen(
                     sending = true
 
                     scope.launch {
-                        val result = sendChatRequest(settings, mode, text, messages)
-                        messages.add(ChatMessage("OpenClaw", result.text, false))
+                        val result = sendChatRequest(settings, mode, text, messages, activeConversationId, previousResponseId, loadGatewaySecret(context))
+                        messages.add(ChatMessage("Hermes", result.text, false))
                         if (result.usedFallback) {
                             messages.add(ChatMessage("Stato", result.statusMessage, fromUser = false, isAction = true))
                         }
-                        activeConversationId = saveConversationExchange(
+                        val saved = saveConversationExchange(
                             context,
                             activeConversationId,
                             mode,
                             text,
                             result.text,
-                            result.source
-                        ).id
+                            result.source,
+                            result.responseId
+                        )
+                        activeConversationId = saved.id
+                        previousResponseId = saved.previousResponseId
                         sending = false
                     }
                 }
@@ -452,7 +459,7 @@ private fun TopBar(mode: String, onModeToggle: () -> Unit) {
     ) {
         Image(
             painter = painterResource(id = R.drawable.chatclaw_logo),
-            contentDescription = "ChatClaw",
+            contentDescription = "Hermes Hub",
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(52.dp)
@@ -460,7 +467,7 @@ private fun TopBar(mode: String, onModeToggle: () -> Unit) {
         )
         Column(modifier = Modifier.padding(start = 12.dp)) {
             Text(
-                text = "ChatClaw",
+                text = "Hermes Hub",
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 20.sp
@@ -501,7 +508,7 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
     ) {
         Image(
             painter = painterResource(id = R.drawable.chatclaw_logo),
-            contentDescription = "Logo ChatClaw",
+            contentDescription = "Logo Hermes Hub",
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(108.dp)
@@ -516,18 +523,18 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
         )
         Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = "Chat normale o ordine agente verso il tuo home-server OpenClaw.",
+            text = "Chat normale, Runs e Jobs verso Hermes Agent sul tuo home-server.",
             color = AppColors.Muted,
             fontSize = 14.sp,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(18.dp))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SuggestionButton("Prepara setup OpenClaw") {
-                onPrompt("Preparami i passaggi per avviare OpenClaw con un endpoint OpenAI-compatible locale.")
+            SuggestionButton("Prepara setup Hermes") {
+                onPrompt("Preparami i passaggi per avviare Hermes Agent API Server su Tailscale/LAN.")
             }
             SuggestionButton("Controlla server") {
-                onPrompt("Controlla stato gateway, modello locale e sandbox OpenClaw.")
+                onPrompt("Controlla stato Hermes, modello disponibile e capabilities API.")
             }
             SuggestionButton("Crea ordine agente") {
                 onPrompt("Crea un task agente sicuro con richiesta approve/deny prima di ogni azione rischiosa.")
@@ -660,7 +667,7 @@ private fun Composer(
                                 queueAction(
                                     "File task",
                                     if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
-                                    "Allega un file al prossimo task e analizzalo nel contesto OpenClaw."
+                                    "Allega un file al prossimo job e analizzalo nel contesto Hermes."
                                 )
                             }
                         )
@@ -705,7 +712,7 @@ private fun Composer(
                             onClick = {
                                 expanded = false
                                 onModeChange("Agente")
-                                onAction("Modalita", "Agente attivo: usa il gateway se disponibile, altrimenti fallback locale con approve/deny.", "")
+                                onAction("Modalita", "Agente attivo: usa Hermes Runs/Jobs se disponibili, altrimenti fallback locale.", "")
                             }
                         )
                         HorizontalDivider(color = AppColors.Border)
@@ -716,7 +723,7 @@ private fun Composer(
                                 expanded = false
                                 queueAction(
                                     "Immagine",
-                                    "Generazione immagine richiedera' gateway/tool dedicato e conferma prima di chiamate esterne.",
+                                    "Generazione immagine richiedera' tool Hermes dedicato e conferma prima di chiamate esterne.",
                                     "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni."
                                 )
                             }
@@ -752,7 +759,7 @@ private fun Composer(
                                 expanded = false
                                 queueAction(
                                     "Workspace",
-                                    "Workspace/progetti saranno collegati al gateway task con audit trail.",
+                                    "Workspace/progetti saranno collegati ai Jobs Hermes con audit trail.",
                                     "Lavora sul workspace o progetto selezionato e mostra piano prima di modificare file."
                                 )
                             }
@@ -765,7 +772,7 @@ private fun Composer(
                         context,
                         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per OpenClaw")
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per Hermes")
                         }
                     )
                     onAction(
@@ -1033,18 +1040,18 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("Ordini agente", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Text("Jobs", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Coda task persistente. Usa il gateway quando disponibile, altrimenti fallback locale con audit.", color = AppColors.Muted)
+            Text("Coda Jobs persistente. Usa Hermes Jobs API quando disponibile, altrimenti fallback locale.", color = AppColors.Muted)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Nuovo ordine", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Nuovo job", color = Color.White, fontWeight = FontWeight.SemiBold)
                     SettingsField("Titolo", title, { title = it })
                     SettingsField("Istruzioni", detail, { detail = it })
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Richiedi approve", color = Color.White, modifier = Modifier.weight(1f))
+                        Text("Richiedi conferma", color = Color.White, modifier = Modifier.weight(1f))
                         Switch(checked = requiresApproval, onCheckedChange = { requiresApproval = it })
                     }
                     FlowRow(
@@ -1059,7 +1066,7 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                             val localTask = AgentTask(
                                 id = "task_${System.currentTimeMillis()}",
                                 title = title.trim(),
-                                mode = if (settings.demoMode) "Locale" else "Gateway",
+                                mode = if (settings.demoMode) "Locale" else "Job",
                                 status = if (requiresApproval) "In attesa approvazione" else "Pronto",
                                 detail = detail.ifBlank { "Esegui con piano prima di azioni rischiose." }.trim(),
                                 requiresApproval = requiresApproval
@@ -1069,10 +1076,10 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                             title = ""
                             detail = ""
                             requiresApproval = true
-                            status = "Invio task al gateway..."
+                            status = "Invio job a Hermes..."
 
                             scope.launch {
-                                val result = queueTaskRequest(settings, localTask)
+                                val result = queueTaskRequest(settings, localTask, loadGatewaySecret(context))
                                 replaceTask(tasks, result.task)
                                 saveTasks(context, tasks)
                                 status = result.message
@@ -1082,15 +1089,15 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                         }
                         Button(onClick = {
                             title = "Analizza workspace"
-                            detail = "Mostra piano, poi chiedi approve prima di leggere/modificare file."
+                            detail = "Ispeziona il progetto con Hermes Agent, individua rischi e proponi un piano operativo."
                             requiresApproval = true
                             status = "Template workspace caricato."
                         }) {
                             Text("Template")
                         }
                         Button(onClick = {
-                            title = "Controlla home-server OpenClaw"
-                            detail = "Verifica gateway, modello, sandbox e policy rete."
+                            title = "Controlla home-server Hermes"
+                            detail = "Verifica API Hermes, modello, health e capabilities."
                             requiresApproval = true
                             status = "Template server caricato."
                         }) {
@@ -1103,7 +1110,7 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
         }
         if (tasks.isEmpty()) {
             item {
-                Text("Nessun ordine ancora.", color = AppColors.Muted)
+                Text("Nessun job ancora.", color = AppColors.Muted)
             }
         }
         items(tasks) { task ->
@@ -1111,7 +1118,7 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                 task = task,
                 onApprove = {
                     scope.launch {
-                        val result = updateTaskRequest(settings, task, "approve")
+                        val result = updateTaskRequest(settings, task, "run", loadGatewaySecret(context))
                         replaceTask(tasks, result.task)
                         saveTasks(context, tasks)
                         status = result.message
@@ -1119,7 +1126,7 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                 },
                 onDeny = {
                     scope.launch {
-                        val result = updateTaskRequest(settings, task, "deny")
+                        val result = updateTaskRequest(settings, task, "pause", loadGatewaySecret(context))
                         replaceTask(tasks, result.task)
                         saveTasks(context, tasks)
                         status = result.message
@@ -1127,7 +1134,7 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                 },
                 onDone = {
                     scope.launch {
-                        val result = updateTaskRequest(settings, task, "complete")
+                        val result = updateTaskRequest(settings, task, "delete", loadGatewaySecret(context))
                         replaceTask(tasks, result.task)
                         saveTasks(context, tasks)
                         status = result.message
@@ -1151,31 +1158,30 @@ private fun TaskCard(
                 Text(task.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Text(task.status, color = AppColors.Accent, fontSize = 12.sp)
             }
-            Text("Modalita: ${task.mode} | Origine: ${task.source} | Approve: ${if (task.requiresApproval) "si" else "no"}", color = AppColors.Muted, fontSize = 12.sp)
+            Text("Modalita: ${task.mode} | Origine: ${task.source} | Conferma: ${if (task.requiresApproval) "si" else "no"}", color = AppColors.Muted, fontSize = 12.sp)
             Text(task.detail, color = Color.White)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(onClick = onApprove) { Text("Approva") }
-                Button(onClick = onDeny) { Text("Nega") }
-                Button(onClick = onDone) { Text("Completa") }
+                Button(onClick = onApprove) { Text("Run") }
+                Button(onClick = onDeny) { Text("Pausa") }
+                Button(onClick = onDone) { Text("Elimina") }
             }
         }
     }
 }
 
 @Composable
-private fun ServerScreen(settings: AppSettings) {
-    val context = LocalContext.current
+private fun ServerScreen(context: Context, settings: AppSettings) {
     val scope = rememberCoroutineScope()
     var wsProbe by remember(settings) {
         mutableStateOf(
             GatewayWsProbe(
-                wsUrl = normalizeGatewayWsUrl(settings.gatewayWsUrl, settings.gatewayUrl),
+                wsUrl = "${settings.gatewayUrl.trimEnd('/')}/capabilities",
                 connected = false,
-                status = "Nessun probe WS eseguito.",
-                detail = "Usa Test WS RPC per verificare control plane OpenClaw."
+                status = "Nessun controllo capabilities eseguito.",
+                detail = "Leggi /v1/capabilities e /v1/models per verificare Hermes."
             )
         )
     }
@@ -1187,13 +1193,13 @@ private fun ServerScreen(settings: AppSettings) {
                 providerDetail = "Provider: ${settings.provider} | API: ${settings.preferredApi}",
                 inferenceEndpoint = settings.inferenceEndpoint,
                 policy = settings.accessMode,
-                statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare il gateway." else "Solo gateway. Verifica lo stato del server."
+                statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare Hermes." else "Solo Hermes. Verifica lo stato del server."
             )
         )
     }
 
     LaunchedEffect(settings) {
-        snapshot = loadServerSnapshot(settings)
+        snapshot = loadServerSnapshot(settings, loadGatewaySecret(context))
     }
 
     LazyColumn(
@@ -1203,24 +1209,24 @@ private fun ServerScreen(settings: AppSettings) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("Server", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Text("Hermes Server", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Dashboard gateway, modello locale, sandbox e policy rete.", color = AppColors.Muted)
+            Text("Dashboard Hermes Agent API: health, detailed health, models e capabilities.", color = AppColors.Muted)
         }
         item {
-            ServerMetric("Gateway", snapshot.gateway, "Health endpoint: ${snapshot.gateway.trimEnd('/')}/api/health")
+            ServerMetric("Hermes API", snapshot.gateway, "Health endpoint: ${hermesRoot(settings)}/health")
         }
         item {
-            ServerMetric("Gateway WS", wsProbe.wsUrl, wsProbe.status)
+            ServerMetric("Capabilities", wsProbe.wsUrl, wsProbe.status)
         }
         item {
             ServerMetric("Modello", snapshot.model, snapshot.providerDetail)
         }
         item {
-            ServerMetric("Inferenza lato server", snapshot.inferenceEndpoint, "Il client usa il gateway; l'inferenza resta lato server.")
+            ServerMetric("API lato server", snapshot.inferenceEndpoint, "Il client parla a Hermes API, non direttamente al runtime modello.")
         }
         item {
-            ServerMetric("Sicurezza", snapshot.policy, "Deny by default, segreti solo lato server, rete esterna dopo approve.")
+            ServerMetric("Sicurezza", snapshot.policy, "API key via Authorization Bearer; esposizione consigliata solo LAN/Tailscale.")
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -1232,28 +1238,28 @@ private fun ServerScreen(settings: AppSettings) {
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(onClick = {
-                            val error = validateHttpUrl(settings.gatewayUrl, "Gateway URL")
+                            val error = validateHttpUrl(settings.gatewayUrl, "Hermes API URL")
                             if (error != null) {
                                 snapshot = snapshot.copy(statusMessage = error)
                                 return@Button
                             }
-                            val healthUrl = "${settings.gatewayUrl.trimEnd('/')}/api/health"
+                            val healthUrl = "${hermesRoot(settings)}/health"
                             snapshot = snapshot.copy(statusMessage = "Test: $healthUrl")
                             scope.launch {
-                                snapshot = snapshot.copy(statusMessage = testGateway(healthUrl))
+                                snapshot = snapshot.copy(statusMessage = testGateway(healthUrl, loadGatewaySecret(context)))
                             }
                         }) {
-                            Text("Test gateway")
+                            Text("Test Hermes")
                         }
                         Button(onClick = {
                             scope.launch {
-                                snapshot = loadServerSnapshot(settings)
+                                snapshot = loadServerSnapshot(settings, loadGatewaySecret(context))
                             }
                         }) {
                             Text("Aggiorna stato")
                         }
                         Button(onClick = {
-                            snapshot = snapshot.copy(statusMessage = "Contratto atteso: GET /api/health, GET /api/server/status, POST /api/chat/stream, POST /api/tasks.")
+                            snapshot = snapshot.copy(statusMessage = "Contratto Hermes: GET /health, GET /health/detailed, GET /v1/models, GET /v1/capabilities, POST /v1/responses, POST /v1/chat/completions, POST /v1/runs, GET/POST /api/jobs.")
                         }) {
                             Text("Mostra API")
                         }
@@ -1264,15 +1270,23 @@ private fun ServerScreen(settings: AppSettings) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Control plane OpenClaw", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Capabilities Hermes", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text(wsProbe.detail, color = AppColors.Muted)
                     Button(onClick = {
-                        wsProbe = wsProbe.copy(status = "Connessione WS...", detail = "Handshake connect protocollo 3 in corso.")
+                        wsProbe = wsProbe.copy(status = "Lettura capabilities...", detail = "Chiamata a /v1/capabilities e /v1/models.")
                         scope.launch {
-                            wsProbe = probeGatewayWs(settings, loadGatewaySecret(context))
+                            val capabilities = runCatching { httpGet("${settings.gatewayUrl.trimEnd('/')}/capabilities", loadGatewaySecret(context)) }.getOrElse { it.message ?: it.javaClass.simpleName }
+                            val models = runCatching { httpGet("${settings.gatewayUrl.trimEnd('/')}/models", loadGatewaySecret(context)) }.getOrElse { it.message ?: it.javaClass.simpleName }
+                            wsProbe = GatewayWsProbe(
+                                wsUrl = "${settings.gatewayUrl.trimEnd('/')}/capabilities",
+                                connected = true,
+                                status = "Capabilities lette.",
+                                detail = "Capabilities e models letti da Hermes.",
+                                capabilityLines = listOf("Capabilities: ${capabilities.limitText(240)}", "Models: ${models.limitText(240)}")
+                            )
                         }
                     }) {
-                        Text("Test WS RPC")
+                        Text("Leggi capabilities")
                     }
                     if (wsProbe.capabilityLines.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1301,8 +1315,8 @@ private fun ServerMetric(title: String, value: String, detail: String) {
 @Composable
 private fun OperatorScreen(context: Context, settings: AppSettings) {
     val scope = rememberCoroutineScope()
-    var method by remember { mutableStateOf("status") }
-    var params by remember { mutableStateOf("{}") }
+    var method by remember { mutableStateOf("GET /health") }
+    var params by remember { mutableStateOf("") }
     var approvalId by remember { mutableStateOf("") }
     var baseHash by remember { mutableStateOf("") }
     var configPatch by remember { mutableStateOf("{\"ops\":[]}") }
@@ -1320,14 +1334,14 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("Console", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Text("Runs", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("RPC reali verso OpenClaw Gateway WS. Nessun preset locale.", color = AppColors.Muted)
+            Text("Operazioni reali verso Hermes Agent API: health, models, capabilities, runs e jobs.", color = AppColors.Muted)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Preset RPC", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Preset Hermes", color = Color.White, fontWeight = FontWeight.SemiBold)
                     OPERATOR_PRESETS.groupBy { it.group }.forEach { (group, presets) ->
                         Text(group, color = AppColors.Muted, fontSize = 12.sp)
                         presets.forEach { preset ->
@@ -1336,11 +1350,11 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
                                 onClick = {
                                     method = preset.method
                                     params = preset.params
-                                    status = "RPC ${preset.method}..."
-                                    summary = "Attesa risposta Gateway..."
+                                    status = "${preset.method}..."
+                                    summary = "Attesa risposta Hermes..."
                                     raw = ""
                                     scope.launch {
-                                        val result = gatewayRpcCall(settings, loadGatewaySecret(context), preset.method, preset.params)
+                                        val result = hermesHttpCall(settings, loadGatewaySecret(context), preset.method, preset.params)
                                         status = result.status
                                         summary = result.summary
                                         raw = result.rawJson.ifBlank { result.summary }
@@ -1357,39 +1371,40 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Approvazioni exec", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    SettingsField("Approval ID", approvalId, { approvalId = it })
-                    OperatorActionButton("Pending") { runOperatorRpc(context, settings, "exec.approvals.get", "{}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Allow once") { runOperatorRpc(context, settings, "exec.approval.resolve", "{\"id\":\"${approvalId.jsonEscaped()}\",\"decision\":\"allow-once\"}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Allow always") { runOperatorRpc(context, settings, "exec.approval.resolve", "{\"id\":\"${approvalId.jsonEscaped()}\",\"decision\":\"allow-always\"}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Deny") { runOperatorRpc(context, settings, "exec.approval.resolve", "{\"id\":\"${approvalId.jsonEscaped()}\",\"decision\":\"deny\"}", { status = it }, { summary = it }, { raw = it }) }
+                    Text("Jobs", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Job ID", approvalId, { approvalId = it })
+                    OperatorActionButton("Lista") { runOperatorRpc(context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Run") { runOperatorRpc(context, settings, "POST /api/jobs/${approvalId.jsonEscaped()}/run", "{}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Pausa") { runOperatorRpc(context, settings, "POST /api/jobs/${approvalId.jsonEscaped()}/pause", "{}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Elimina") { runOperatorRpc(context, settings, "DELETE /api/jobs/${approvalId.jsonEscaped()}", "", { status = it }, { summary = it }, { raw = it }) }
                 }
             }
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Config patch", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    SettingsField("baseHash", baseHash, { baseHash = it })
-                    SettingsField("Patch JSON", configPatch, { configPatch = it })
-                    OperatorActionButton("Leggi config") { runOperatorRpc(context, settings, "config.get", "{}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Patch config") { runOperatorRpc(context, settings, "config.patch", "{\"baseHash\":\"${baseHash.jsonEscaped()}\",\"patch\":$configPatch}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Apply config") { runOperatorRpc(context, settings, "config.apply", "{\"baseHash\":\"${baseHash.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                    Text("Runs manuali", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Run ID", baseHash, { baseHash = it })
+                    SettingsField("Input run", configPatch, { configPatch = it })
+                    OperatorActionButton("Capabilities") { runOperatorRpc(context, settings, "GET /v1/capabilities", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Crea run") { runOperatorRpc(context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${configPatch.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Models") { runOperatorRpc(context, settings, "GET /v1/models", "", { status = it }, { summary = it }, { raw = it }) }
                 }
             }
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Workspace / file", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    SettingsField("Path consentito", workspacePath, { workspacePath = it })
-                    SettingsField("Testo file", workspaceText, { workspaceText = it })
-                    OperatorActionButton("Lista") { runOperatorRpc(context, settings, "workspace.files.list", "{\"path\":\"${workspacePath.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Leggi") { runOperatorRpc(context, settings, "workspace.files.read", "{\"path\":\"${workspacePath.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Scrivi") { runOperatorRpc(context, settings, "workspace.files.write", "{\"path\":\"${workspacePath.jsonEscaped()}\",\"text\":\"${workspaceText.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                    Text("Diagnostica", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Filtro job", workspacePath, { workspacePath = it })
+                    SettingsField("Input run rapido", workspaceText, { workspaceText = it })
+                    OperatorActionButton("Jobs") { runOperatorRpc(context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Health") { runOperatorRpc(context, settings, "GET /health/detailed", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Run") { runOperatorRpc(context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${workspaceText.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
                 }
             }
         }
+        if (false) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1403,24 +1418,25 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
                 }
             }
         }
+        }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("RPC manuale", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    SettingsField("Metodo", method, { method = it })
-                    SettingsField("Params JSON", params, { params = it })
+                    Text("Endpoint manuale", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Metodo + path", method, { method = it })
+                    SettingsField("Body JSON", params, { params = it })
                     Button(onClick = {
-                        status = "RPC ${method.trim()}..."
-                        summary = "Attesa risposta Gateway..."
+                        status = "${method.trim()}..."
+                        summary = "Attesa risposta Hermes..."
                         raw = ""
                         scope.launch {
-                            val result = gatewayRpcCall(settings, loadGatewaySecret(context), method, params)
+                            val result = hermesHttpCall(settings, loadGatewaySecret(context), method, params)
                             status = result.status
                             summary = result.summary
                             raw = result.rawJson.ifBlank { result.summary }
                         }
                     }) {
-                        Text("Esegui RPC")
+                        Text("Esegui")
                     }
                     Text(status, color = AppColors.Muted)
                     Text(summary, color = AppColors.Muted, fontSize = 12.sp)
@@ -1459,11 +1475,11 @@ private fun runOperatorRpc(
     setSummary: (String) -> Unit,
     setRaw: (String) -> Unit
 ) {
-    setStatus("RPC $method...")
-    setSummary("Attesa risposta Gateway...")
+    setStatus("$method...")
+    setSummary("Attesa risposta Hermes...")
     setRaw("")
     kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
-        val result = gatewayRpcCall(settings, loadGatewaySecret(context), method, params)
+        val result = hermesHttpCall(settings, loadGatewaySecret(context), method, params)
         setStatus(result.status)
         setSummary(result.summary)
         setRaw(result.rawJson.ifBlank { result.summary })
@@ -1517,7 +1533,7 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.chatclaw_logo),
-                        contentDescription = "Logo ChatClaw",
+                        contentDescription = "Logo Hermes Hub",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(64.dp)
@@ -1525,23 +1541,23 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                     )
                     Column(modifier = Modifier.padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Matteo", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Home-server OpenClaw locale", color = AppColors.Muted)
+                        Text("Home-server Hermes Agent locale", color = AppColors.Muted)
                         Text("App: $version", color = AppColors.Muted, fontSize = 12.sp)
                     }
                 }
             }
         }
         item {
-            ServerMetric("Gateway", settings.gatewayUrl, if (settings.demoMode) "Fallback locale attivo" else "Solo gateway")
+            ServerMetric("Hermes API", settings.gatewayUrl, if (settings.demoMode) "Fallback locale attivo" else "Solo Hermes")
         }
         item {
             ServerMetric("Archivio locale", "${conversations.size} elementi", "Cronologia e progetti salvati sul dispositivo.")
         }
         item {
-            ServerMetric("Privacy", "Locale-first", "Chat/settings restano sul dispositivo finche' non colleghi il gateway. Segreti solo lato server.")
+            ServerMetric("Privacy", "Locale-first", "Chat/settings restano sul dispositivo finche' non colleghi Hermes. API key cifrata localmente.")
         }
         item {
-            ServerMetric("Parita Windows", "Allineata", "Chat, archivio, progetti/recenti, ordini, server, settings e profilo presenti anche su Android.")
+            ServerMetric("Parita Windows", "Allineata", "Chat, archivio, progetti/recenti, jobs, Hermes server, runs, settings e profilo presenti anche su Android.")
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -1669,7 +1685,7 @@ private fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var gatewayUrl by remember(settings) { mutableStateOf(settings.gatewayUrl) }
-    var gatewayWsUrl by remember(settings) { mutableStateOf(normalizeGatewayWsUrl(settings.gatewayWsUrl, settings.gatewayUrl)) }
+    var gatewayWsUrl by remember(settings) { mutableStateOf(settings.gatewayWsUrl) }
     var adminBridgeUrl by remember(settings) { mutableStateOf(settings.adminBridgeUrl) }
     var gatewaySecret by remember(settings) { mutableStateOf("") }
     var provider by remember(settings) { mutableStateOf(settings.provider) }
@@ -1688,21 +1704,19 @@ private fun SettingsScreen(
     ) {
         Text("Impostazioni", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(10.dp))
-        Text("Impostazioni salvate sul dispositivo. Segreti server fuori dal client.", color = AppColors.Muted)
+        Text("Impostazioni salvate sul dispositivo. Hermes API key cifrata con Android Keystore.", color = AppColors.Muted)
         Spacer(modifier = Modifier.height(18.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { SettingsField("Gateway URL", gatewayUrl, { gatewayUrl = it }) }
-            item { SettingsField("Gateway WebSocket URL", gatewayWsUrl, { gatewayWsUrl = it }) }
-            item { SettingsField("ChatClaw Admin Bridge URL", adminBridgeUrl, { adminBridgeUrl = it }) }
+            item { SettingsField("Hermes API URL", gatewayUrl, { gatewayUrl = it }) }
             item {
                 SettingsPasswordField(
-                    label = if (hasGatewaySecret(context)) "Token/password Gateway (gia' salvato)" else "Token/password Gateway",
+                    label = if (hasGatewaySecret(context)) "Hermes API key (gia' salvata)" else "Hermes API key",
                     value = gatewaySecret,
                     onValueChange = { gatewaySecret = it }
                 )
             }
             item { SettingsField("Provider", provider, { provider = it }) }
-            item { SettingsField("Inferenza lato server", inferenceEndpoint, { inferenceEndpoint = it }) }
+            item { SettingsField("Endpoint API lato server", inferenceEndpoint, { inferenceEndpoint = it }) }
             item { SettingsField("API preferita", preferredApi, { preferredApi = it }) }
             item { SettingsField("Modello", model, { model = it }) }
             item { SettingsField("Accesso", accessMode, { accessMode = it }) }
@@ -1730,8 +1744,8 @@ private fun SettingsScreen(
                         Button(onClick = {
                             val candidate = AppSettings(
                                 gatewayUrl = gatewayUrl.trim(),
-                                gatewayWsUrl = normalizeGatewayWsUrl(gatewayWsUrl.trim(), gatewayUrl.trim()),
-                                adminBridgeUrl = adminBridgeUrl.trim(),
+                                gatewayWsUrl = "",
+                                adminBridgeUrl = hermesRoot(AppSettings(gatewayUrl = gatewayUrl.trim())),
                                 provider = provider.trim(),
                                 inferenceEndpoint = inferenceEndpoint.trim(),
                                 preferredApi = preferredApi.trim(),
@@ -1747,9 +1761,9 @@ private fun SettingsScreen(
                                     gatewaySecret = ""
                                 }
                                 status = if (hasGatewaySecret(context)) {
-                                    "Impostazioni salvate. Segreto Gateway cifrato in Android Keystore."
+                                    "Impostazioni salvate. Hermes API key cifrata in Android Keystore."
                                 } else {
-                                    "Impostazioni salvate. Nessun segreto Gateway salvato."
+                                    "Impostazioni salvate. Nessuna Hermes API key salvata."
                                 }
                             } else {
                                 status = error
@@ -1760,8 +1774,8 @@ private fun SettingsScreen(
                         Button(onClick = {
                             val candidate = AppSettings(
                                 gatewayUrl = gatewayUrl.trim(),
-                                gatewayWsUrl = normalizeGatewayWsUrl(gatewayWsUrl.trim(), gatewayUrl.trim()),
-                                adminBridgeUrl = adminBridgeUrl.trim(),
+                                gatewayWsUrl = "",
+                                adminBridgeUrl = hermesRoot(AppSettings(gatewayUrl = gatewayUrl.trim())),
                                 provider = provider.trim(),
                                 inferenceEndpoint = inferenceEndpoint.trim(),
                                 preferredApi = preferredApi.trim(),
@@ -1769,18 +1783,18 @@ private fun SettingsScreen(
                                 accessMode = accessMode.trim(),
                                 demoMode = demoMode
                             )
-                            val error = validateWsUrl(candidate.gatewayWsUrl, "Gateway WebSocket URL")
+                            val error = validateHttpUrl(candidate.gatewayUrl, "Hermes API URL")
                             if (error != null) {
                                 status = error
                                 return@Button
                             }
-                        status = "Test WS: ${candidate.gatewayWsUrl}"
+                        status = "Leggo capabilities Hermes..."
                         scope.launch {
-                            val probe = probeGatewayWs(candidate, gatewaySecret.ifBlank { loadGatewaySecret(context) })
-                            status = "${probe.status} ${probe.detail}"
+                            status = runCatching { httpGet("${candidate.gatewayUrl.trimEnd('/')}/capabilities", gatewaySecret.ifBlank { loadGatewaySecret(context) }) }
+                                .getOrElse { "Capabilities non leggibili: ${it.message ?: it.javaClass.simpleName}" }
                         }
                         }) {
-                            Text("Test WS")
+                            Text("Capabilities")
                         }
                     }
                     FlowRow(
@@ -1788,19 +1802,19 @@ private fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(onClick = {
-                            val error = validateHttpUrl(gatewayUrl, "Gateway URL")
+                            val error = validateHttpUrl(gatewayUrl, "Hermes API URL")
                             if (error != null) {
                                 status = error
                                 return@Button
                             }
 
-                            val healthUrl = "${gatewayUrl.trimEnd('/')}/api/health"
+                            val healthUrl = "${hermesRoot(AppSettings(gatewayUrl = gatewayUrl.trim()))}/health"
                             status = "Test: $healthUrl"
                             scope.launch {
-                                status = testGateway(healthUrl)
+                                status = testGateway(healthUrl, gatewaySecret.ifBlank { loadGatewaySecret(context) })
                             }
                         }) {
-                            Text("Test REST")
+                            Text("Test Hermes")
                         }
                         Button(onClick = {
                             deleteGatewaySecret(context)
@@ -1861,11 +1875,9 @@ private fun appendPrompt(current: String, addition: String): String {
 }
 
 private fun validateSettings(settings: AppSettings): String? {
-    return validateHttpUrl(settings.gatewayUrl, "Gateway URL")
-        ?: validateWsUrl(settings.gatewayWsUrl, "Gateway WebSocket URL")
-        ?: validateHttpUrl(settings.adminBridgeUrl, "Admin Bridge URL")
+    return validateHttpUrl(settings.gatewayUrl, "Hermes API URL")
         ?: validateRequired(settings.provider, "Provider")
-        ?: validateHttpUrl(settings.inferenceEndpoint, "Endpoint inferenza")
+        ?: validateHttpUrl(settings.inferenceEndpoint, "Endpoint API")
         ?: validateRequired(settings.preferredApi, "API preferita")
         ?: validateRequired(settings.model, "Modello")
         ?: validateRequired(settings.accessMode, "Accesso")
@@ -1903,71 +1915,101 @@ private suspend fun sendChatRequest(
     settings: AppSettings,
     mode: String,
     prompt: String,
-    history: List<ChatMessage>
+    history: List<ChatMessage>,
+    conversationId: String?,
+    previousResponseId: String?,
+    apiKey: String?
 ): GatewayChatResult = withContext(Dispatchers.IO) {
-    val endpoints = listOf(
-        "${settings.gatewayUrl.trimEnd('/')}/api/chat/stream",
-        "${settings.gatewayUrl.trimEnd('/')}/api/chat"
-    )
-    val payload = JSONObject()
-        .put("mode", mode.lowercase())
-        .put("prompt", prompt)
-        .put("message", prompt)
-        .put("model", settings.model)
-        .put("provider", settings.provider)
-        .put("preferredApi", settings.preferredApi)
-        .put("accessMode", settings.accessMode)
-        .put("messages", JSONArray().apply {
-            history.filter { !it.isAction }.forEach { message ->
-                put(
-                    JSONObject()
-                        .put("role", if (message.fromUser) "user" else "assistant")
-                        .put("content", message.text)
-                )
-            }
-        })
-
     var lastError = "errore sconosciuto"
-    for (endpoint in endpoints) {
+
+    if (supportsResponsesApi(settings, apiKey)) {
         try {
-            val response = postJson(endpoint, payload)
+            val payload = JSONObject()
+                .put("model", settings.model)
+                .put("input", prompt)
+                .put(
+                    "instructions",
+                    if (mode.equals("Agente", ignoreCase = true)) {
+                        "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni."
+                    } else {
+                        "Rispondi come assistente conversazionale Hermes."
+                    }
+                )
+                .put("store", true)
+                .put("conversation", conversationId ?: JSONObject.NULL)
+                .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
+            val response = postJson("${settings.gatewayUrl.trimEnd('/')}/responses", payload, apiKey)
             if (response.first in 200..299) {
                 val text = extractAssistantText(response.second)
                 if (text.isNotBlank()) {
                     return@withContext GatewayChatResult(
                         text = text,
-                        source = "Gateway",
-                        statusMessage = "Risposta ricevuta dal gateway.",
-                        usedFallback = false
+                        source = "Hermes",
+                        statusMessage = "Risposta ricevuta da Hermes Responses API.",
+                        usedFallback = false,
+                        responseId = extractResponseId(response.second)
                     )
                 }
-                lastError = "gateway raggiunto ma senza contenuto utile"
+                lastError = "Hermes Responses API raggiunta ma senza contenuto utile"
             } else {
-                lastError = "HTTP ${response.first}: ${extractHumanError(response.second)}"
+                lastError = "Responses API HTTP ${response.first}: ${extractHumanError(response.second)}"
             }
         } catch (ex: Exception) {
             lastError = ex.message ?: ex.javaClass.simpleName
         }
     }
 
+    try {
+        val payload = JSONObject()
+            .put("model", settings.model)
+            .put("stream", false)
+            .put("messages", JSONArray().apply {
+                history.filter { !it.isAction }.forEach { message ->
+                    put(
+                        JSONObject()
+                            .put("role", if (message.fromUser) "user" else "assistant")
+                            .put("content", message.text)
+                    )
+                }
+            })
+        val response = postJson("${settings.gatewayUrl.trimEnd('/')}/chat/completions", payload, apiKey)
+        if (response.first in 200..299) {
+            val text = extractAssistantText(response.second)
+            if (text.isNotBlank()) {
+                return@withContext GatewayChatResult(
+                    text = text,
+                    source = "Hermes",
+                    statusMessage = "Risposta ricevuta da Hermes Chat Completions.",
+                    usedFallback = false,
+                    responseId = extractResponseId(response.second)
+                )
+            }
+            lastError = "Hermes Chat Completions raggiunta ma senza contenuto utile"
+        } else {
+            lastError = "Chat Completions HTTP ${response.first}: ${extractHumanError(response.second)}"
+        }
+    } catch (ex: Exception) {
+        lastError = ex.message ?: ex.javaClass.simpleName
+    }
+
     if (settings.demoMode) {
         GatewayChatResult(
             text = buildFallbackReply(settings, mode, lastError),
             source = "Fallback locale",
-            statusMessage = "Gateway non disponibile, uso fallback locale: $lastError.",
+            statusMessage = "Hermes non disponibile, uso fallback locale: $lastError.",
             usedFallback = true
         )
     } else {
         GatewayChatResult(
-            text = "Gateway non raggiungibile: $lastError.",
-            source = "Errore gateway",
+            text = "Hermes non raggiungibile: $lastError.",
+            source = "Errore Hermes",
             statusMessage = "Invio fallito: $lastError.",
             usedFallback = false
         )
     }
 }
 
-private suspend fun queueTaskRequest(settings: AppSettings, task: AgentTask): GatewayTaskResult = withContext(Dispatchers.IO) {
+private suspend fun queueTaskRequest(settings: AppSettings, task: AgentTask, apiKey: String?): GatewayTaskResult = withContext(Dispatchers.IO) {
     val payload = JSONObject()
         .put("title", task.title)
         .put("instructions", task.detail)
@@ -1979,34 +2021,34 @@ private suspend fun queueTaskRequest(settings: AppSettings, task: AgentTask): Ga
         .put("provider", settings.provider)
 
     try {
-        val response = postJson("${settings.gatewayUrl.trimEnd('/')}/api/tasks", payload)
+        val response = postJson("${hermesRoot(settings)}/api/jobs", payload, apiKey)
         if (response.first in 200..299) {
             val remoteId = extractTaskId(response.second)
             val status = extractTaskStatus(response.second) ?: task.status
             return@withContext GatewayTaskResult(
                 task.copy(
                     remoteId = remoteId,
-                    mode = "Gateway",
+                    mode = "Job",
                     status = status,
-                    source = "Gateway",
+                    source = "Hermes Jobs",
                     updatedAt = System.currentTimeMillis()
                 ),
-                "Task creato sul gateway."
+                "Job creato su Hermes."
             )
         }
 
         val error = "HTTP ${response.first}: ${extractHumanError(response.second)}"
-        return@withContext fallbackTaskResult(settings, task, "Creazione task fallita: $error")
+        return@withContext fallbackTaskResult(settings, task, "Creazione job fallita: $error")
     } catch (ex: Exception) {
-        return@withContext fallbackTaskResult(settings, task, "Creazione task fallita: ${ex.message ?: ex.javaClass.simpleName}")
+        return@withContext fallbackTaskResult(settings, task, "Creazione job fallita: ${ex.message ?: ex.javaClass.simpleName}")
     }
 }
 
-private suspend fun updateTaskRequest(settings: AppSettings, task: AgentTask, action: String): GatewayTaskResult = withContext(Dispatchers.IO) {
+private suspend fun updateTaskRequest(settings: AppSettings, task: AgentTask, action: String, apiKey: String?): GatewayTaskResult = withContext(Dispatchers.IO) {
     val targetStatus = when (action) {
-        "approve" -> "Approvato"
-        "deny" -> "Negato"
-        else -> "Completato"
+        "run" -> "Run richiesto"
+        "pause" -> "Pausa richiesta"
+        else -> "Eliminato"
     }
 
     if (task.remoteId.isNullOrBlank()) {
@@ -2016,45 +2058,50 @@ private suspend fun updateTaskRequest(settings: AppSettings, task: AgentTask, ac
                 source = "Fallback locale",
                 updatedAt = System.currentTimeMillis()
             ),
-            "Task aggiornato in locale: $targetStatus."
+            "Job aggiornato in locale: $targetStatus."
         )
     }
 
     try {
-        val response = postJson("${settings.gatewayUrl.trimEnd('/')}/api/tasks/${task.remoteId}/$action", JSONObject())
+        val url = if (action == "delete") {
+            "${hermesRoot(settings)}/api/jobs/${task.remoteId}"
+        } else {
+            "${hermesRoot(settings)}/api/jobs/${task.remoteId}/$action"
+        }
+        val response = postJson(url, JSONObject(), apiKey, if (action == "delete") "DELETE" else "POST")
         if (response.first in 200..299) {
             return@withContext GatewayTaskResult(
                 task.copy(
-                    status = extractTaskStatus(response.second) ?: targetStatus,
-                    source = "Gateway",
+                    status = if (action == "delete") "Eliminato" else extractTaskStatus(response.second) ?: targetStatus,
+                    source = "Hermes Jobs",
                     updatedAt = System.currentTimeMillis()
                 ),
-                "Task aggiornato sul gateway."
+                "Job aggiornato su Hermes."
             )
         }
 
         val error = "HTTP ${response.first}: ${extractHumanError(response.second)}"
-        return@withContext fallbackTaskResult(settings, task.copy(status = targetStatus), "Aggiornamento task fallito: $error")
+        return@withContext fallbackTaskResult(settings, task.copy(status = targetStatus), "Aggiornamento job fallito: $error")
     } catch (ex: Exception) {
-        return@withContext fallbackTaskResult(settings, task.copy(status = targetStatus), "Aggiornamento task fallito: ${ex.message ?: ex.javaClass.simpleName}")
+        return@withContext fallbackTaskResult(settings, task.copy(status = targetStatus), "Aggiornamento job fallito: ${ex.message ?: ex.javaClass.simpleName}")
     }
 }
 
-private suspend fun loadServerSnapshot(settings: AppSettings): ServerSnapshot = withContext(Dispatchers.IO) {
-    val healthUrl = "${settings.gatewayUrl.trimEnd('/')}/api/health"
+private suspend fun loadServerSnapshot(settings: AppSettings, apiKey: String?): ServerSnapshot = withContext(Dispatchers.IO) {
+    val healthUrl = "${hermesRoot(settings)}/health"
     val baseSnapshot = ServerSnapshot(
         gateway = settings.gatewayUrl,
         model = settings.model,
         providerDetail = "Provider: ${settings.provider} | API: ${settings.preferredApi}",
         inferenceEndpoint = settings.inferenceEndpoint,
         policy = settings.accessMode,
-        statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare il gateway." else "Solo gateway. Verifica lo stato del server."
+        statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare Hermes." else "Solo Hermes. Verifica lo stato del server."
     )
 
     try {
-        val healthStatus = testGateway(healthUrl)
+        val healthStatus = testGateway(healthUrl, apiKey)
         try {
-            val body = httpGet("${settings.gatewayUrl.trimEnd('/')}/api/server/status")
+            val body = httpGet("${hermesRoot(settings)}/health/detailed", apiKey)
             val json = JSONObject(body)
             ServerSnapshot(
                 gateway = settings.gatewayUrl,
@@ -2076,27 +2123,31 @@ private suspend fun loadServerSnapshot(settings: AppSettings): ServerSnapshot = 
                     ?: healthStatus
             )
         } catch (_: Exception) {
-            baseSnapshot.copy(statusMessage = if (settings.demoMode) "$healthStatus Fallback locale attivo." else "$healthStatus Solo gateway.")
+            baseSnapshot.copy(statusMessage = if (settings.demoMode) "$healthStatus Fallback locale attivo." else "$healthStatus Solo Hermes.")
         }
     } catch (ex: Exception) {
-        baseSnapshot.copy(statusMessage = "Gateway non raggiungibile: ${ex.message ?: ex.javaClass.simpleName}")
+        baseSnapshot.copy(statusMessage = "Hermes non raggiungibile: ${ex.message ?: ex.javaClass.simpleName}")
     }
 }
 
-private suspend fun testGateway(healthUrl: String): String = withContext(Dispatchers.IO) {
+private suspend fun testGateway(healthUrl: String, apiKey: String?): String = withContext(Dispatchers.IO) {
     try {
         val connection = (URL(healthUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 5_000
             readTimeout = 5_000
+            setRequestProperty("Accept", "application/json")
+            if (!apiKey.isNullOrBlank()) {
+                setRequestProperty("Authorization", "Bearer ${apiKey.trim()}")
+            }
         }
 
         connection.use {
             val code = it.responseCode
-            if (code in 200..299) "Gateway raggiungibile." else "Gateway risponde: HTTP $code"
+            if (code in 200..299) "Hermes raggiungibile." else "Hermes risponde: HTTP $code"
         }
     } catch (ex: Exception) {
-        "Gateway non raggiungibile: ${ex.message ?: ex.javaClass.simpleName}"
+        "Hermes non raggiungibile: ${ex.message ?: ex.javaClass.simpleName}"
     }
 }
 
@@ -2113,7 +2164,7 @@ private suspend fun probeGatewayWs(settings: AppSettings, authSecret: String?): 
         val messages = CompletableDeferred<MutableList<String>>()
         val requestBuilder = Request.Builder()
             .url(wsUrl)
-            .header("User-Agent", "ChatClaw-Android")
+            .header("User-Agent", "HermesHub-Android")
         if (!authSecret.isNullOrBlank()) {
             requestBuilder.header("Authorization", "Bearer ${authSecret.trim()}")
         }
@@ -2179,6 +2230,62 @@ private suspend fun probeGatewayWs(settings: AppSettings, authSecret: String?): 
     }
 }
 
+private suspend fun hermesHttpCall(
+    settings: AppSettings,
+    apiKey: String?,
+    target: String,
+    rawPayload: String
+): GatewayRpcCallResult = withContext(Dispatchers.IO) {
+    val trimmed = target.trim()
+    if (trimmed.isBlank()) {
+        return@withContext GatewayRpcCallResult(target, false, "Endpoint obbligatorio.", "", "")
+    }
+
+    val parts = trimmed.split(" ", limit = 2).map { it.trim() }.filter { it.isNotBlank() }
+    val verb = if (parts.size == 2) parts[0].uppercase() else if (rawPayload.isBlank()) "GET" else "POST"
+    val path = if (parts.size == 2) parts[1] else trimmed
+    val url = resolveHermesUrl(settings, path)
+
+    try {
+        val body = if (verb == "GET") {
+            httpGet(url, apiKey)
+        } else {
+            val payload = if (rawPayload.isBlank()) JSONObject() else JSONObject(rawPayload)
+            val response = postJson(url, payload, apiKey, verb)
+            if (response.first in 200..299) response.second else "HTTP ${response.first}: ${extractHumanError(response.second)}"
+        }
+
+        GatewayRpcCallResult(
+            method = "$verb $path",
+            success = true,
+            status = "Hermes risposta ricevuta.",
+            rawJson = body,
+            summary = body.limitText(180)
+        )
+    } catch (ex: Exception) {
+        GatewayRpcCallResult(
+            method = "$verb $path",
+            success = false,
+            status = "Hermes richiesta fallita.",
+            rawJson = "",
+            summary = ex.message ?: ex.javaClass.simpleName
+        )
+    }
+}
+
+private fun resolveHermesUrl(settings: AppSettings, path: String): String {
+    if (path.startsWith("http://", ignoreCase = true) || path.startsWith("https://", ignoreCase = true)) return path
+    val normalized = if (path.startsWith("/")) path else "/$path"
+    return if (normalized.startsWith("/v1", ignoreCase = true) ||
+        normalized.startsWith("/api/", ignoreCase = true) ||
+        normalized.startsWith("/health", ignoreCase = true)
+    ) {
+        "${hermesRoot(settings)}$normalized"
+    } else {
+        "${settings.gatewayUrl.trimEnd('/')}$normalized"
+    }
+}
+
 private suspend fun gatewayRpcCall(
     settings: AppSettings,
     authSecret: String?,
@@ -2208,7 +2315,7 @@ private suspend fun gatewayRpcCall(
         val requestId = UUID.randomUUID().toString()
         val requestBuilder = Request.Builder()
             .url(wsUrl)
-            .header("User-Agent", "ChatClaw-Android")
+            .header("User-Agent", "HermesHub-Android")
         if (!authSecret.isNullOrBlank()) {
             requestBuilder.header("Authorization", "Bearer ${authSecret.trim()}")
         }
@@ -2289,7 +2396,7 @@ private suspend fun adminBridgeCall(
         val builder = Request.Builder()
             .url("$baseUrl$path")
             .header("Accept", "application/json")
-            .header("User-Agent", "ChatClaw-Android")
+            .header("User-Agent", "HermesHub-Android")
         if (!token.isNullOrBlank()) {
             builder.header("Authorization", "Bearer ${token.trim()}")
         }
@@ -2322,13 +2429,16 @@ private suspend fun adminBridgeCall(
     }
 }
 
-private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
+private suspend fun httpGet(url: String, apiKey: String? = null): String = withContext(Dispatchers.IO) {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
         connectTimeout = 5_000
         readTimeout = 5_000
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("User-Agent", "ChatClaw-Android")
+        setRequestProperty("User-Agent", "HermesHub-Android")
+        if (!apiKey.isNullOrBlank()) {
+            setRequestProperty("Authorization", "Bearer ${apiKey.trim()}")
+        }
     }
 
     connection.use {
@@ -2337,18 +2447,39 @@ private suspend fun httpGet(url: String): String = withContext(Dispatchers.IO) {
     }
 }
 
-private suspend fun postJson(url: String, payload: JSONObject): Pair<Int, String> = withContext(Dispatchers.IO) {
+private suspend fun postJson(url: String, payload: JSONObject, apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
     val client = OkHttpClient.Builder().build()
-    val request = Request.Builder()
+    val builder = Request.Builder()
         .url(url)
         .header("Accept", "text/event-stream, application/json, text/plain")
-        .header("User-Agent", "ChatClaw-Android")
-        .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-        .build()
+        .header("User-Agent", "HermesHub-Android")
+    if (!apiKey.isNullOrBlank()) {
+        builder.header("Authorization", "Bearer ${apiKey.trim()}")
+    }
+    val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+    val request = when (method.uppercase()) {
+        "PATCH" -> builder.patch(body).build()
+        "DELETE" -> builder.delete().build()
+        else -> builder.post(body).build()
+    }
 
     client.newCall(request).execute().use { response ->
         response.code to response.body.string()
     }
+}
+
+private suspend fun supportsResponsesApi(settings: AppSettings, apiKey: String?): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val body = httpGet("${settings.gatewayUrl.trimEnd('/')}/capabilities", apiKey)
+        body.isBlank() || body.contains("responses", ignoreCase = true)
+    } catch (_: Exception) {
+        true
+    }
+}
+
+private fun hermesRoot(settings: AppSettings): String {
+    val api = settings.gatewayUrl.trimEnd('/')
+    return if (api.endsWith("/v1", ignoreCase = true)) api.removeSuffix("/v1") else api
 }
 
 private val GATEWAY_WS_RPC_METHODS = listOf(
@@ -2363,26 +2494,13 @@ private val GATEWAY_WS_RPC_METHODS = listOf(
 )
 
 private val OPERATOR_PRESETS = listOf(
-    OperatorPreset("Dashboard", "Status", "status", "{}"),
-    OperatorPreset("Dashboard", "Presenza", "system-presence", "{}"),
-    OperatorPreset("Dashboard", "Log recenti", "logs.tail", "{\"sinceMs\":600000,\"limit\":100}"),
-    OperatorPreset("Modelli", "Stato modelli", "models.status", "{}"),
-    OperatorPreset("Modelli", "Lista modelli", "models.list", "{}"),
-    OperatorPreset("Modelli", "Scan provider", "models.scan", "{}"),
-    OperatorPreset("Plugin", "Lista plugin", "plugins.list", "{}"),
-    OperatorPreset("Plugin", "Doctor plugin", "plugins.doctor", "{}"),
-    OperatorPreset("Approvazioni", "Pending exec", "exec.approvals.get", "{}"),
-    OperatorPreset("Config", "Leggi config", "config.get", "{}"),
-    OperatorPreset("Canali", "Stato canali", "channels.status", "{}"),
-    OperatorPreset("Canali", "Lista canali", "channels.list", "{}"),
-    OperatorPreset("Cron", "Stato cron", "cron.status", "{}"),
-    OperatorPreset("Cron", "Lista cron", "cron.list", "{\"all\":true}"),
-    OperatorPreset("Nodi", "Lista nodi", "nodes.list", "{}"),
-    OperatorPreset("Security", "Audit sicurezza", "security.audit", "{\"deep\":true}"),
-    OperatorPreset("Memoria", "Stato memoria", "memory.status", "{}"),
-    OperatorPreset("Secrets", "Audit secrets", "secrets.audit", "{}"),
-    OperatorPreset("Secrets", "Reload secrets", "secrets.reload", "{}"),
-    OperatorPreset("Update", "Update stack", "update.run", "{}")
+    OperatorPreset("Dashboard", "Health", "GET /health", ""),
+    OperatorPreset("Dashboard", "Health detailed", "GET /health/detailed", ""),
+    OperatorPreset("Dashboard", "Capabilities", "GET /v1/capabilities", ""),
+    OperatorPreset("Modelli", "Lista modelli", "GET /v1/models", ""),
+    OperatorPreset("Runs", "Crea run", "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"Controlla stato operativo e riassumi.\"}"),
+    OperatorPreset("Jobs", "Lista jobs", "GET /api/jobs", ""),
+    OperatorPreset("Jobs", "Crea job", "POST /api/jobs", "{\"title\":\"Controllo operativo\",\"instructions\":\"Controlla stato Hermes e segnala problemi.\"}")
 )
 
 private fun normalizeGatewayWsUrl(wsUrl: String, gatewayUrl: String): String {
@@ -2423,7 +2541,7 @@ private fun buildConnectFrame(authSecret: String?): String {
                     "client",
                     JSONObject()
                         .put("id", "chatclaw-android")
-                        .put("version", "0.5.4")
+                        .put("version", "0.6.0")
                         .put("platform", "android")
                         .put("mode", "operator")
                 )
@@ -2434,7 +2552,7 @@ private fun buildConnectFrame(authSecret: String?): String {
                 .put("permissions", JSONObject())
                 .put("auth", if (authSecret.isNullOrBlank()) JSONObject.NULL else JSONObject().put("token", authSecret.trim()))
                 .put("locale", "it-IT")
-                .put("userAgent", "ChatClaw-Android/0.5.4")
+                .put("userAgent", "HermesHub-Android/0.6.0")
                 .put(
                     "device",
                     JSONObject()
@@ -2583,7 +2701,10 @@ private fun extractTaskId(body: String): String? {
         val json = JSONObject(body)
         json.extractString("id")
             ?: json.extractString("taskId")
+            ?: json.extractString("job_id")
+            ?: json.extractString("jobId")
             ?: json.extractNestedString("task", "id")
+            ?: json.extractNestedString("job", "id")
     } catch (_: Exception) {
         null
     }
@@ -2594,6 +2715,19 @@ private fun extractTaskStatus(body: String): String? {
         val json = JSONObject(body)
         json.extractString("status")
             ?: json.extractNestedString("task", "status")
+            ?: json.extractNestedString("job", "status")
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun extractResponseId(body: String): String? {
+    return try {
+        val json = JSONObject(body)
+        json.extractString("id")
+            ?: json.extractString("response_id")
+            ?: json.extractString("responseId")
+            ?: json.extractNestedString("response", "id")
     } catch (_: Exception) {
         null
     }
@@ -2631,12 +2765,12 @@ private fun JSONObject.extractNestedString(parentKey: String, childKey: String):
 
 private fun buildFallbackReply(settings: AppSettings, mode: String, reason: String): String {
     val prefix = if (mode == "Agente") {
-        "Gateway assente: preparo un ordine locale con approve/deny e tengo il contesto pronto."
+        "Hermes assente: preparo un job locale e tengo il contesto pronto."
     } else {
-        "Gateway assente: uso la risposta locale di emergenza senza perdere la conversazione."
+        "Hermes assente: uso la risposta locale di emergenza senza perdere la conversazione."
     }
 
-    return "$prefix Preset: gateway ${settings.gatewayUrl}, endpoint server ${settings.inferenceEndpoint}, API ${settings.preferredApi}. Motivo: $reason."
+    return "$prefix Preset: API ${settings.gatewayUrl}, modello ${settings.model}, protocollo ${settings.preferredApi}. Motivo: $reason."
 }
 
 private fun fallbackTaskResult(settings: AppSettings, task: AgentTask, message: String): GatewayTaskResult {
@@ -2653,8 +2787,8 @@ private fun fallbackTaskResult(settings: AppSettings, task: AgentTask, message: 
     } else {
         GatewayTaskResult(
             task.copy(
-                status = "Errore gateway",
-                source = "Errore gateway",
+                status = "Errore Hermes",
+                source = "Errore Hermes",
                 updatedAt = System.currentTimeMillis()
             ),
             message
@@ -2678,7 +2812,7 @@ private suspend fun checkGithubUpdate(localVersion: String): UpdateCheckResult =
             connectTimeout = 10_000
             readTimeout = 10_000
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "ChatClaw-Android")
+            setRequestProperty("User-Agent", "HermesHub-Android")
         }
 
         connection.use {
@@ -2784,12 +2918,12 @@ private suspend fun downloadUpdateApk(
     onProgress: (Float, String, String) -> Unit
 ): File? = withContext(Dispatchers.IO) {
     val targetDirectory = context.getExternalFilesDir(null) ?: context.cacheDir
-    val targetFile = File(targetDirectory, "ChatClaw-${normalizeVersion(version)}.apk")
+    val targetFile = File(targetDirectory, "HermesHub-${normalizeVersion(version)}.apk")
     val client = OkHttpClient.Builder().build()
     val request = Request.Builder()
         .url(assetUrl)
         .header("Accept", "application/octet-stream")
-        .header("User-Agent", "ChatClaw-Android")
+        .header("User-Agent", "HermesHub-Android")
         .build()
 
     try {
@@ -2861,7 +2995,7 @@ private fun installDownloadedApk(context: Context, apkPath: String): String {
                 Uri.parse("package:${context.packageName}")
             )
         )
-        return "Consenti a ChatClaw di installare APK sconosciuti, poi premi di nuovo Aggiorna."
+        return "Consenti a Hermes Hub di installare APK sconosciuti, poi premi di nuovo Aggiorna."
     }
 
     val contentUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
@@ -2879,7 +3013,7 @@ private fun installDownloadedApk(context: Context, apkPath: String): String {
 private fun findDownloadedUpdateApk(context: Context, version: String): File? {
     val normalizedVersion = normalizeVersion(version)
     val targetDirectory = context.getExternalFilesDir(null) ?: context.cacheDir
-    val targetFile = File(targetDirectory, "ChatClaw-$normalizedVersion.apk")
+    val targetFile = File(targetDirectory, "HermesHub-$normalizedVersion.apk")
     return targetFile.takeIf { it.exists() }
 }
 
@@ -3015,14 +3149,15 @@ private fun saveConversationExchange(
     mode: String,
     prompt: String,
     response: String,
-    source: String
+    source: String,
+    responseId: String? = null
 ): LocalConversation {
     val conversations = loadConversations(context).toMutableList()
     val index = conversations.indexOfFirst { it.id == conversationId }
     val now = System.currentTimeMillis()
     val newMessages = listOf(
         ChatMessage("Tu", prompt, fromUser = true),
-        ChatMessage("OpenClaw", response, fromUser = false)
+        ChatMessage("Hermes", response, fromUser = false)
     )
 
     val conversation = if (index >= 0) {
@@ -3032,7 +3167,8 @@ private fun saveConversationExchange(
             description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
             prompt = prompt,
             updatedAt = now,
-            messages = current.messages + newMessages
+            messages = current.messages + newMessages,
+            previousResponseId = responseId ?: current.previousResponseId
         )
     } else {
         LocalConversation(
@@ -3042,7 +3178,8 @@ private fun saveConversationExchange(
             description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
             prompt = prompt,
             updatedAt = now,
-            messages = newMessages
+            messages = newMessages,
+            previousResponseId = responseId
         )
     }
 
@@ -3116,7 +3253,7 @@ private fun copyArchiveToClipboard(context: Context) {
 private fun exportArchiveText(context: Context): String {
     val conversations = loadConversations(context)
     if (conversations.isEmpty()) {
-        return "Archivio ChatClaw vuoto."
+        return "Archivio Hermes Hub vuoto."
     }
 
     return conversations.joinToString("\n\n") { conversation ->
@@ -3142,7 +3279,8 @@ private fun loadConversations(context: Context): List<LocalConversation> {
                         description = obj.optString("description"),
                         prompt = obj.optString("prompt"),
                         updatedAt = obj.optLong("updatedAt"),
-                        messages = readMessages(obj.optJSONArray("messages") ?: JSONArray())
+                        messages = readMessages(obj.optJSONArray("messages") ?: JSONArray()),
+                        previousResponseId = obj.optString("previousResponseId").takeIf { it.isNotBlank() }
                     )
                 )
             }
@@ -3166,6 +3304,7 @@ private fun saveConversations(context: Context, conversations: List<LocalConvers
                     .put("description", conversation.description)
                     .put("prompt", conversation.prompt)
                     .put("updatedAt", conversation.updatedAt)
+                    .put("previousResponseId", conversation.previousResponseId ?: JSONObject.NULL)
                     .put("messages", writeMessages(conversation.messages))
             )
         }
@@ -3316,14 +3455,14 @@ private const val GATEWAY_SECRET_PREF_KEY = "gatewaySecretCiphertext"
 private const val GATEWAY_SECRET_KEY_ALIAS = "chatclaw_gateway_secret"
 
 private object AppDefaults {
-    const val gatewayUrl = "https://openclaw.local:8443"
-    const val gatewayWsUrl = "wss://openclaw.local:8443"
-    const val adminBridgeUrl = "https://openclaw.local:9443"
-    const val provider = "custom"
-    const val inferenceEndpoint = "http://localhost:8000/v1"
-    const val preferredApi = "openai-completions -> /v1/chat/completions"
-    const val model = "meta-llama/Llama-3.1-8B-Instruct"
-    const val accessMode = "VPN/LAN only"
+    const val gatewayUrl = "http://hermes.local:8642/v1"
+    const val gatewayWsUrl = ""
+    const val adminBridgeUrl = "http://hermes.local:8642"
+    const val provider = "hermes-agent"
+    const val inferenceEndpoint = "http://hermes.local:8642/v1"
+    const val preferredApi = "openai-responses"
+    const val model = "hermes-agent"
+    const val accessMode = "Tailscale/LAN"
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"
     const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"
 }

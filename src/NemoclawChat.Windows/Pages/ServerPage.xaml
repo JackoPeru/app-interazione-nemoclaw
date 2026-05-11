@@ -15,10 +15,10 @@
                         FontSize="30"
                         FontWeight="SemiBold"
                         Foreground="White"
-                        Text="Server" />
+                        Text="Hermes Server" />
                     <TextBlock
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Dashboard gateway, modello locale, sandbox OpenClaw e policy rete." />
+                        Text="Dashboard Hermes Agent API: health, detailed health, models e capabilities." />
                 </StackPanel>
 
                 <Grid ColumnSpacing="16" RowSpacing="16">
@@ -33,7 +33,7 @@
 
                     <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="8">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Gateway" />
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Hermes API" />
                             <TextBlock x:Name="GatewayText" Foreground="White" TextWrapping="Wrap" />
                             <TextBlock x:Name="GatewayDetailText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
                         </StackPanel>
@@ -49,14 +49,14 @@
                         <StackPanel Spacing="8">
                             <TextBlock Foreground="White" FontWeight="SemiBold" Text="Inferenza lato server" />
                             <TextBlock x:Name="InferenceText" Foreground="White" TextWrapping="Wrap" />
-                            <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="Il client non parla direttamente con Ollama/local inference." TextWrapping="Wrap" />
+                            <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="Il client parla a Hermes API, non direttamente al runtime modello." TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="1" Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="8">
                             <TextBlock Foreground="White" FontWeight="SemiBold" Text="Sicurezza" />
                             <TextBlock x:Name="PolicyText" Foreground="White" TextWrapping="Wrap" />
-                            <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="Deny by default, segreti solo lato server, rete esterna dopo approve." TextWrapping="Wrap" />
+                            <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="API key via Authorization Bearer; esposizione consigliata solo LAN/Tailscale." TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -68,14 +68,14 @@
                     BorderThickness="1"
                     CornerRadius="18">
                     <StackPanel Spacing="14">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Azioni server" />
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Azioni Hermes" />
                         <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <Button
                                 Background="{StaticResource AccentGreenBrush}"
                                 BorderThickness="0"
                                 Click="TestGateway_Click"
-                                Content="Test gateway"
+                                Content="Test Hermes"
                                 Foreground="White" />
                             <Button Click="Refresh_Click" Content="Ricarica settings" />
                             <Button Click="ShowApiContract_Click" Content="Mostra API" />
@@ -97,31 +97,31 @@
                     BorderThickness="1"
                     CornerRadius="18">
                     <StackPanel Spacing="14">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Gateway OpenClaw WS" />
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Capabilities Hermes" />
                         <TextBlock x:Name="GatewayWsText" Foreground="White" TextWrapping="Wrap" />
                         <TextBlock
                             Foreground="{StaticResource MutedTextBrush}"
                             FontSize="12"
-                            Text="Protocollo ufficiale: connect frame, ruolo operator, scopes, RPC. Pairing/token usati solo per test in questa build."
+                            Text="Lettura reale di /v1/capabilities e /v1/models con la Hermes API key salvata."
                             TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <PasswordBox
                                 x:Name="GatewaySecretBox"
-                                Width="280"
-                                Header="Token/password temporaneo"
-                                PlaceholderText="Vuoto = usa segreto salvato" />
+                                Width="1"
+                                Height="1"
+                                Visibility="Collapsed" />
                             <Button
                                 Background="{StaticResource AccentGreenBrush}"
                                 BorderThickness="0"
                                 Click="TestGatewayWs_Click"
-                                Content="Test WS RPC"
+                                Content="Leggi capabilities"
                                 Foreground="White" />
                         </StackPanel>
                         <Border Padding="14" Background="{StaticResource AssistantBubbleBrush}" CornerRadius="12">
                             <TextBlock
                                 x:Name="GatewayWsResultText"
                                 Foreground="{StaticResource MutedTextBrush}"
-                                Text="Nessun probe WS eseguito."
+                                Text="Nessun controllo capabilities eseguito."
                                 TextWrapping="Wrap" />
                         </Border>
                     </StackPanel>

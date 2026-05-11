@@ -2,16 +2,17 @@
 
 ## Obiettivo
 
-Creare app chat stile ChatGPT per comunicare con home-server che ospitera' OpenClaw e una IA locale.
+Creare app chat stile ChatGPT per comunicare con home-server che ospita Hermes Agent.
 
 Target:
 
 - App desktop Windows.
 - App Android.
 - UI moderna chatbot: dark premium operator console, composer largo, menu `+`, modalita `Chat`/`Agente`.
-- App name: `ChatClaw`.
-- Gateway comune futuro: `OpenClaw Gateway API`.
-- Direzione nuova: ChatClaw deve diventare console operatore OpenClaw, non solo frontend REST.
+- Nome visibile app: `Hermes Hub`.
+- Compatibilita Android: `applicationId` resta `com.nemoclaw.chat`.
+- Backend primario: Hermes Agent API Server su `http://hermes.local:8642/v1`.
+- Direzione nuova: Hermes Hub e' client operativo per Hermes Agent, non console del vecchio backend.
 
 ## Regola Git
 
@@ -57,26 +58,24 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.5.4`.
-- Brand/UI: `ChatClaw`, logo nuovo applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
+- Versione app: `0.6.0`.
+- Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent claw blue `#2DA8FF`, testo muted `#A2ADBF`, bubble utente blu `#1F4FA8`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
 - Chat: invio con Enter, nuova riga con Shift+Enter, chip `Chat`/`Agente` in alto a destra cliccabile, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
 - Archivio: ricerca locale + dati persistenti, filtri chat/progetti/task/server, riapertura conversazioni, segna progetto, eliminazione elementi salvati con conferma preventiva.
 - Recenti sidebar: letti dallo store locale e aggiornati quando cambia archivio; nessun elemento seed finto.
-- Chat: prova prima il gateway reale (`/api/chat/stream`, fallback `/api/chat`), poi usa fallback locale solo se abilitato nelle impostazioni.
-- Ordini agente: coda task persistente su disco, tentativo reale su gateway (`/api/tasks`), approve/deny/completa con sync gateway se disponibile e fallback locale se no.
-- Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, lettura reale di `/api/server/status` quando disponibile.
-- Gateway OpenClaw WS: pagina Server include test WebSocket ufficiale, handshake RPC `connect` con `minProtocol/maxProtocol=3`, ruolo `operator`, auth token nel frame, probe metodi `status`, `system-presence`, `models.status`, `models.list`, `plugins.list`, `channels.status`, `nodes.list`, `exec.approvals.get`.
-- Console Operatore: pagina dedicata con RPC manuale e preset reali per dashboard, modelli, plugin, approvals, config, log, canali, cron, nodi, security, memoria, secrets e update. Ogni azione chiama Gateway WS; metodo non supportato viene mostrato come errore reale.
-- Console Fase 2/3: controlli dedicati per `exec.approval.resolve`, `config.get/patch/apply`, `workspace.files.list/read/write`, Admin Bridge status/doctor/security audit/restart/tail log.
-- Settings: aggiunto `GatewayWsUrl`, default `wss://openclaw.local:8443`.
-- Settings: aggiunto `AdminBridgeUrl`, default `https://openclaw.local:9443`.
-- Credenziale Gateway: token/password salvato in Windows Credential Locker; campo vuoto mantiene segreto esistente, reset lo elimina.
+- Chat: prova prima Hermes `POST /v1/responses` con `store`, `conversation` e `previous_response_id`; fallback reale `POST /v1/chat/completions`; fallback locale solo se abilitato.
+- Jobs: coda persistente su disco, tentativo reale su Hermes Jobs API (`/api/jobs`), `run`/`pause`/`delete` con sync Hermes se disponibile e fallback locale se no.
+- Server: dashboard Hermes con `/health`, `/health/detailed`, `/v1/models`, `/v1/capabilities`.
+- Runs: pagina dedicata con preset HTTP reali per health, models, capabilities, `POST /v1/runs`, `GET/POST /api/jobs`.
+- Vecchio WebSocket operator rimosso dalla UX principale. Servizi legacy restano nel repo non primari.
+- Settings: `GatewayUrl` ora significa `Hermes API URL`, default `http://hermes.local:8642/v1`; `GatewayWsUrl` vuoto; `AdminBridgeUrl` derivato root Hermes.
+- Credenziale Hermes API key: salvata in Windows Credential Locker; campo vuoto mantiene segreto esistente, reset lo elimina.
 - Profilo/About: info app/profilo locale, versione, privacy, gateway attivo.
 - Update system: controlla GitHub Releases latest, scarica asset Windows in app con progresso e poi apre installer/asset da bottone `Installa update`.
 - Compatibilita storage: usa `%LOCALAPPDATA%\\ChatClaw\\...` ma migra automaticamente da `%LOCALAPPDATA%\\NemoclawChat\\...` se esiste.
-- Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test gateway `/api/health`.
+- Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test Hermes `/health`.
 - Settings salvate in:
 
 ```text
@@ -93,28 +92,26 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.5.4`, versionCode `12`.
-- Brand/UI: `ChatClaw`, logo nuovo applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
+- Versione app: `0.6.0`, versionCode `13`.
+- Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent claw blue `#2DA8FF`, testo muted `#A2ADBF`, bubble utente blu `#1F4FA8`, empty state con wash blu e logo grande.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
-- Chat: action bubble per menu `+`, mode `Chat`/`Agente`, chip mode in alto a destra cliccabile, tentativo gateway reale (`/api/chat/stream`, fallback `/api/chat`), fallback locale esplicito se abilitato, composer stabile a campo singolo, salvataggio cronologia locale.
+- Chat: action bubble per menu `+`, mode `Chat`/`Agente`, chip mode in alto a destra cliccabile, tentativo Hermes reale (`/v1/responses`, fallback `/v1/chat/completions`), fallback locale esplicito se abilitato, composer stabile a campo singolo, salvataggio cronologia locale con `previous_response_id`.
 - Archivio: tab mobile con ricerca locale persistente, filtri, riapertura conversazioni, salvataggio progetti, contatori, export appunti, rename/delete conversazioni salvate, conferma preventiva prima del delete, icona delete sempre visibile sulla card e azioni che vanno a capo su schermi stretti; nessun seed progetto/chat finto.
 - Android UI hardening: righe di azioni in Archivio, Ordini, Server, Aggiornamenti e Settings convertite a layout che va a capo su schermi stretti, per evitare pulsanti nascosti o compressi.
-- Ordini agente: coda task persistente in `SharedPreferences`, creazione task con tentativo reale su gateway, approve/deny/completa con sync gateway se disponibile e fallback locale se no.
-- Server: dashboard gateway/modello/inferenza/sicurezza, test `/api/health`, lettura reale di `/api/server/status` quando disponibile.
-- Gateway OpenClaw WS: pagina Server include test WebSocket ufficiale, handshake RPC `connect` con `minProtocol/maxProtocol=3`, ruolo `operator`, auth token nel frame, probe metodi `status`, `system-presence`, `models.status`, `models.list`, `plugins.list`, `channels.status`, `nodes.list`, `exec.approvals.get`.
-- Console Operatore: tab dedicata con RPC manuale e preset reali per dashboard, modelli, plugin, approvals, config, log, canali, cron, nodi, security, memoria, secrets e update. Ogni azione chiama Gateway WS; metodo non supportato viene mostrato come errore reale.
-- Console Fase 2/3: controlli dedicati per `exec.approval.resolve`, `config.get/patch/apply`, `workspace.files.list/read/write`, Admin Bridge status/doctor/security audit/restart/tail log.
-- Settings: aggiunto `gatewayWsUrl`, default `wss://openclaw.local:8443`.
-- Settings: aggiunto `adminBridgeUrl`, default `https://openclaw.local:9443`.
-- Credenziale Gateway: token/password cifrato con Android Keystore AES-GCM e salvato in `chatclaw_settings`; campo vuoto mantiene segreto esistente, reset lo elimina.
+- Jobs: coda task persistente in `SharedPreferences`, creazione job con tentativo reale su Hermes Jobs API, run/pause/delete con sync Hermes se disponibile e fallback locale se no.
+- Server: dashboard Hermes/modello/API/sicurezza, test `/health`, lettura reale di `/health/detailed`, `/v1/models`, `/v1/capabilities`.
+- Runs: tab dedicata con endpoint manuale e preset reali Hermes per dashboard, modelli, capabilities, runs e jobs. Vecchio WS operator rimosso dalla UX principale.
+- Settings: `gatewayWsUrl` vuoto, non mostrato nella UX Hermes.
+- Settings: `adminBridgeUrl` derivato da root Hermes, non requisito primario.
+- Credenziale Hermes API key: cifrata con Android Keystore AES-GCM e salvata in `chatclaw_settings`; campo vuoto mantiene segreto esistente, reset lo elimina.
 - Profilo: info Matteo/app/gateway/privacy/parita Windows.
 - Update system: controlla GitHub Releases latest, scarica APK dentro l'app con progress bar + dimensione file e poi apre installer Android con tasto `Aggiorna`.
 - Nessun bottone `Release` nella UI update Android: il flusso resta interno all'app come UniNote (`Controlla > Scarica > Aggiorna`).
 - Se la versione installata e' gia' l'ultima disponibile: mostra solo stato aggiornato e il controllo refresh, senza bottoni `Scarica`/`Aggiorna`.
 - Top bar chat Android: niente label `Demo: ...`; mostra solo brand + chip `Chat/Agente`.
 - Icona launcher Android: adaptive icon con foreground ritagliato piu' grande per ridurre il vuoto attorno al logo tra le app.
-- Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test gateway `/api/health`.
+- Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test Hermes `/health`.
 - Settings salvate in `SharedPreferences` `chatclaw_settings` con migrazione automatica da `nemoclaw_settings`.
 - Conversazioni/progetti salvati in `SharedPreferences` `chatclaw_archive` con migrazione automatica da `nemoclaw_archive`.
 - Task salvati in `SharedPreferences` `chatclaw_tasks`.
@@ -124,8 +121,8 @@ Documentazione:
 
 - `docs/windows-desktop-guide.md`
 - `docs/android-app-guide.md`
-- `docs/openclaw-operator-console-implementation.md`
-- `config/nemoclaw-defaults.json`
+- `docs/hermes-hub-conversion.md`
+- `config/hermes-defaults.json`
 
 Admin Bridge:
 
@@ -134,30 +131,32 @@ Admin Bridge:
 - Auth: bearer token da `CHATCLAW_ADMIN_TOKEN`.
 - File root: `CHATCLAW_ADMIN_ROOTS`.
 - Audit log: `~/.chatclaw-admin-bridge/audit.log` o `CHATCLAW_ADMIN_AUDIT`.
-- Endpoints reali: `/v1/status`, `/v1/actions/{doctor|security-audit|update-openclaw|plugin-list|restart-gateway}`, `/v1/logs/tail`, `/v1/files/list`, `/v1/files/read`, `/v1/files/write`.
+- Endpoints reali: `/v1/status`, `/v1/actions/{doctor|security-audit|plugin-list}`, `/v1/logs/tail`, `/v1/files/list`, `/v1/files/read`, `/v1/files/write`.
 
-## Preset OpenClaw
+## Preset Hermes
 
 Usare questi default finche' server reale non esiste:
 
 ```text
-Gateway URL: https://openclaw.local:8443
-Gateway WS URL: wss://openclaw.local:8443
-Gateway WS protocol: 3
-Gateway WS role/scopes: operator / operator.read, operator.approvals, operator.config, operator.logs
-Provider: custom
-Endpoint inferenza lato server: http://localhost:8000/v1
-API: /v1/chat/completions
-Model demo: meta-llama/Llama-3.1-8B-Instruct
-Accesso: VPN/LAN only
+Hermes API URL: http://hermes.local:8642/v1
+Health root: http://hermes.local:8642/health
+Detailed health: http://hermes.local:8642/health/detailed
+Provider: hermes-agent
+Endpoint API lato server: http://hermes.local:8642/v1
+API primaria: POST /v1/responses
+API fallback: POST /v1/chat/completions
+Model demo: hermes-agent
+Accesso: Tailscale/LAN
+Auth: Authorization: Bearer <Hermes API key>
 ```
 
 Nota architetturale:
 
-- App non devono parlare direttamente con NemoClaw/Ollama/local inference.
-- App devono parlare al futuro `OpenClaw Gateway API`.
-- Control plane primario: OpenClaw Gateway WebSocket ufficiale. REST `/api/*` resta fallback legacy fino a backend reale.
-- Segreti/provider token restano lato server.
+- App non devono parlare direttamente con Ollama/local inference.
+- App devono parlare a Hermes Agent API Server.
+- Chat primaria via Responses API con `store`, `conversation` e `previous_response_id`.
+- Runs API e Jobs API sostituiscono la vecchia console operator WS.
+- Segreti/provider token restano lato server; la Hermes API key e' l'unico segreto client.
 
 ## UI Composer
 

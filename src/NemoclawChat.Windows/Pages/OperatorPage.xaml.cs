@@ -1,3 +1,4 @@
+using System.Net.Http;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NemoclawChat_Windows.Services;
@@ -8,33 +9,20 @@ public sealed partial class OperatorPage : Page
 {
     private readonly IReadOnlyList<OperatorPreset> _presets =
     [
-        new("Dashboard", "Status", "status", "{}"),
-        new("Dashboard", "Presenza", "system-presence", "{}"),
-        new("Dashboard", "Log recenti", "logs.tail", "{\"sinceMs\":600000,\"limit\":100}"),
-        new("Modelli", "Stato modelli", "models.status", "{}"),
-        new("Modelli", "Lista modelli", "models.list", "{}"),
-        new("Modelli", "Scan provider", "models.scan", "{}"),
-        new("Plugin", "Lista plugin", "plugins.list", "{}"),
-        new("Plugin", "Doctor plugin", "plugins.doctor", "{}"),
-        new("Approvazioni", "Pending exec", "exec.approvals.get", "{}"),
-        new("Config", "Leggi config", "config.get", "{}"),
-        new("Canali", "Stato canali", "channels.status", "{}"),
-        new("Canali", "Lista canali", "channels.list", "{}"),
-        new("Cron", "Stato cron", "cron.status", "{}"),
-        new("Cron", "Lista cron", "cron.list", "{\"all\":true}"),
-        new("Nodi", "Lista nodi", "nodes.list", "{}"),
-        new("Security", "Audit sicurezza", "security.audit", "{\"deep\":true}"),
-        new("Memoria", "Stato memoria", "memory.status", "{}"),
-        new("Secrets", "Audit secrets", "secrets.audit", "{}"),
-        new("Secrets", "Reload secrets", "secrets.reload", "{}"),
-        new("Update", "Update stack", "update.run", "{}")
+        new("Dashboard", "Health", HttpMethod.Get, "/health", string.Empty),
+        new("Dashboard", "Health detailed", HttpMethod.Get, "/health/detailed", string.Empty),
+        new("Dashboard", "Capabilities", HttpMethod.Get, "/v1/capabilities", string.Empty),
+        new("Modelli", "Lista modelli", HttpMethod.Get, "/v1/models", string.Empty),
+        new("Runs", "Crea run", HttpMethod.Post, "/v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"Controlla stato operativo e riassumi.\"}"),
+        new("Jobs", "Lista jobs", HttpMethod.Get, "/api/jobs", string.Empty),
+        new("Jobs", "Crea job", HttpMethod.Post, "/api/jobs", "{\"title\":\"Controllo operativo\",\"instructions\":\"Controlla stato Hermes e segnala problemi.\"}")
     ];
 
     public OperatorPage()
     {
         InitializeComponent();
-        ParamsBox.Text = "{}";
-        ConfigPatchBox.Text = "{\"ops\":[]}";
+        ParamsBox.Text = string.Empty;
+        ConfigPatchBox.Text = "\"Controlla lo stato operativo e riassumi.\"";
         BuildPresetButtons();
     }
 
@@ -69,9 +57,9 @@ public sealed partial class OperatorPage : Page
     {
         if (sender is FrameworkElement { Tag: OperatorPreset preset })
         {
-            MethodBox.Text = preset.Method;
-            ParamsBox.Text = preset.Params;
-            await RunRpcAsync();
+            MethodBox.Text = $"{preset.Method.Method} {preset.Path}";
+            ParamsBox.Text = preset.Payload;
+            await RunHermesAsync(preset.Method, preset.Path, preset.Payload);
         }
     }
 
@@ -83,29 +71,34 @@ public sealed partial class OperatorPage : Page
     private async Task RunRpcAsync()
     {
         var settings = AppSettingsStore.Load();
-        var secret = GatewayCredentialStore.LoadSecret();
-        StatusText.Text = $"RPC {MethodBox.Text.Trim()} verso {GatewayWebSocketService.NormalizeWebSocketUrl(settings.GatewayWsUrl, settings.GatewayUrl)}...";
+        var target = MethodBox.Text.Trim();
+        var (method, path) = ParseManualTarget(target, ParamsBox.Text);
+        await RunHermesAsync(method, path, ParamsBox.Text);
+    }
+
+    private async Task RunHermesAsync(HttpMethod method, string path, string? payload)
+    {
+        var settings = AppSettingsStore.Load();
+        StatusText.Text = $"{method.Method} {path} verso Hermes...";
         ResultBox.Text = string.Empty;
-        SummaryText.Text = "Attesa risposta Gateway...";
+        SummaryText.Text = "Attesa risposta Hermes...";
 
-        var result = await GatewayWebSocketService.CallAsync(
+        var result = await GatewayService.SendHermesRequestAsync(
             settings,
-            secret,
-            MethodBox.Text,
-            ParamsBox.Text);
+            method,
+            path,
+            string.IsNullOrWhiteSpace(payload) ? null : payload);
 
-        StatusText.Text = result.Status;
-        SummaryText.Text = result.Summary;
-        ResultBox.Text = string.IsNullOrWhiteSpace(result.RawJson)
-            ? result.Summary
-            : result.RawJson;
+        StatusText.Text = $"Completato: {method.Method} {path}";
+        SummaryText.Text = "Risposta Hermes ricevuta.";
+        ResultBox.Text = result;
     }
 
     private async void RefreshApprovals_Click(object sender, RoutedEventArgs e)
     {
-        MethodBox.Text = "exec.approvals.get";
-        ParamsBox.Text = "{}";
-        await RunRpcAsync();
+        MethodBox.Text = "GET /api/jobs";
+        ParamsBox.Text = string.Empty;
+        await RunHermesAsync(HttpMethod.Get, "/api/jobs", null);
     }
 
     private async void ApproveOnce_Click(object sender, RoutedEventArgs e)
@@ -125,51 +118,52 @@ public sealed partial class OperatorPage : Page
 
     private async Task ResolveApprovalAsync(string decision)
     {
-        MethodBox.Text = "exec.approval.resolve";
-        ParamsBox.Text = $$"""{"id":"{{JsonEscape(ApprovalIdBox.Text)}}","decision":"{{decision}}"}""";
-        await RunRpcAsync();
+        var path = $$"""/api/jobs/{{JsonEscape(ApprovalIdBox.Text)}}/{{(decision == "deny" ? "pause" : "run")}}""";
+        MethodBox.Text = $"POST {path}";
+        ParamsBox.Text = "{}";
+        await RunHermesAsync(HttpMethod.Post, path, "{}");
     }
 
     private async void ReadConfig_Click(object sender, RoutedEventArgs e)
     {
-        MethodBox.Text = "config.get";
-        ParamsBox.Text = "{}";
-        await RunRpcAsync();
+        MethodBox.Text = "GET /v1/capabilities";
+        ParamsBox.Text = string.Empty;
+        await RunHermesAsync(HttpMethod.Get, "/v1/capabilities", null);
     }
 
     private async void PatchConfig_Click(object sender, RoutedEventArgs e)
     {
-        MethodBox.Text = "config.patch";
-        ParamsBox.Text = $$"""{"baseHash":"{{JsonEscape(ConfigBaseHashBox.Text)}}","patch":{{ConfigPatchBox.Text}}}""";
-        await RunRpcAsync();
+        MethodBox.Text = "POST /v1/runs";
+        ParamsBox.Text = $$"""{"model":"hermes-agent","input":{{ConfigPatchBox.Text}}}""";
+        await RunHermesAsync(HttpMethod.Post, "/v1/runs", ParamsBox.Text);
     }
 
     private async void ApplyConfig_Click(object sender, RoutedEventArgs e)
     {
-        MethodBox.Text = "config.apply";
-        ParamsBox.Text = $$"""{"baseHash":"{{JsonEscape(ConfigBaseHashBox.Text)}}"}""";
-        await RunRpcAsync();
+        MethodBox.Text = "GET /v1/models";
+        ParamsBox.Text = string.Empty;
+        await RunHermesAsync(HttpMethod.Get, "/v1/models", null);
     }
 
     private async void WorkspaceList_Click(object sender, RoutedEventArgs e)
     {
-        MethodBox.Text = "workspace.files.list";
-        ParamsBox.Text = $$"""{"path":"{{JsonEscape(WorkspacePathBox.Text)}}"}""";
-        await RunRpcAsync();
+        MethodBox.Text = "GET /api/jobs";
+        ParamsBox.Text = string.Empty;
+        await RunHermesAsync(HttpMethod.Get, "/api/jobs", null);
     }
 
     private async void WorkspaceRead_Click(object sender, RoutedEventArgs e)
     {
-        MethodBox.Text = "workspace.files.read";
-        ParamsBox.Text = $$"""{"path":"{{JsonEscape(WorkspacePathBox.Text)}}"}""";
-        await RunRpcAsync();
+        MethodBox.Text = "GET /health/detailed";
+        ParamsBox.Text = string.Empty;
+        await RunHermesAsync(HttpMethod.Get, "/health/detailed", null);
     }
 
     private async void WorkspaceWrite_Click(object sender, RoutedEventArgs e)
     {
-        MethodBox.Text = "workspace.files.write";
-        ParamsBox.Text = $$"""{"path":"{{JsonEscape(WorkspacePathBox.Text)}}","text":"{{JsonEscape(WorkspaceTextBox.Text)}}"}""";
-        await RunRpcAsync();
+        MethodBox.Text = "POST /v1/runs";
+        ParamsBox.Text = $$"""{"model":"hermes-agent","input":"{{JsonEscape(WorkspaceTextBox.Text)}}"}""";
+        await RunHermesAsync(HttpMethod.Post, "/v1/runs", ParamsBox.Text);
     }
 
     private async void AdminStatus_Click(object sender, RoutedEventArgs e)
@@ -220,5 +214,31 @@ public sealed partial class OperatorPage : Page
             .Replace("\n", "\\n", StringComparison.Ordinal);
     }
 
-    private sealed record OperatorPreset(string Group, string Label, string Method, string Params);
+    private static (HttpMethod Method, string Path) ParseManualTarget(string target, string payload)
+    {
+        var parts = target.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 2 && parts[0].Equals("GET", StringComparison.OrdinalIgnoreCase))
+        {
+            return (HttpMethod.Get, parts[1]);
+        }
+
+        if (parts.Length == 2 && parts[0].Equals("DELETE", StringComparison.OrdinalIgnoreCase))
+        {
+            return (HttpMethod.Delete, parts[1]);
+        }
+
+        if (parts.Length == 2 && parts[0].Equals("PATCH", StringComparison.OrdinalIgnoreCase))
+        {
+            return (HttpMethod.Patch, parts[1]);
+        }
+
+        if (parts.Length == 2 && parts[0].Equals("POST", StringComparison.OrdinalIgnoreCase))
+        {
+            return (HttpMethod.Post, parts[1]);
+        }
+
+        return (string.IsNullOrWhiteSpace(payload) ? HttpMethod.Get : HttpMethod.Post, target);
+    }
+
+    private sealed record OperatorPreset(string Group, string Label, HttpMethod Method, string Path, string Payload);
 }

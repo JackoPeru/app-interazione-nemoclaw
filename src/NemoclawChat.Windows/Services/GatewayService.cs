@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace NemoclawChat_Windows.Services;
 
-public sealed record GatewayChatResult(string Message, string Source, string StatusMessage, bool UsedFallback);
+public sealed record GatewayChatResult(string Message, string Source, string StatusMessage, bool UsedFallback, string? ResponseId = null);
 
 public sealed record ServerSnapshot(
     string Gateway,
@@ -34,45 +34,29 @@ public static class GatewayService
         AppSettings settings,
         string mode,
         string prompt,
-        IReadOnlyList<ChatMessageRecord> history)
+        IReadOnlyList<ChatMessageRecord> history,
+        string? conversationId = null,
+        string? previousResponseId = null)
     {
-        var payload = JsonSerializer.Serialize(new
-        {
-            mode = mode.ToLowerInvariant(),
-            prompt,
-            message = prompt,
-            model = settings.Model,
-            provider = settings.Provider,
-            preferredApi = settings.PreferredApi,
-            accessMode = settings.AccessMode,
-            messages = history.Select(message => new
-            {
-                role = string.Equals(message.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
-                content = message.Text
-            })
-        });
-
-        var endpoints = new[]
-        {
-            $"{settings.GatewayUrl.TrimEnd('/')}/api/chat/stream",
-            $"{settings.GatewayUrl.TrimEnd('/')}/api/chat"
-        };
-
         string? lastError = null;
 
-        foreach (var endpoint in endpoints)
+        if (await SupportsResponsesAsync(settings))
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+                var responsePayload = JsonSerializer.Serialize(new
                 {
-                    Content = new StringContent(payload, Encoding.UTF8, "application/json")
-                };
-                request.Headers.Accept.ParseAdd("text/event-stream");
-                request.Headers.Accept.ParseAdd("application/json");
-                request.Headers.Accept.ParseAdd("text/plain");
-                request.Headers.UserAgent.ParseAdd("ChatClaw-Windows");
+                    model = settings.Model,
+                    input = prompt,
+                    instructions = mode.Equals("Agente", StringComparison.OrdinalIgnoreCase)
+                        ? "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni."
+                        : "Rispondi come assistente conversazionale Hermes.",
+                    store = true,
+                    conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
+                    previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId
+                });
 
+                using var request = BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/responses", responsePayload);
                 using var response = await HttpClient.SendAsync(request);
                 var body = await response.Content.ReadAsStringAsync();
 
@@ -83,20 +67,23 @@ public static class GatewayService
                     {
                         lastError += $": {ExtractHumanError(body)}";
                     }
-                    continue;
+                    lastError = $"Responses API {lastError}";
                 }
-
-                var assistantText = ExtractAssistantText(response.Content.Headers.ContentType?.MediaType, body);
-                if (!string.IsNullOrWhiteSpace(assistantText))
+                else
                 {
-                    return new GatewayChatResult(
-                        assistantText,
-                        "Gateway",
-                        "Risposta ricevuta dal gateway.",
-                        false);
-                }
+                    var assistantText = ExtractAssistantText(response.Content.Headers.ContentType?.MediaType, body);
+                    if (!string.IsNullOrWhiteSpace(assistantText))
+                    {
+                        return new GatewayChatResult(
+                            assistantText,
+                            "Hermes",
+                            "Risposta ricevuta da Hermes Responses API.",
+                            false,
+                            ExtractResponseId(body));
+                    }
 
-                lastError = "Gateway raggiunto, ma senza contenuto utile.";
+                    lastError = "Hermes Responses API raggiunta, ma senza contenuto utile.";
+                }
             }
             catch (Exception ex)
             {
@@ -104,18 +91,60 @@ public static class GatewayService
             }
         }
 
+        try
+        {
+            var chatPayload = JsonSerializer.Serialize(new
+            {
+                model = settings.Model,
+                stream = false,
+                messages = history.Select(message => new
+                {
+                    role = string.Equals(message.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
+                    content = message.Text
+                })
+            });
+
+            using var request = BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions", chatPayload);
+            using var response = await HttpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var assistantText = ExtractAssistantText(response.Content.Headers.ContentType?.MediaType, body);
+                if (!string.IsNullOrWhiteSpace(assistantText))
+                {
+                    return new GatewayChatResult(
+                        assistantText,
+                        "Hermes",
+                        "Risposta ricevuta da Hermes Chat Completions.",
+                        false,
+                        ExtractResponseId(body));
+                }
+
+                lastError = "Hermes Chat Completions raggiunta, ma senza contenuto utile.";
+            }
+            else
+            {
+                lastError = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {ExtractHumanError(body)}";
+            }
+        }
+        catch (Exception ex)
+        {
+            lastError = ex.Message;
+        }
+
         if (settings.DemoMode)
         {
             return new GatewayChatResult(
                 BuildFallbackReply(settings, mode, lastError),
                 "Fallback locale",
-                $"Gateway non disponibile, uso fallback locale: {lastError ?? "errore sconosciuto"}.",
+                $"Hermes non disponibile, uso fallback locale: {lastError ?? "errore sconosciuto"}.",
                 true);
         }
 
         return new GatewayChatResult(
-            $"Gateway non raggiungibile: {lastError ?? "errore sconosciuto"}.",
-            "Errore gateway",
+            $"Hermes non raggiungibile: {lastError ?? "errore sconosciuto"}.",
+            "Errore Hermes",
             $"Invio fallito: {lastError ?? "errore sconosciuto"}.",
             false);
     }
@@ -136,12 +165,7 @@ public static class GatewayService
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/api/tasks")
-            {
-                Content = new StringContent(payload, Encoding.UTF8, "application/json")
-            };
-            request.Headers.Accept.ParseAdd("application/json");
-            request.Headers.UserAgent.ParseAdd("ChatClaw-Windows");
+            using var request = BuildJsonRequest(HttpMethod.Post, $"{HermesRoot(settings)}/api/jobs", payload);
 
             using var response = await HttpClient.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
@@ -154,11 +178,11 @@ public static class GatewayService
                 {
                     RemoteId = remoteId,
                     Status = remoteStatus,
-                    Source = "Gateway",
-                    Mode = "Gateway",
+                    Source = "Hermes Jobs",
+                    Mode = "Job",
                     UpdatedAt = DateTimeOffset.Now
                 };
-                return new GatewayTaskResult(syncedTask, "Task creato sul gateway.");
+                return new GatewayTaskResult(syncedTask, "Job creato su Hermes.");
             }
 
             var error = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
@@ -179,9 +203,9 @@ public static class GatewayService
     {
         var targetStatus = command switch
         {
-            TaskCommand.Approve => "Approvato",
-            TaskCommand.Deny => "Negato",
-            _ => "Completato"
+            TaskCommand.Approve => "Run richiesto",
+            TaskCommand.Deny => "Pausa richiesta",
+            _ => "Eliminato"
         };
 
         if (string.IsNullOrWhiteSpace(task.RemoteId))
@@ -192,40 +216,40 @@ public static class GatewayService
                 Source = "Fallback locale",
                 UpdatedAt = DateTimeOffset.Now
             };
-            return new GatewayTaskResult(localTask, $"Task aggiornato in locale: {targetStatus}.");
+            return new GatewayTaskResult(localTask, $"Job aggiornato in locale: {targetStatus}.");
         }
 
-        var actionSegment = command switch
+        var requestUri = command switch
         {
-            TaskCommand.Approve => "approve",
-            TaskCommand.Deny => "deny",
-            _ => "complete"
+            TaskCommand.Approve => $"{HermesRoot(settings)}/api/jobs/{task.RemoteId}/run",
+            TaskCommand.Deny => $"{HermesRoot(settings)}/api/jobs/{task.RemoteId}/pause",
+            _ => $"{HermesRoot(settings)}/api/jobs/{task.RemoteId}"
+        };
+        var method = command switch
+        {
+            TaskCommand.Complete => HttpMethod.Delete,
+            _ => HttpMethod.Post
         };
 
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post,
-                $"{settings.GatewayUrl.TrimEnd('/')}/api/tasks/{task.RemoteId}/{actionSegment}")
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            };
-            request.Headers.Accept.ParseAdd("application/json");
-            request.Headers.UserAgent.ParseAdd("ChatClaw-Windows");
+            using var request = BuildJsonRequest(method, requestUri, "{}");
 
             using var response = await HttpClient.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)
             {
-                var remoteStatus = ExtractTaskStatus(body) ?? targetStatus;
+                var remoteStatus = command == TaskCommand.Complete
+                    ? "Eliminato"
+                    : ExtractTaskStatus(body) ?? targetStatus;
                 var syncedTask = task with
                 {
                     Status = remoteStatus,
-                    Source = "Gateway",
+                    Source = "Hermes Jobs",
                     UpdatedAt = DateTimeOffset.Now
                 };
-                return new GatewayTaskResult(syncedTask, $"Task aggiornato sul gateway: {remoteStatus}.");
+                return new GatewayTaskResult(syncedTask, $"Job aggiornato su Hermes: {remoteStatus}.");
             }
 
             var error = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
@@ -234,32 +258,30 @@ public static class GatewayService
                 error += $": {ExtractHumanError(body)}";
             }
 
-            return BuildTaskFallback(settings, task with { Status = targetStatus }, $"Aggiornamento task fallito: {error}");
+            return BuildTaskFallback(settings, task with { Status = targetStatus }, $"Aggiornamento job fallito: {error}");
         }
         catch (Exception ex)
         {
-            return BuildTaskFallback(settings, task with { Status = targetStatus }, $"Aggiornamento task fallito: {ex.Message}");
+            return BuildTaskFallback(settings, task with { Status = targetStatus }, $"Aggiornamento job fallito: {ex.Message}");
         }
     }
 
     public static async Task<ServerSnapshot> GetServerSnapshotAsync(AppSettings settings)
     {
-        var healthUrl = $"{settings.GatewayUrl.TrimEnd('/')}/api/health";
+        var root = HermesRoot(settings);
+        var healthUrl = $"{root}/health";
 
         try
         {
-            using var healthRequest = new HttpRequestMessage(HttpMethod.Get, healthUrl);
-            healthRequest.Headers.UserAgent.ParseAdd("ChatClaw-Windows");
+            using var healthRequest = BuildRequest(HttpMethod.Get, healthUrl);
             using var healthResponse = await HttpClient.SendAsync(healthRequest);
             var healthStatus = healthResponse.IsSuccessStatusCode
-                ? "Gateway raggiungibile."
-                : $"Gateway risponde: HTTP {(int)healthResponse.StatusCode} {healthResponse.ReasonPhrase}";
+                ? "Hermes raggiungibile."
+                : $"Hermes risponde: HTTP {(int)healthResponse.StatusCode} {healthResponse.ReasonPhrase}";
 
             try
             {
-                using var statusRequest = new HttpRequestMessage(HttpMethod.Get, $"{settings.GatewayUrl.TrimEnd('/')}/api/server/status");
-                statusRequest.Headers.Accept.ParseAdd("application/json");
-                statusRequest.Headers.UserAgent.ParseAdd("ChatClaw-Windows");
+                using var statusRequest = BuildRequest(HttpMethod.Get, $"{root}/health/detailed");
 
                 using var statusResponse = await HttpClient.SendAsync(statusRequest);
                 var statusBody = await statusResponse.Content.ReadAsStringAsync();
@@ -282,20 +304,20 @@ public static class GatewayService
                 settings.AccessMode,
                 settings.DemoMode
                     ? $"{healthStatus} Fallback locale attivo."
-                    : $"{healthStatus} Solo gateway, nessun fallback locale.");
+                    : $"{healthStatus} Solo Hermes, nessun fallback locale.");
         }
         catch (Exception ex)
         {
             var modeText = settings.DemoMode
                 ? "Fallback locale attivo."
-                : "Solo gateway, nessun fallback locale.";
+                : "Solo Hermes, nessun fallback locale.";
             return new ServerSnapshot(
                 settings.GatewayUrl,
                 settings.Model,
                 $"Provider: {settings.Provider} | API: {settings.PreferredApi}",
                 settings.InferenceEndpoint,
                 settings.AccessMode,
-                $"Gateway non raggiungibile: {ex.Message}. {modeText}");
+                $"Hermes non raggiungibile: {ex.Message}. {modeText}");
         }
     }
 
@@ -315,8 +337,8 @@ public static class GatewayService
 
         var failedTask = task with
         {
-            Status = "Errore gateway",
-            Source = "Errore gateway",
+            Status = "Errore Hermes",
+            Source = "Errore Hermes",
             UpdatedAt = DateTimeOffset.Now
         };
         return new GatewayTaskResult(failedTask, message);
@@ -375,11 +397,100 @@ public static class GatewayService
     private static string BuildFallbackReply(AppSettings settings, string mode, string? reason)
     {
         var prefix = string.Equals(mode, "Agente", StringComparison.OrdinalIgnoreCase)
-            ? "Gateway assente: preparo un ordine locale con approve/deny e tengo il contesto pronto."
-            : "Gateway assente: uso la risposta locale di emergenza senza perdere la conversazione.";
+            ? "Hermes assente: preparo un job locale e tengo il contesto pronto."
+            : "Hermes assente: uso la risposta locale di emergenza senza perdere la conversazione.";
 
         var detail = string.IsNullOrWhiteSpace(reason) ? string.Empty : $" Motivo: {reason}.";
-        return $"{prefix} Preset: gateway {settings.GatewayUrl}, endpoint server {settings.InferenceEndpoint}, API {settings.PreferredApi}.{detail}";
+        return $"{prefix} Preset: API {settings.GatewayUrl}, modello {settings.Model}, protocollo {settings.PreferredApi}.{detail}";
+    }
+
+    public static async Task<bool> SupportsResponsesAsync(AppSettings settings)
+    {
+        try
+        {
+            using var request = BuildRequest(HttpMethod.Get, $"{settings.GatewayUrl.TrimEnd('/')}/capabilities");
+            using var response = await HttpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+            {
+                return true;
+            }
+
+            return body.Contains("responses", StringComparison.OrdinalIgnoreCase) ||
+                   body.Contains("Responses", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    public static async Task<string> SendHermesRequestAsync(AppSettings settings, HttpMethod method, string path, string? jsonPayload = null)
+    {
+        var uri = ResolveHermesUri(settings, path);
+        using var request = string.IsNullOrWhiteSpace(jsonPayload)
+            ? BuildRequest(method, uri)
+            : BuildJsonRequest(method, uri, jsonPayload);
+        using var response = await HttpClient.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        if (response.IsSuccessStatusCode)
+        {
+            return string.IsNullOrWhiteSpace(body) ? $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}" : body;
+        }
+
+        return $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {ExtractHumanError(body)}";
+    }
+
+    public static string HermesRoot(AppSettings settings)
+    {
+        var api = settings.GatewayUrl.TrimEnd('/');
+        return api.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+            ? api[..^3]
+            : api;
+    }
+
+    private static string ResolveHermesUri(AppSettings settings, string path)
+    {
+        if (Uri.TryCreate(path, UriKind.Absolute, out _))
+        {
+            return path;
+        }
+
+        var normalizedPath = path.StartsWith("/", StringComparison.Ordinal) ? path : $"/{path}";
+        if (normalizedPath.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.Equals("/v1", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{HermesRoot(settings)}{normalizedPath}";
+        }
+
+        return $"{settings.GatewayUrl.TrimEnd('/')}{normalizedPath}";
+    }
+
+    private static HttpRequestMessage BuildRequest(HttpMethod method, string uri)
+    {
+        var request = new HttpRequestMessage(method, uri);
+        request.Headers.TryAddWithoutValidation("Accept", "application/json");
+        request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
+        var apiKey = GatewayCredentialStore.LoadSecret();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        }
+
+        return request;
+    }
+
+    private static HttpRequestMessage BuildJsonRequest(HttpMethod method, string uri, string payload)
+    {
+        var request = BuildRequest(method, uri);
+        if (method != HttpMethod.Get && method != HttpMethod.Delete)
+        {
+            request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        }
+
+        return request;
     }
 
     private static string ExtractAssistantText(string? mediaType, string body)
@@ -527,8 +638,9 @@ public static class GatewayService
         try
         {
             using var document = JsonDocument.Parse(body);
-            return ExtractString(document.RootElement, "id", "taskId")
-                ?? ExtractNestedString(document.RootElement, "task", "id");
+            return ExtractString(document.RootElement, "id", "taskId", "job_id", "jobId")
+                ?? ExtractNestedString(document.RootElement, "task", "id")
+                ?? ExtractNestedString(document.RootElement, "job", "id");
         }
         catch
         {
@@ -542,7 +654,22 @@ public static class GatewayService
         {
             using var document = JsonDocument.Parse(body);
             return ExtractString(document.RootElement, "status")
-                ?? ExtractNestedString(document.RootElement, "task", "status");
+                ?? ExtractNestedString(document.RootElement, "task", "status")
+                ?? ExtractNestedString(document.RootElement, "job", "status");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractResponseId(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return ExtractString(document.RootElement, "id", "response_id", "responseId")
+                ?? ExtractNestedString(document.RootElement, "response", "id");
         }
         catch
         {

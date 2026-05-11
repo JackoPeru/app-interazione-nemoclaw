@@ -20,24 +20,24 @@
             Foreground="White"
             Text="Impostazioni" />
         <StackPanel Grid.Row="1" MaxWidth="760" HorizontalAlignment="Left" Spacing="18">
-            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Il client parla al gateway; segreti OpenClaw/Ollama restano sul server." />
-            <TextBox x:Name="GatewayUrlBox" Header="Gateway URL" />
-            <TextBox x:Name="GatewayWsUrlBox" Header="Gateway WebSocket URL" PlaceholderText="wss://openclaw.local:8443" />
-            <TextBox x:Name="AdminBridgeUrlBox" Header="ChatClaw Admin Bridge URL" PlaceholderText="https://openclaw.local:9443" />
-            <TextBox x:Name="ProviderBox" Header="OpenClaw provider" />
-            <TextBox x:Name="InferenceEndpointBox" Header="Endpoint inferenza lato server" />
+            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Hermes Hub parla a Hermes Agent API; API key salvata in Credential Locker." />
+            <TextBox x:Name="GatewayUrlBox" Header="Hermes API URL" PlaceholderText="http://hermes.local:8642/v1" />
+            <TextBox x:Name="GatewayWsUrlBox" Visibility="Collapsed" />
+            <TextBox x:Name="AdminBridgeUrlBox" Visibility="Collapsed" />
+            <TextBox x:Name="ProviderBox" Header="Provider" />
+            <TextBox x:Name="InferenceEndpointBox" Header="Endpoint API lato server" />
             <ComboBox x:Name="PreferredApiBox" Header="API preferita" SelectedIndex="0">
-                <ComboBoxItem Content="openai-completions" />
                 <ComboBoxItem Content="openai-responses" />
+                <ComboBoxItem Content="openai-completions" />
             </ComboBox>
             <TextBox x:Name="ModelBox" Header="Modello" />
             <ComboBox x:Name="AccessModeBox" Header="Accesso consigliato" SelectedIndex="0">
-                <ComboBoxItem Content="VPN/LAN only" />
+                <ComboBoxItem Content="Tailscale/LAN" />
                 <ComboBoxItem Content="LAN only" />
-                <ComboBoxItem Content="Public HTTPS gateway" />
+                <ComboBoxItem Content="Public HTTPS" />
             </ComboBox>
-            <ToggleSwitch x:Name="DemoModeSwitch" Header="Fallback locale" OffContent="Solo gateway" OnContent="Fallback locale attivo" />
-            <PasswordBox x:Name="PairingCodeBox" Header="Token/password Gateway" PlaceholderText="Lascia vuoto per mantenere quello salvato" />
+            <ToggleSwitch x:Name="DemoModeSwitch" Header="Fallback locale" OffContent="Solo Hermes" OnContent="Fallback locale attivo" />
+            <PasswordBox x:Name="PairingCodeBox" Header="Hermes API key" PlaceholderText="Lascia vuoto per mantenere quella salvata" />
             <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" Text="Pronto." />
             <StackPanel Orientation="Horizontal" Spacing="10">
                 <Button
@@ -46,8 +46,7 @@
                     Click="Save_Click"
                     Content="Salva"
                     Foreground="White" />
-                <Button Click="TestGateway_Click" Content="Test gateway" />
-                <Button Click="TestGatewayWs_Click" Content="Test WS" />
+                <Button Click="TestGateway_Click" Content="Test Hermes" />
                 <Button Click="Reset_Click" Content="Reset default" />
             </StackPanel>
         </StackPanel>

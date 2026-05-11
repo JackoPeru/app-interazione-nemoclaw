@@ -2,13 +2,13 @@ namespace NemoclawChat_Windows.Services;
 
 public sealed class AppSettings
 {
-    public string GatewayUrl { get; set; } = "https://openclaw.local:8443";
-    public string GatewayWsUrl { get; set; } = "wss://openclaw.local:8443";
-    public string AdminBridgeUrl { get; set; } = "https://openclaw.local:9443";
-    public string Provider { get; set; } = "custom";
-    public string InferenceEndpoint { get; set; } = "http://localhost:8000/v1";
-    public string PreferredApi { get; set; } = "openai-completions";
-    public string Model { get; set; } = "meta-llama/Llama-3.1-8B-Instruct";
-    public string AccessMode { get; set; } = "VPN/LAN only";
+    public string GatewayUrl { get; set; } = "http://hermes.local:8642/v1";
+    public string GatewayWsUrl { get; set; } = string.Empty;
+    public string AdminBridgeUrl { get; set; } = "http://hermes.local:8642";
+    public string Provider { get; set; } = "hermes-agent";
+    public string InferenceEndpoint { get; set; } = "http://hermes.local:8642/v1";
+    public string PreferredApi { get; set; } = "openai-responses";
+    public string Model { get; set; } = "hermes-agent";
+    public string AccessMode { get; set; } = "Tailscale/LAN";
     public bool DemoMode { get; set; } = true;
 }

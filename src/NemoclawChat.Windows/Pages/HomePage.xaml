@@ -44,7 +44,7 @@
                             HorizontalAlignment="Center"
                             FontSize="14"
                             Foreground="{StaticResource MutedTextBrush}"
-                            Text="Chat normale o ordine agente verso il tuo home-server OpenClaw." />
+                            Text="Chat normale, Runs e Jobs verso Hermes Agent sul tuo home-server." />
                         <Grid ColumnSpacing="10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -56,7 +56,7 @@
                                 Background="{StaticResource SurfaceBrush}"
                                 BorderBrush="{StaticResource BorderBrushSoft}"
                                 Click="PromptSetup_Click"
-                                Content="Prepara setup OpenClaw"
+                                Content="Prepara setup Hermes"
                                 CornerRadius="18"
                                 Foreground="White" />
                             <Button

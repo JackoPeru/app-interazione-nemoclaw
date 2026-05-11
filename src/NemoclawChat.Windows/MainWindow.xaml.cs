@@ -19,7 +19,7 @@ public sealed partial class MainWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(DragRegion);
-        AppWindow.Title = "ChatClaw";
+        AppWindow.Title = "Hermes Hub";
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
         AppWindow.SetIcon("Assets/AppIcon.ico");
         ContentFrame.Navigate(typeof(HomePage));

@@ -14,6 +14,7 @@ public sealed partial class HomePage : Page
 {
     private string _mode = "Chat";
     private string? _conversationId;
+    private string? _previousResponseId;
     private readonly List<ChatMessageRecord> _messageHistory = [];
     private bool _isSending;
 
@@ -62,12 +63,12 @@ public sealed partial class HomePage : Page
 
     private void PromptSetup_Click(object sender, RoutedEventArgs e)
     {
-        PromptBox.Text = "Preparami i passaggi per avviare OpenClaw con un endpoint OpenAI-compatible locale.";
+        PromptBox.Text = "Preparami i passaggi per avviare Hermes Agent API Server su Tailscale/LAN.";
     }
 
     private void PromptHealth_Click(object sender, RoutedEventArgs e)
     {
-        PromptBox.Text = "Controlla stato gateway, modello locale e sandbox OpenClaw.";
+        PromptBox.Text = "Controlla stato Hermes, modello disponibile e capabilities API.";
     }
 
     private void PromptAgent_Click(object sender, RoutedEventArgs e)
@@ -127,7 +128,7 @@ public sealed partial class HomePage : Page
 
     private void CreateImage_Click(object sender, RoutedEventArgs e)
     {
-        AddAction("Immagine", "Generazione immagine richiedera' gateway/tool dedicato e conferma prima di chiamate esterne.");
+        AddAction("Immagine", "Generazione immagine richiedera' tool Hermes dedicato e conferma prima di chiamate esterne.");
         PromptBox.Text = AppendPrompt("Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni.");
     }
 
@@ -145,7 +146,7 @@ public sealed partial class HomePage : Page
 
     private void Projects_Click(object sender, RoutedEventArgs e)
     {
-        AddAction("Workspace", "Workspace/progetti saranno collegati al gateway task con audit trail.");
+        AddAction("Workspace", "Workspace/progetti saranno collegati ai Jobs Hermes con audit trail.");
         PromptBox.Text = AppendPrompt("Lavora sul workspace/progetto selezionato e mostra piano prima di modificare file.");
     }
 
@@ -158,7 +159,7 @@ public sealed partial class HomePage : Page
     private void SetModeAgent_Click(object sender, RoutedEventArgs e)
     {
         SetMode("Agente");
-        AddAction("Modalita", "Agente attivo: usa il gateway se disponibile, altrimenti fallback locale con approve/deny.");
+        AddAction("Modalita", "Agente attivo: usa Hermes Runs/Jobs se disponibili, altrimenti fallback locale.");
     }
 
     private void ToggleMode_Click(object sender, RoutedEventArgs e)
@@ -196,12 +197,15 @@ public sealed partial class HomePage : Page
             _messageHistory.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
             PromptBox.Text = string.Empty;
 
-            var result = await GatewayService.SendChatAsync(AppSettingsStore.Load(), _mode, prompt, _messageHistory);
-            AddBubble("OpenClaw", result.Message, "AssistantBubbleBrush", HorizontalAlignment.Left);
-            _messageHistory.Add(new ChatMessageRecord("OpenClaw", result.Message, DateTimeOffset.Now));
-            _conversationId = ChatArchiveStore.SaveExchange(_conversationId, _mode, prompt, result.Message, result.Source).Id;
+            var settings = AppSettingsStore.Load();
+            var result = await GatewayService.SendChatAsync(settings, _mode, prompt, _messageHistory, _conversationId, _previousResponseId);
+            AddBubble("Hermes", result.Message, "AssistantBubbleBrush", HorizontalAlignment.Left);
+            _messageHistory.Add(new ChatMessageRecord("Hermes", result.Message, DateTimeOffset.Now));
+            var saved = ChatArchiveStore.SaveExchange(_conversationId, _mode, prompt, result.Message, result.Source, result.ResponseId);
+            _conversationId = saved.Id;
+            _previousResponseId = saved.PreviousResponseId;
 
-            if (!string.Equals(result.Source, "Gateway", StringComparison.OrdinalIgnoreCase))
+            if (result.UsedFallback || result.Source.Contains("Errore", StringComparison.OrdinalIgnoreCase))
             {
                 AddAction("Stato", result.StatusMessage);
             }
@@ -240,6 +244,7 @@ public sealed partial class HomePage : Page
         }
 
         _conversationId = conversation.Id;
+        _previousResponseId = conversation.PreviousResponseId;
         EmptyState.Visibility = Visibility.Collapsed;
         MessagesPanel.Children.Clear();
         _messageHistory.Clear();

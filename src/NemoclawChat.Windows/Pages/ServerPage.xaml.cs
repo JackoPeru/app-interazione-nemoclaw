@@ -22,7 +22,7 @@ public sealed partial class ServerPage : Page
 
     private async void TestGateway_Click(object sender, RoutedEventArgs e)
     {
-        var healthUrl = $"{_settings.GatewayUrl.TrimEnd('/')}/api/health";
+        var healthUrl = $"{GatewayService.HermesRoot(_settings)}/health";
         StatusText.Text = $"Test: {healthUrl}";
         var snapshot = await GatewayService.GetServerSnapshotAsync(_settings);
         StatusText.Text = snapshot.StatusMessage;
@@ -30,27 +30,24 @@ public sealed partial class ServerPage : Page
 
     private async void TestGatewayWs_Click(object sender, RoutedEventArgs e)
     {
-        GatewayWsResultText.Text = "Connessione WS e handshake OpenClaw...";
-        var secret = string.IsNullOrWhiteSpace(GatewaySecretBox.Password)
-            ? GatewayCredentialStore.LoadSecret()
-            : GatewaySecretBox.Password;
-        var probe = await GatewayWebSocketService.ProbeAsync(_settings, secret);
-        GatewayWsResultText.Text =
-            $"{probe.Status}\n{probe.Details}\n\n" +
-            (probe.CapabilityLines.Count == 0
-                ? "Nessuna RPC capability letta."
-                : string.Join("\n", probe.CapabilityLines));
+        GatewayWsResultText.Text = "Lettura /v1/capabilities e /v1/models...";
+        var capabilities = await GatewayService.SendHermesRequestAsync(_settings, HttpMethod.Get, "/v1/capabilities");
+        var models = await GatewayService.SendHermesRequestAsync(_settings, HttpMethod.Get, "/v1/models");
+        GatewayWsResultText.Text = $"Capabilities:\n{capabilities}\n\nModels:\n{models}";
     }
 
     private void ShowApiContract_Click(object sender, RoutedEventArgs e)
     {
         ContractText.Text =
-            "GET /api/health -> stato gateway\n" +
-            "GET /api/server/status -> modello, provider, sandbox, policy rete\n" +
-            "POST /api/chat/stream -> chat streaming OpenAI-compatible verso IA locale\n" +
-            "POST /api/tasks -> crea task agente con audit trail\n" +
-            "POST /api/tasks/{id}/approve -> approva file, rete o comandi\n" +
-            "POST /api/tasks/{id}/deny -> blocca azione rischiosa";
+            "GET /health -> stato Hermes API Server\n" +
+            "GET /health/detailed -> stato dettagliato\n" +
+            "GET /v1/models -> modelli disponibili\n" +
+            "GET /v1/capabilities -> API supportate\n" +
+            "POST /v1/responses -> chat primaria con store/conversation\n" +
+            "POST /v1/chat/completions -> fallback OpenAI-compatible\n" +
+            "POST /v1/runs -> crea run agente\n" +
+            "GET /api/jobs -> lista jobs\n" +
+            "POST /api/jobs -> crea job";
     }
 
     private async Task LoadServerSnapshotAsync()
@@ -58,8 +55,8 @@ public sealed partial class ServerPage : Page
         _settings = AppSettingsStore.Load();
         var snapshot = await GatewayService.GetServerSnapshotAsync(_settings);
         GatewayText.Text = snapshot.Gateway;
-        GatewayDetailText.Text = $"Health: {snapshot.Gateway.TrimEnd('/')}/api/health";
-        GatewayWsText.Text = GatewayWebSocketService.NormalizeWebSocketUrl(_settings.GatewayWsUrl, _settings.GatewayUrl);
+        GatewayDetailText.Text = $"Health: {GatewayService.HermesRoot(_settings)}/health";
+        GatewayWsText.Text = $"{_settings.GatewayUrl.TrimEnd('/')}/capabilities";
         ModelText.Text = snapshot.Model;
         ProviderText.Text = snapshot.ProviderDetail;
         InferenceText.Text = snapshot.InferenceEndpoint;

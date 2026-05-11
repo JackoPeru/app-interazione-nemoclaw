@@ -1,38 +1,36 @@
-# ChatClaw
+# Hermes Hub
 
-Client Windows + Android per parlare con un home-server OpenClaw e una IA locale.
+Client Windows + Android per parlare con Hermes Agent su home-server.
 
 ## Progetti
 
 - Windows: `src/NemoclawChat.Windows`
 - Android: `src/NemoclawChat.Android`
-- Admin Bridge: `src/ChatClaw.AdminBridge`
-- Guide: `docs/windows-desktop-guide.md`, `docs/android-app-guide.md`
-- Preset: `config/nemoclaw-defaults.json`
+- Admin Bridge legacy/dev opzionale: `src/ChatClaw.AdminBridge`
+- Guide: `docs/windows-desktop-guide.md`, `docs/android-app-guide.md`, `docs/hermes-hub-conversion.md`
+- Preset: `config/hermes-defaults.json`
 
 ## Stato attuale
 
-- Windows WinUI 3: UI dark stile ChatGPT, sidebar, chat, archivio, ordini, server, settings, profilo e updater.
-- Android Compose: UI mobile dark stile ChatGPT, composer, menu `+`, archivio, ordini, server, settings, profilo e updater in-app.
-- Chat: prova prima il gateway OpenClaw reale su `/api/chat/stream`, poi `/api/chat`; se il gateway non risponde usa fallback locale solo quando abilitato.
-- Ordini agente: task persistenti, tentativo reale su `/api/tasks`, approve/deny/complete sincronizzabili con fallback locale.
-- Server: health check REST legacy, Gateway WebSocket OpenClaw, console operatore RPC, Admin Bridge opzionale.
-- Console operatore: preset RPC reali per modelli, plugin, approvals, config, workspace, log, canali, cron, nodi, security, memoria, secrets e update.
-- Admin Bridge: servizio .NET con auth bearer, allowlist comandi, root filesystem consentite, backup file e audit log.
-- Update: Android scarica APK in app e apre installer; Windows scarica asset `.msix`, `.exe` o `.zip` e apre l'asset scaricato.
+- Windows WinUI 3: UI dark stile ChatGPT, sidebar, chat, archivio, jobs, Hermes server, runs, settings, profilo e updater.
+- Android Compose: UI mobile dark stile ChatGPT, composer, menu `+`, archivio, jobs, Hermes server, runs, settings, profilo e updater in-app.
+- Chat: `POST /v1/responses` primario con `store`, `conversation`, `previous_response_id`; fallback `POST /v1/chat/completions`.
+- Jobs: task persistenti, sync reale su Hermes Jobs API `/api/jobs`, azioni `run`, `pause`, `delete`.
+- Server: dashboard Hermes con `/health`, `/health/detailed`, `/v1/models`, `/v1/capabilities`.
+- Runs: endpoint manuale e preset reali per health, models, capabilities, runs e jobs.
+- Update: Android scarica APK in app e apre installer; Windows scarica asset `.msix`, `.exe` o `.zip`.
 
-## Preset OpenClaw
+## Preset Hermes
 
-Preset in [config/nemoclaw-defaults.json](config/nemoclaw-defaults.json):
+Preset in [config/hermes-defaults.json](config/hermes-defaults.json):
 
-- Gateway client: `https://openclaw.local:8443`
-- Gateway WS: `wss://openclaw.local:8443`
-- Admin Bridge: `https://openclaw.local:9443`
-- Provider lato server: `custom`
-- Endpoint inferenza lato server: `http://localhost:8000/v1`
-- API default OpenAI-compatible: `/v1/chat/completions`
-- Modello default: `meta-llama/Llama-3.1-8B-Instruct`
-- Accesso consigliato: `VPN/LAN only`
+- Hermes API URL: `http://hermes.local:8642/v1`
+- Health: `http://hermes.local:8642/health`
+- Model: `hermes-agent`
+- API primaria: `/v1/responses`
+- API fallback: `/v1/chat/completions`
+- Accesso consigliato: `Tailscale/LAN`
+- Auth: `Authorization: Bearer <Hermes API key>`
 
 ## Build
 
@@ -57,37 +55,15 @@ APK debug:
 src/NemoclawChat.Android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Admin Bridge:
-
-```powershell
-dotnet build .\src\ChatClaw.AdminBridge\ChatClaw.AdminBridge.csproj -c Debug
-```
-
 ## Release
 
-Ultima release pubblicata:
+Versione corrente:
 
 ```text
-v0.5.4
+v0.6.0
 ```
 
 Asset attesi dagli updater:
 
 - Android: `.apk`
 - Windows: `.msix`, `.exe` o `.zip`
-- Admin Bridge: incluso nel sorgente, deploy manuale sul server.
-
-## Gateway OpenClaw
-
-Contratto supportato dal client:
-
-- `GET /api/health`
-- `GET /api/server/status`
-- `POST /api/chat/stream`
-- `POST /api/chat`
-- `POST /api/tasks`
-- `POST /api/tasks/{id}/approve`
-- `POST /api/tasks/{id}/deny`
-- `POST /api/tasks/{id}/complete`
-
-Il server reale resta necessario per validare runtime RPC: senza OpenClaw Gateway acceso, la Console mostra errori reali di connessione/metodo non supportato.
