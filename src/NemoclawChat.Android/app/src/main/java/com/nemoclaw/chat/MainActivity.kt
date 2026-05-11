@@ -16,9 +16,11 @@ import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +39,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -89,15 +92,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -149,7 +156,60 @@ data class ChatMessage(
     val author: String,
     val text: String,
     val fromUser: Boolean,
-    val isAction: Boolean = false
+    val isAction: Boolean = false,
+    val visualBlocksVersion: Int? = null,
+    val visualBlocks: List<VisualBlock> = emptyList()
+)
+
+data class VisualBlock(
+    val id: String,
+    val type: String,
+    val title: String = "",
+    val caption: String = "",
+    val text: String = "",
+    val language: String = "plaintext",
+    val filename: String = "",
+    val code: String = "",
+    val highlightLines: List<Int> = emptyList(),
+    val columns: List<VisualTableColumn> = emptyList(),
+    val rows: List<Map<String, String>> = emptyList(),
+    val chartType: String = "",
+    val xLabel: String = "",
+    val yLabel: String = "",
+    val unit: String = "",
+    val summary: String = "",
+    val series: List<VisualChartSeries> = emptyList(),
+    val sourceFormat: String = "",
+    val source: String = "",
+    val renderedMediaUrl: String = "",
+    val alt: String = "",
+    val layout: String = "",
+    val images: List<VisualGalleryImage> = emptyList(),
+    val variant: String = ""
+)
+
+data class VisualTableColumn(
+    val key: String,
+    val label: String,
+    val align: String = "left",
+    val format: String = "text",
+    val sortable: Boolean = false
+)
+
+data class VisualChartSeries(
+    val name: String,
+    val points: List<VisualChartPoint>
+)
+
+data class VisualChartPoint(
+    val x: String,
+    val y: Double
+)
+
+data class VisualGalleryImage(
+    val mediaUrl: String,
+    val alt: String,
+    val caption: String = ""
 )
 
 data class AgentTask(
@@ -211,6 +271,7 @@ data class AppSettings(
     val preferredApi: String = AppDefaults.preferredApi,
     val model: String = AppDefaults.model,
     val accessMode: String = AppDefaults.accessMode,
+    val visualBlocksMode: String = AppDefaults.visualBlocksMode,
     val demoMode: Boolean = true
 )
 
@@ -219,7 +280,9 @@ private data class GatewayChatResult(
     val source: String,
     val statusMessage: String,
     val usedFallback: Boolean,
-    val responseId: String? = null
+    val responseId: String? = null,
+    val visualBlocks: List<VisualBlock> = emptyList(),
+    val visualBlocksVersion: Int? = null
 )
 
 private data class GatewayTaskResult(
@@ -415,10 +478,21 @@ private fun ChatScreen(
                     messages.add(ChatMessage("Tu", text, true))
                     draft = ""
                     sending = true
+                    if (!settings.visualBlocksMode.equals("never", ignoreCase = true)) {
+                        messages.add(ChatMessage("Hermes", "Hermes sta preparando la risposta e gli eventuali blocchi visuali...", fromUser = false, isAction = true))
+                    }
 
                     scope.launch {
                         val result = sendChatRequest(settings, mode, text, messages, activeConversationId, previousResponseId, loadGatewaySecret(context))
-                        messages.add(ChatMessage("Hermes", result.text, false))
+                        messages.add(
+                            ChatMessage(
+                                "Hermes",
+                                result.text,
+                                false,
+                                visualBlocksVersion = result.visualBlocksVersion,
+                                visualBlocks = result.visualBlocks
+                            )
+                        )
                         if (result.usedFallback) {
                             messages.add(ChatMessage("Stato", result.statusMessage, fromUser = false, isAction = true))
                         }
@@ -429,7 +503,9 @@ private fun ChatScreen(
                             text,
                             result.text,
                             result.source,
-                            result.responseId
+                            result.responseId,
+                            result.visualBlocks,
+                            result.visualBlocksVersion
                         )
                         activeConversationId = saved.id
                         previousResponseId = saved.previousResponseId
@@ -583,8 +659,186 @@ private fun MessageBubble(message: ChatMessage) {
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(text = message.text, color = Color.White)
+                if (message.visualBlocks.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        message.visualBlocks.filter { it.isValidVisualBlock() }.forEach { block ->
+                            VisualBlockView(block)
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun VisualBlockView(block: VisualBlock) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = AppColors.Surface,
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (block.title.isNotBlank()) {
+                Text(block.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            }
+            when (block.type.lowercase()) {
+                "markdown" -> MarkdownBlock(block.text)
+                "code" -> CodeBlock(block.language, block.code, block.filename)
+                "table" -> TableBlock(block)
+                "chart" -> ChartBlock(block)
+                "diagram" -> DiagramBlock(block)
+                "image_gallery" -> GalleryBlock(block)
+                "callout" -> CalloutBlock(block)
+            }
+            if (block.caption.isNotBlank()) {
+                Text(block.caption, color = AppColors.Muted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownBlock(markdown: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        markdown.lines().map { it.trimEnd() }.filter { it.isNotBlank() }.forEach { line ->
+            val text = line.trimStart('#', '-', '*', ' ')
+            val isBullet = line.startsWith("- ") || line.startsWith("* ")
+            val size = when {
+                line.startsWith("# ") -> 20.sp
+                line.startsWith("## ") -> 17.sp
+                line.startsWith("### ") -> 15.sp
+                else -> 14.sp
+            }
+            Text(
+                text = if (isBullet) "• $text" else text,
+                color = Color.White,
+                fontSize = size,
+                fontWeight = if (line.startsWith("#")) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
+    }
+}
+
+@Composable
+private fun CodeBlock(language: String, code: String, filename: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = if (filename.isBlank()) language else "$filename · $language",
+            color = AppColors.Muted,
+            fontSize = 12.sp
+        )
+        Surface(color = AppColors.Composer, shape = RoundedCornerShape(10.dp)) {
+            Text(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(10.dp),
+                text = code,
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun TableBlock(block: VisualBlock) {
+    Column(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        Row {
+            block.columns.forEach { column ->
+                TableCell(column.label, header = true)
+            }
+        }
+        block.rows.take(100).forEach { row ->
+            Row {
+                block.columns.forEach { column ->
+                    TableCell(row[column.key].orEmpty(), header = false)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableCell(text: String, header: Boolean) {
+    Surface(
+        color = if (header) AppColors.Elevated else AppColors.Composer,
+        modifier = Modifier
+            .widthIn(min = 96.dp, max = 180.dp)
+            .border(0.5.dp, AppColors.Border)
+    ) {
+        Text(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            text = text,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun ChartBlock(block: VisualBlock) {
+    val points = block.series.firstOrNull()?.points.orEmpty().take(12)
+    val max = points.maxOfOrNull { it.y }?.takeIf { it > 0.0 } ?: 1.0
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(block.summary, color = AppColors.Muted, fontSize = 13.sp)
+        points.forEach { point ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(point.x, color = Color.White, fontSize = 12.sp, modifier = Modifier.widthIn(min = 82.dp, max = 92.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Canvas(modifier = Modifier.weight(1f).height(14.dp)) {
+                    val barWidth = (size.width * (point.y / max)).toFloat().coerceAtLeast(6f)
+                    drawRoundRect(color = AppColors.Accent, size = Size(barWidth, size.height), cornerRadius = androidx.compose.ui.geometry.CornerRadius(7f, 7f))
+                    if (block.chartType == "line") {
+                        drawLine(color = AppColors.Accent, start = Offset(0f, size.height / 2), end = Offset(barWidth, size.height / 2), strokeWidth = 4f)
+                    }
+                }
+                Text("${point.y.toInt()}${block.unit}", color = AppColors.Muted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagramBlock(block: VisualBlock) {
+    CodeBlock("mermaid", block.source, "diagram.mmd")
+}
+
+@Composable
+private fun GalleryBlock(block: VisualBlock) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        block.images.take(12).forEach { image ->
+            Text(
+                text = if (isSafeMediaUrl(image.mediaUrl)) "${image.alt}: media proxy pronto." else "${image.alt}: media non proxy rifiutato.",
+                color = AppColors.Muted,
+                fontSize = 13.sp
+            )
+            if (image.caption.isNotBlank()) {
+                Text(image.caption, color = AppColors.Muted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalloutBlock(block: VisualBlock) {
+    val color = when (block.variant) {
+        "warning" -> Color(0xFFE0A21A)
+        "error" -> Color(0xFFE05D5D)
+        "success" -> Color(0xFF4CB878)
+        else -> Color(0xFF4C9BE8)
+    }
+    Row(
+        modifier = Modifier.border(0.dp, Color.Transparent),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(modifier = Modifier.widthIn(min = 3.dp, max = 3.dp).height(56.dp).background(color, RoundedCornerShape(2.dp)))
+        MarkdownBlock(block.text)
     }
 }
 
@@ -743,6 +997,18 @@ private fun Composer(
                                     "Web",
                                     "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.",
                                     "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN."
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Spiegazione visiva", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
+                            onClick = {
+                                expanded = false
+                                queueAction(
+                                    "Visuale",
+                                    "Spiegazione visiva richiesta: Hermes usera' blocchi statici sicuri se disponibili.",
+                                    "Spiega anche con blocchi visuali se utile: tabella, diagramma, chart o callout. Mantieni output_text completo."
                                 )
                             }
                         )
@@ -1650,6 +1916,7 @@ private fun SettingsScreen(
     var preferredApi by remember(settings) { mutableStateOf(settings.preferredApi) }
     var model by remember(settings) { mutableStateOf(settings.model) }
     var accessMode by remember(settings) { mutableStateOf(settings.accessMode) }
+    var visualBlocksMode by remember(settings) { mutableStateOf(settings.visualBlocksMode) }
     var demoMode by remember(settings) { mutableStateOf(settings.demoMode) }
     var status by remember(settings) { mutableStateOf("Pronto.") }
 
@@ -1677,6 +1944,7 @@ private fun SettingsScreen(
             item { SettingsField("API preferita", preferredApi, { preferredApi = it }) }
             item { SettingsField("Modello", model, { model = it }) }
             item { SettingsField("Accesso", accessMode, { accessMode = it }) }
+            item { SettingsField("Modalita visuale (auto / always / never)", visualBlocksMode, { visualBlocksMode = it }) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Fallback locale", color = Color.White, modifier = Modifier.weight(1f))
@@ -1708,6 +1976,7 @@ private fun SettingsScreen(
                                 preferredApi = preferredApi.trim(),
                                 model = model.trim(),
                                 accessMode = accessMode.trim(),
+                                visualBlocksMode = visualBlocksMode.trim(),
                                 demoMode = demoMode
                             )
                             val error = validateSettings(candidate)
@@ -1738,6 +2007,7 @@ private fun SettingsScreen(
                                 preferredApi = preferredApi.trim(),
                                 model = model.trim(),
                                 accessMode = accessMode.trim(),
+                                visualBlocksMode = visualBlocksMode.trim(),
                                 demoMode = demoMode
                             )
                             val error = validateHttpUrl(candidate.gatewayUrl, "Hermes API URL")
@@ -1838,6 +2108,11 @@ private fun validateSettings(settings: AppSettings): String? {
         ?: validateRequired(settings.preferredApi, "API preferita")
         ?: validateRequired(settings.model, "Modello")
         ?: validateRequired(settings.accessMode, "Accesso")
+        ?: validateVisualBlocksMode(settings.visualBlocksMode)
+}
+
+private fun validateVisualBlocksMode(value: String): String? {
+    return if (value == "auto" || value == "always" || value == "never") null else "Modalita visuale deve essere auto, always o never."
 }
 
 private fun validateWsUrl(value: String, label: String): String? {
@@ -1895,6 +2170,7 @@ private suspend fun sendChatRequest(
                 .put("store", true)
                 .put("conversation", conversationId ?: JSONObject.NULL)
                 .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
+                .put("metadata", visualBlocksMetadata(settings))
             val response = postJson("${settings.gatewayUrl.trimEnd('/')}/responses", payload, apiKey)
             if (response.first in 200..299) {
                 val text = extractAssistantText(response.second)
@@ -1904,7 +2180,9 @@ private suspend fun sendChatRequest(
                         source = "Hermes",
                         statusMessage = "Risposta ricevuta da Hermes Responses API.",
                         usedFallback = false,
-                        responseId = extractResponseId(response.second)
+                        responseId = extractResponseId(response.second),
+                        visualBlocks = extractVisualBlocks(response.second),
+                        visualBlocksVersion = VISUAL_BLOCKS_VERSION
                     )
                 }
                 lastError = "Hermes Responses API raggiunta ma senza contenuto utile"
@@ -1920,6 +2198,7 @@ private suspend fun sendChatRequest(
         val payload = JSONObject()
             .put("model", settings.model)
             .put("stream", false)
+            .put("metadata", visualBlocksMetadata(settings))
             .put("messages", JSONArray().apply {
                 history.filter { !it.isAction }.forEach { message ->
                     put(
@@ -1938,7 +2217,9 @@ private suspend fun sendChatRequest(
                     source = "Hermes",
                     statusMessage = "Risposta ricevuta da Hermes Chat Completions.",
                     usedFallback = false,
-                    responseId = extractResponseId(response.second)
+                    responseId = extractResponseId(response.second),
+                    visualBlocks = extractVisualBlocks(response.second),
+                    visualBlocksVersion = VISUAL_BLOCKS_VERSION
                 )
             }
             lastError = "Hermes Chat Completions raggiunta ma senza contenuto utile"
@@ -1954,16 +2235,32 @@ private suspend fun sendChatRequest(
             text = buildFallbackReply(settings, mode, lastError),
             source = "Fallback locale",
             statusMessage = "Hermes non disponibile, uso fallback locale: $lastError.",
-            usedFallback = true
+            usedFallback = true,
+            visualBlocks = if (shouldAttachVisualBlocks(settings, prompt)) visualBlockFixtures() else emptyList(),
+            visualBlocksVersion = VISUAL_BLOCKS_VERSION
         )
     } else {
         GatewayChatResult(
             text = "Hermes non raggiungibile: $lastError.",
             source = "Errore Hermes",
             statusMessage = "Invio fallito: $lastError.",
-            usedFallback = false
+            usedFallback = false,
+            visualBlocks = if (shouldAttachVisualBlocks(settings, prompt)) visualBlockFixtures() else emptyList(),
+            visualBlocksVersion = VISUAL_BLOCKS_VERSION
         )
     }
+}
+
+private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
+    return JSONObject()
+        .put("client", "hermes-hub")
+        .put(
+            "visual_blocks",
+            JSONObject()
+                .put("min_supported_version", VISUAL_BLOCKS_VERSION)
+                .put("max_supported_version", VISUAL_BLOCKS_VERSION)
+                .put("mode", settings.visualBlocksMode)
+        )
 }
 
 private suspend fun queueTaskRequest(settings: AppSettings, task: AgentTask, apiKey: String?): GatewayTaskResult = withContext(Dispatchers.IO) {
@@ -2280,7 +2577,7 @@ private fun extractJsonText(value: Any?): String {
     return when (value) {
         is String -> value
         is JSONObject -> {
-            listOf("text", "content", "message", "reply", "output_text").forEach { key ->
+            listOf("output_text", "text", "content", "message", "reply").forEach { key ->
                 val text = extractJsonText(value.opt(key))
                 if (text.isNotBlank()) {
                     return text
@@ -2312,6 +2609,239 @@ private fun extractJsonText(value: Any?): String {
         }
         else -> ""
     }
+}
+
+private fun extractVisualBlocks(body: String): List<VisualBlock> {
+    val trimmed = body.trim()
+    if (!trimmed.startsWith("{") || trimmed.toByteArray(Charsets.UTF_8).size > VISUAL_BLOCKS_MAX_PAYLOAD_BYTES * 3) {
+        return emptyList()
+    }
+
+    return try {
+        val root = JSONObject(trimmed)
+        val version = root.optInt("visual_blocks_version", VISUAL_BLOCKS_VERSION)
+        if (version != VISUAL_BLOCKS_VERSION) {
+            return emptyList()
+        }
+        val array = findJsonArray(root, "visual_blocks") ?: return emptyList()
+        if (array.toString().toByteArray(Charsets.UTF_8).size > VISUAL_BLOCKS_MAX_PAYLOAD_BYTES) {
+            return emptyList()
+        }
+        buildList {
+            for (i in 0 until minOf(array.length(), VISUAL_BLOCKS_MAX_BLOCKS)) {
+                val block = readVisualBlock(array.optJSONObject(i) ?: continue)
+                if (block.isValidVisualBlock()) {
+                    add(block)
+                }
+            }
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun findJsonArray(value: Any?, key: String): JSONArray? {
+    return when (value) {
+        is JSONObject -> {
+            value.optJSONArray(key) ?: value.keys().asSequence()
+                .mapNotNull { findJsonArray(value.opt(it), key) }
+                .firstOrNull()
+        }
+        is JSONArray -> {
+            for (i in 0 until value.length()) {
+                findJsonArray(value.opt(i), key)?.let { return it }
+            }
+            null
+        }
+        else -> null
+    }
+}
+
+private fun readVisualBlock(obj: JSONObject): VisualBlock {
+    return VisualBlock(
+        id = obj.optString("id"),
+        type = obj.optString("type"),
+        title = obj.optString("title"),
+        caption = obj.optString("caption"),
+        text = obj.optString("text"),
+        language = obj.optString("language", "plaintext"),
+        filename = obj.optString("filename"),
+        code = obj.optString("code"),
+        highlightLines = readIntArray(obj.optJSONArray("highlight_lines")),
+        columns = readVisualColumns(obj.optJSONArray("columns") ?: JSONArray()),
+        rows = readVisualRows(obj.optJSONArray("rows") ?: JSONArray()),
+        chartType = obj.optString("chart_type"),
+        xLabel = obj.optString("x_label"),
+        yLabel = obj.optString("y_label"),
+        unit = obj.optString("unit"),
+        summary = obj.optString("summary"),
+        series = readVisualSeries(obj.optJSONArray("series") ?: JSONArray()),
+        sourceFormat = obj.optString("source_format"),
+        source = obj.optString("source"),
+        renderedMediaUrl = obj.optString("rendered_media_url"),
+        alt = obj.optString("alt"),
+        layout = obj.optString("layout"),
+        images = readVisualImages(obj.optJSONArray("images") ?: JSONArray()),
+        variant = obj.optString("variant")
+    )
+}
+
+private fun readVisualColumns(array: JSONArray): List<VisualTableColumn> = buildList {
+    for (i in 0 until minOf(array.length(), 12)) {
+        val obj = array.optJSONObject(i) ?: continue
+        add(
+            VisualTableColumn(
+                key = obj.optString("key"),
+                label = obj.optString("label"),
+                align = obj.optString("align", "left"),
+                format = obj.optString("format", "text"),
+                sortable = obj.optBoolean("sortable", false)
+            )
+        )
+    }
+}
+
+private fun readVisualRows(array: JSONArray): List<Map<String, String>> = buildList {
+    for (i in 0 until minOf(array.length(), 100)) {
+        val obj = array.optJSONObject(i) ?: continue
+        add(obj.keys().asSequence().associateWith { key -> obj.opt(key)?.toString().orEmpty() })
+    }
+}
+
+private fun readVisualSeries(array: JSONArray): List<VisualChartSeries> = buildList {
+    for (i in 0 until minOf(array.length(), 8)) {
+        val obj = array.optJSONObject(i) ?: continue
+        val points = obj.optJSONArray("points") ?: JSONArray()
+        add(
+            VisualChartSeries(
+                name = obj.optString("name"),
+                points = buildList {
+                    for (pointIndex in 0 until minOf(points.length(), 200)) {
+                        val point = points.optJSONObject(pointIndex) ?: continue
+                        add(VisualChartPoint(point.opt("x")?.toString().orEmpty(), point.optDouble("y")))
+                    }
+                }
+            )
+        )
+    }
+}
+
+private fun readVisualImages(array: JSONArray): List<VisualGalleryImage> = buildList {
+    for (i in 0 until minOf(array.length(), 12)) {
+        val obj = array.optJSONObject(i) ?: continue
+        add(VisualGalleryImage(obj.optString("media_url"), obj.optString("alt"), obj.optString("caption")))
+    }
+}
+
+private fun readIntArray(array: JSONArray?): List<Int> = buildList {
+    if (array == null) return@buildList
+    for (i in 0 until minOf(array.length(), 80)) {
+        add(array.optInt(i))
+    }
+}
+
+private fun VisualBlock.isValidVisualBlock(): Boolean {
+    if (id.isBlank()) return false
+    return when (type.lowercase()) {
+        "markdown" -> text.isNotBlank()
+        "code" -> code.isNotBlank() && language in ALLOWED_CODE_LANGUAGES
+        "table" -> columns.isNotEmpty() && columns.size <= 12 && rows.size <= 100
+        "chart" -> chartType in setOf("bar", "line") && summary.isNotBlank() && series.isNotEmpty() && series.size <= 8 && series.all { it.points.isNotEmpty() && it.points.size <= 200 }
+        "diagram" -> sourceFormat == "mermaid" && source.isNotBlank() && alt.isNotBlank()
+        "image_gallery" -> images.isNotEmpty() && images.size <= 12 && images.all { it.mediaUrl.isNotBlank() && it.alt.isNotBlank() }
+        "callout" -> variant in setOf("info", "warning", "error", "success") && text.isNotBlank()
+        else -> false
+    }
+}
+
+private fun isSafeMediaUrl(value: String): Boolean {
+    if (value.isBlank()) return false
+    if (value.startsWith("/v1/media/", ignoreCase = true)) return true
+    return try {
+        val uri = URI(value)
+        (uri.scheme == "http" || uri.scheme == "https") && uri.path.startsWith("/v1/media/")
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun shouldAttachVisualBlocks(settings: AppSettings, prompt: String): Boolean {
+    if (settings.visualBlocksMode == "never") return false
+    if (settings.visualBlocksMode == "always") return true
+    return prompt.contains("visual", ignoreCase = true) ||
+        prompt.contains("diagram", ignoreCase = true) ||
+        prompt.contains("grafico", ignoreCase = true) ||
+        prompt.contains("tabella", ignoreCase = true) ||
+        prompt.contains("spiegazione visiva", ignoreCase = true)
+}
+
+private fun visualBlockFixtures(): List<VisualBlock> {
+    return listOf(
+        VisualBlock(
+            id = "fixture-markdown",
+            type = "markdown",
+            title = "Schema operativo",
+            text = "## Hermes Visual Blocks\n- Testo fallback sempre completo\n- Blocchi tipizzati validati\n- Renderer statici sicuri"
+        ),
+        VisualBlock(
+            id = "fixture-code",
+            type = "code",
+            title = "Esempio payload",
+            language = "json",
+            filename = "visual-response.json",
+            code = "{\n  \"output_text\": \"Risposta completa.\",\n  \"visual_blocks_version\": 1\n}",
+            highlightLines = listOf(2)
+        ),
+        VisualBlock(
+            id = "fixture-table",
+            type = "table",
+            title = "Limiti v1",
+            columns = listOf(VisualTableColumn("item", "Elemento"), VisualTableColumn("limit", "Limite", "right")),
+            rows = listOf(
+                mapOf("item" to "Blocchi", "limit" to "20"),
+                mapOf("item" to "Payload", "limit" to "500 KB"),
+                mapOf("item" to "Chart", "limit" to "8x200")
+            )
+        ),
+        VisualBlock(
+            id = "fixture-chart",
+            type = "chart",
+            title = "Esempio chart",
+            chartType = "bar",
+            xLabel = "Piattaforma",
+            yLabel = "Copertura",
+            unit = "%",
+            summary = "Windows e Android usano lo stesso contratto Visual Blocks v1.",
+            series = listOf(
+                VisualChartSeries(
+                    "Copertura",
+                    listOf(VisualChartPoint("Windows", 100.0), VisualChartPoint("Android", 100.0), VisualChartPoint("Fallback", 100.0))
+                )
+            )
+        ),
+        VisualBlock(
+            id = "fixture-diagram",
+            type = "diagram",
+            title = "Flusso",
+            sourceFormat = "mermaid",
+            source = "graph TD; User-->HermesHub; HermesHub-->HermesAgent; HermesAgent-->VisualBlocks;",
+            alt = "Utente verso Hermes Hub, Hermes Agent e Visual Blocks"
+        ),
+        VisualBlock(
+            id = "fixture-gallery",
+            type = "image_gallery",
+            title = "Media proxy",
+            layout = "grid",
+            images = listOf(VisualGalleryImage("/v1/media/example.webp", "Esempio asset da proxy Hermes", "Placeholder proxy"))
+        ),
+        VisualBlock(
+            id = "fixture-callout",
+            type = "callout",
+            variant = "info",
+            title = "Sicurezza",
+            text = "Niente HTML, niente JS, niente SVG client-side."
+        )
+    )
 }
 
 private fun extractTaskId(body: String): String? {
@@ -2666,6 +3196,7 @@ private fun loadSettings(context: Context): AppSettings {
         preferredApi = prefs.getString("preferredApi", AppDefaults.preferredApi) ?: AppDefaults.preferredApi,
         model = prefs.getString("model", AppDefaults.model) ?: AppDefaults.model,
         accessMode = prefs.getString("accessMode", AppDefaults.accessMode) ?: AppDefaults.accessMode,
+        visualBlocksMode = prefs.getString("visualBlocksMode", AppDefaults.visualBlocksMode) ?: AppDefaults.visualBlocksMode,
         demoMode = prefs.getBoolean("demoMode", true)
     )
 }
@@ -2681,6 +3212,7 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .putString("preferredApi", settings.preferredApi)
         .putString("model", settings.model)
         .putString("accessMode", settings.accessMode)
+        .putString("visualBlocksMode", settings.visualBlocksMode)
         .putBoolean("demoMode", settings.demoMode)
         .apply()
 }
@@ -2768,14 +3300,16 @@ private fun saveConversationExchange(
     prompt: String,
     response: String,
     source: String,
-    responseId: String? = null
+    responseId: String? = null,
+    visualBlocks: List<VisualBlock> = emptyList(),
+    visualBlocksVersion: Int? = null
 ): LocalConversation {
     val conversations = loadConversations(context).toMutableList()
     val index = conversations.indexOfFirst { it.id == conversationId }
     val now = System.currentTimeMillis()
     val newMessages = listOf(
         ChatMessage("Tu", prompt, fromUser = true),
-        ChatMessage("Hermes", response, fromUser = false)
+        ChatMessage("Hermes", response, fromUser = false, visualBlocksVersion = visualBlocksVersion, visualBlocks = visualBlocks)
     )
 
     val conversation = if (index >= 0) {
@@ -2994,7 +3528,9 @@ private fun readMessages(array: JSONArray): List<ChatMessage> {
                     author = obj.optString("author"),
                     text = obj.optString("text"),
                     fromUser = obj.optBoolean("fromUser"),
-                    isAction = false
+                    isAction = false,
+                    visualBlocksVersion = obj.optInt("visualBlocksVersion").takeIf { obj.has("visualBlocksVersion") },
+                    visualBlocks = readVisualBlocks(obj.optJSONArray("visualBlocks") ?: JSONArray())
                 )
             )
         }
@@ -3010,8 +3546,41 @@ private fun writeMessages(messages: List<ChatMessage>): JSONArray {
                     .put("author", message.author)
                     .put("text", message.text)
                     .put("fromUser", message.fromUser)
+                    .put("visualBlocksVersion", message.visualBlocksVersion ?: JSONObject.NULL)
+                    .put("visualBlocks", writeVisualBlocks(message.visualBlocks))
             )
         }
+    }
+    return array
+}
+
+private fun readVisualBlocks(array: JSONArray): List<VisualBlock> = buildList {
+    for (i in 0 until minOf(array.length(), VISUAL_BLOCKS_MAX_BLOCKS)) {
+        val block = readVisualBlock(array.optJSONObject(i) ?: continue)
+        if (block.isValidVisualBlock()) {
+            add(block)
+        }
+    }
+}
+
+private fun writeVisualBlocks(blocks: List<VisualBlock>): JSONArray {
+    val array = JSONArray()
+    blocks.take(VISUAL_BLOCKS_MAX_BLOCKS).filter { it.isValidVisualBlock() }.forEach { block ->
+        val obj = JSONObject()
+            .put("id", block.id)
+            .put("type", block.type)
+            .put("title", block.title)
+            .put("caption", block.caption)
+        when (block.type) {
+            "markdown" -> obj.put("text", block.text)
+            "code" -> obj.put("language", block.language).put("filename", block.filename).put("code", block.code).put("highlight_lines", JSONArray(block.highlightLines))
+            "table" -> obj.put("columns", JSONArray(block.columns.map { JSONObject().put("key", it.key).put("label", it.label).put("align", it.align).put("format", it.format).put("sortable", it.sortable) })).put("rows", JSONArray(block.rows.map { row -> JSONObject(row) }))
+            "chart" -> obj.put("chart_type", block.chartType).put("x_label", block.xLabel).put("y_label", block.yLabel).put("unit", block.unit).put("summary", block.summary).put("series", JSONArray(block.series.map { series -> JSONObject().put("name", series.name).put("points", JSONArray(series.points.map { point -> JSONObject().put("x", point.x).put("y", point.y) })) }))
+            "diagram" -> obj.put("source_format", block.sourceFormat).put("source", block.source).put("rendered_media_url", block.renderedMediaUrl).put("alt", block.alt)
+            "image_gallery" -> obj.put("layout", block.layout).put("images", JSONArray(block.images.map { image -> JSONObject().put("media_url", image.mediaUrl).put("alt", image.alt).put("caption", image.caption) }))
+            "callout" -> obj.put("variant", block.variant).put("text", block.text)
+        }
+        array.put(obj)
     }
     return array
 }
@@ -3020,6 +3589,27 @@ private fun makeTitle(prompt: String): String {
     val oneLine = prompt.lines().joinToString(" ").trim()
     return if (oneLine.length <= 46) oneLine else oneLine.take(46).trimEnd() + "..."
 }
+
+private const val VISUAL_BLOCKS_VERSION = 1
+private const val VISUAL_BLOCKS_MAX_BLOCKS = 20
+private const val VISUAL_BLOCKS_MAX_PAYLOAD_BYTES = 500 * 1024
+
+private val ALLOWED_CODE_LANGUAGES = setOf(
+    "plaintext",
+    "mermaid",
+    "powershell",
+    "bash",
+    "json",
+    "xml",
+    "csharp",
+    "kotlin",
+    "python",
+    "javascript",
+    "typescript",
+    "sql",
+    "yaml",
+    "markdown"
+)
 
 private fun appVersion(context: Context): String {
     return try {
@@ -3081,6 +3671,7 @@ private object AppDefaults {
     const val preferredApi = "openai-responses"
     const val model = "hermes-agent"
     const val accessMode = "Tailscale/LAN"
+    const val visualBlocksMode = "auto"
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"
     const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"
 }

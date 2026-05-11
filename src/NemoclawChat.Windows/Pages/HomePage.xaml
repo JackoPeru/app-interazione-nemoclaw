@@ -194,6 +194,11 @@
                                             <FontIcon Glyph="&#xE774;" />
                                         </MenuFlyoutItem.Icon>
                                     </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="VisualExplanation_Click" Text="Spiegazione visiva">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE9D2;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
                                     <MenuFlyoutItem Click="Projects_Click" Text="Progetti / workspace">
                                         <MenuFlyoutItem.Icon>
                                             <FontIcon Glyph="&#xE8F1;" />

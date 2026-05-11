@@ -27,6 +27,7 @@ public sealed partial class SettingsPage : Page
         DemoModeSwitch.IsOn = settings.DemoMode;
         SelectComboItem(PreferredApiBox, settings.PreferredApi);
         SelectComboItem(AccessModeBox, settings.AccessMode);
+        SelectComboItem(VisualBlocksModeBox, settings.VisualBlocksMode);
         PairingCodeBox.PlaceholderText = GatewayCredentialStore.HasSecret()
             ? "API key salvata nel Credential Locker"
             : "Hermes API key";
@@ -114,6 +115,7 @@ public sealed partial class SettingsPage : Page
             PreferredApi = SelectedComboText(PreferredApiBox),
             Model = ModelBox.Text.Trim(),
             AccessMode = SelectedComboText(AccessModeBox),
+            VisualBlocksMode = SelectedComboText(VisualBlocksModeBox),
             DemoMode = DemoModeSwitch.IsOn
         };
     }
@@ -125,7 +127,8 @@ public sealed partial class SettingsPage : Page
             ?? ValidateHttpUrl(settings.InferenceEndpoint, "Endpoint inferenza")
             ?? ValidateRequired(settings.PreferredApi, "API preferita")
             ?? ValidateRequired(settings.Model, "Modello")
-            ?? ValidateRequired(settings.AccessMode, "Accesso");
+            ?? ValidateRequired(settings.AccessMode, "Accesso")
+            ?? ValidateVisualBlocksMode(settings.VisualBlocksMode);
     }
 
     private static string? ValidateWebSocket(string gatewayWsUrl)
@@ -168,6 +171,11 @@ public sealed partial class SettingsPage : Page
     private static string? ValidateRequired(string value, string label)
     {
         return string.IsNullOrWhiteSpace(value) ? $"{label} obbligatorio." : null;
+    }
+
+    private static string? ValidateVisualBlocksMode(string value)
+    {
+        return value is "auto" or "always" or "never" ? null : "Modalita visuale deve essere auto, always o never.";
     }
 
     private static string SelectedComboText(ComboBox comboBox)

@@ -2,7 +2,12 @@ using System.Text.Json;
 
 namespace NemoclawChat_Windows.Services;
 
-public sealed record ChatMessageRecord(string Author, string Text, DateTimeOffset Timestamp);
+public sealed record ChatMessageRecord(
+    string Author,
+    string Text,
+    DateTimeOffset Timestamp,
+    int? VisualBlocksVersion = null,
+    List<VisualBlockRecord>? VisualBlocks = null);
 
 public sealed class ConversationRecord
 {
@@ -87,7 +92,9 @@ public static class ChatArchiveStore
         string prompt,
         string response,
         string source,
-        string? previousResponseId = null)
+        string? previousResponseId = null,
+        IReadOnlyList<VisualBlockRecord>? visualBlocks = null,
+        int? visualBlocksVersion = null)
     {
         var items = Load();
         var conversation = string.IsNullOrWhiteSpace(conversationId)
@@ -120,7 +127,7 @@ public static class ChatArchiveStore
         }
         conversation.UpdatedAt = DateTimeOffset.Now;
         conversation.Messages.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
-        conversation.Messages.Add(new ChatMessageRecord("Hermes", response, DateTimeOffset.Now));
+        conversation.Messages.Add(new ChatMessageRecord("Hermes", response, DateTimeOffset.Now, visualBlocksVersion, visualBlocks?.ToList()));
         SaveAll(items);
         return conversation;
     }

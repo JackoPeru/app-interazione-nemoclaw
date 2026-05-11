@@ -1,0 +1,182 @@
+# Hermes Visual Blocks v1
+
+Hermes Visual Blocks e' il contratto per spiegazioni visuali sicure dentro Hermes Hub. Il server produce testo autosufficiente piu' blocchi tipizzati; i client Windows e Android renderizzano solo lo schema v1.
+
+## Regole generali
+
+- `output_text` e' sempre obbligatorio, completo e leggibile anche senza blocchi.
+- `visual_blocks_version` e' `1`.
+- `visual_blocks` pesa al massimo 500 KB serializzato e contiene al massimo 20 blocchi.
+- Client v1 accetta solo versione 1. Versioni diverse mostrano solo `output_text`.
+- `title` e `caption` sono testo plain, non Markdown.
+- Markdown subset unico: paragrafi, H1-H3, liste, bold/italic, link `http/https`, inline code, fenced code. No HTML raw, no math, no tabelle Markdown, no Mermaid inline.
+- History rimandata a Hermes contiene solo testo umano, mai JSON dei blocchi.
+
+## Client metadata
+
+```json
+{
+  "metadata": {
+    "client": "hermes-hub",
+    "visual_blocks": {
+      "min_supported_version": 1,
+      "max_supported_version": 1,
+      "mode": "auto"
+    }
+  }
+}
+```
+
+`mode`: `never` disabilita hard; `auto` lascia decidere Hermes; `always` preferisce blocchi quando ragionevole, senza forzarli se inutili.
+
+## Capabilities
+
+`GET /v1/capabilities` dovrebbe includere limiti machine-readable:
+
+```json
+{
+  "visual_blocks": {
+    "min_supported_version": 1,
+    "max_supported_version": 1,
+    "types": ["markdown", "code", "table", "chart", "diagram", "image_gallery", "callout"],
+    "max_blocks": 20,
+    "max_payload_kb": 500,
+    "max_table_columns": 12,
+    "max_table_rows": 100,
+    "max_chart_series": 8,
+    "max_chart_points_per_series": 200,
+    "max_diagram_bytes": 512000,
+    "max_gallery_images": 12,
+    "max_gallery_image_bytes": 2097152,
+    "generation": "structured_output_json_schema"
+  }
+}
+```
+
+## Tipi supportati
+
+Ogni blocco ha `id`, `type`, `title?`, `caption?`. `id` e' stabile dentro la response. `type` sconosciuti vanno ignorati.
+
+### markdown
+
+```json
+{ "id": "b1", "type": "markdown", "title": "Spiegazione", "text": "## Flusso\n- Passo 1" }
+```
+
+### code
+
+```json
+{ "id": "b2", "type": "code", "language": "json", "filename": "response.json", "code": "{ \"ok\": true }", "highlight_lines": [1] }
+```
+
+Linguaggi: `plaintext`, `mermaid`, `powershell`, `bash`, `json`, `xml`, `csharp`, `kotlin`, `python`, `javascript`, `typescript`, `sql`, `yaml`, `markdown`.
+
+### table
+
+```json
+{
+  "id": "b3",
+  "type": "table",
+  "columns": [
+    { "key": "name", "label": "Nome", "align": "left", "format": "text", "sortable": true },
+    { "key": "score", "label": "Score", "align": "right", "format": "number" }
+  ],
+  "rows": [{ "name": "Hermes", "score": 92 }]
+}
+```
+
+Limiti: 12 colonne, 100 righe. Formati: `text`, `number`, `percent`, `currency`, `date`, `code`.
+
+### chart
+
+```json
+{
+  "id": "b4",
+  "type": "chart",
+  "chart_type": "line",
+  "x_label": "Mese",
+  "y_label": "Richieste",
+  "unit": "req",
+  "summary": "Le richieste crescono da 42 a 180 tra gennaio e giugno.",
+  "series": [
+    { "name": "Windows", "points": [{ "x": "Gen", "y": 42 }, { "x": "Giu", "y": 180 }] }
+  ]
+}
+```
+
+`summary` e' obbligatorio. Tipi: `bar`, `line`. Limiti: 8 serie, 200 punti per serie.
+
+### diagram
+
+```json
+{
+  "id": "b5",
+  "type": "diagram",
+  "source_format": "mermaid",
+  "source": "graph TD; A-->B",
+  "rendered_media_url": "/v1/media/diagram-abc.png",
+  "alt": "Diagramma del flusso A verso B"
+}
+```
+
+Il client renderizza solo media proxy Hermes `png/jpeg/webp`. Se il media manca o viene rifiutato, mostra `source` come code block `mermaid`.
+
+### image_gallery
+
+```json
+{
+  "id": "b6",
+  "type": "image_gallery",
+  "layout": "grid",
+  "images": [{ "media_url": "/v1/media/img-1.webp", "alt": "Logo Hermes", "caption": "Logo corrente" }]
+}
+```
+
+Solo media proxy Hermes. Max 12 immagini. `alt` obbligatorio.
+
+### callout
+
+```json
+{ "id": "b7", "type": "callout", "variant": "warning", "title": "Attenzione", "text": "Verifica API key prima di esporre il server fuori LAN." }
+```
+
+Varianti: `info`, `warning`, `error`, `success`.
+
+## Generazione Hermes
+
+Ordine raccomandato: structured output con JSON Schema enforcement; tool interno unico `emit_visual_blocks({ "blocks": [...] })`; prompt few-shot + validator + un retry repair. Se validazione fallisce, Hermes scarta i blocchi e conserva `output_text`.
+
+## Tipi generati
+
+I tipi C# e Kotlin devono derivare da `config/visual-blocks.schema.json`. Dopo ogni generazione quicktype va controllato che i discriminator e gli enum restino semanticamente uguali su entrambe le piattaforme:
+
+- discriminator blocchi: `type`;
+- valori `type`: `markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `callout`;
+- enum chart: `bar`, `line`;
+- enum callout: `info`, `warning`, `error`, `success`;
+- enum visual mode: `auto`, `always`, `never`.
+
+Quicktype puo' nominare enum in modo diverso tra C# e Kotlin; il wire value JSON resta l'unica sorgente di verita. Se i nomi generati divergono, aggiungere adapter/annotation prima di toccare i renderer.
+
+Verifica locale:
+
+```powershell
+.\scripts\verify-visual-blocks-contract.ps1
+```
+
+## Sicurezza media
+
+- No HTML, no JS, no SVG client-side.
+- Diagrammi: Mermaid source + media proxy pre-renderizzato.
+- Client blocca `file://`, `data:`, URL assoluti esterni non proxy.
+- Media proxy controlla content-type, max byte, timeout e redirect limit.
+- Diagram max 500 KB; gallery image default max 2 MB.
+
+## Golden screenshot
+
+Baseline unica e versionata in `tests/golden/`.
+
+- Windows CI genera gli screenshot canonici.
+- Android confronta contro gli stessi file con diff tolerance.
+- Android non deve creare baseline autonoma.
+- Le fixture dati partono da `tests/golden/visual-blocks-fixture.json`.

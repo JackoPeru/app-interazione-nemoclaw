@@ -26,6 +26,7 @@ Endpoint usati:
 - `GET /health`, `GET /health/detailed`, `GET /v1/models`, `GET /v1/capabilities` per dashboard.
 - `POST /v1/runs` e endpoint manuali `/v1/runs/{run_id}` per Runs.
 - `GET/POST/DELETE /api/jobs` e azioni `/run`, `/pause` per Jobs.
+- Hermes Visual Blocks v1 per spiegazioni visuali statiche sicure; `output_text` resta sempre fallback completo.
 
 ## Build
 

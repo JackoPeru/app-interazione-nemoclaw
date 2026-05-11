@@ -10,5 +10,6 @@ public sealed class AppSettings
     public string PreferredApi { get; set; } = "openai-responses";
     public string Model { get; set; } = "hermes-agent";
     public string AccessMode { get; set; } = "Tailscale/LAN";
+    public string VisualBlocksMode { get; set; } = "auto";
     public bool DemoMode { get; set; } = true;
 }

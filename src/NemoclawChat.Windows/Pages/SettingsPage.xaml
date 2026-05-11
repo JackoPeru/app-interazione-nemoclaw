@@ -36,6 +36,11 @@
                 <ComboBoxItem Content="LAN only" />
                 <ComboBoxItem Content="Public HTTPS" />
             </ComboBox>
+            <ComboBox x:Name="VisualBlocksModeBox" Header="Modalita visuale" SelectedIndex="0">
+                <ComboBoxItem Content="auto" />
+                <ComboBoxItem Content="always" />
+                <ComboBoxItem Content="never" />
+            </ComboBox>
             <ToggleSwitch x:Name="DemoModeSwitch" Header="Fallback locale" OffContent="Solo Hermes" OnContent="Fallback locale attivo" />
             <PasswordBox x:Name="PairingCodeBox" Header="Hermes API key" PlaceholderText="Lascia vuoto per mantenere quella salvata" />
             <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" Text="Pronto." />

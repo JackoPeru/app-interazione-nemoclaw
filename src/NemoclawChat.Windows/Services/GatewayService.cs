@@ -4,7 +4,14 @@ using System.Text.Json;
 
 namespace NemoclawChat_Windows.Services;
 
-public sealed record GatewayChatResult(string Message, string Source, string StatusMessage, bool UsedFallback, string? ResponseId = null);
+public sealed record GatewayChatResult(
+    string Message,
+    string Source,
+    string StatusMessage,
+    bool UsedFallback,
+    string? ResponseId = null,
+    IReadOnlyList<VisualBlockRecord>? VisualBlocks = null,
+    int? VisualBlocksVersion = null);
 
 public sealed record ServerSnapshot(
     string Gateway,
@@ -53,7 +60,17 @@ public static class GatewayService
                         : "Rispondi come assistente conversazionale Hermes.",
                     store = true,
                     conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
-                    previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId
+                    previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
+                    metadata = new
+                    {
+                        client = "hermes-hub",
+                        visual_blocks = new
+                        {
+                            min_supported_version = VisualBlocksContract.Version,
+                            max_supported_version = VisualBlocksContract.Version,
+                            mode = settings.VisualBlocksMode
+                        }
+                    }
                 });
 
                 using var request = BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/responses", responsePayload);
@@ -79,7 +96,9 @@ public static class GatewayService
                             "Hermes",
                             "Risposta ricevuta da Hermes Responses API.",
                             false,
-                            ExtractResponseId(body));
+                            ExtractResponseId(body),
+                            VisualBlockParser.ExtractFromResponse(body),
+                            VisualBlocksContract.Version);
                     }
 
                     lastError = "Hermes Responses API raggiunta, ma senza contenuto utile.";
@@ -97,6 +116,16 @@ public static class GatewayService
             {
                 model = settings.Model,
                 stream = false,
+                metadata = new
+                {
+                    client = "hermes-hub",
+                    visual_blocks = new
+                    {
+                        min_supported_version = VisualBlocksContract.Version,
+                        max_supported_version = VisualBlocksContract.Version,
+                        mode = settings.VisualBlocksMode
+                    }
+                },
                 messages = history.Select(message => new
                 {
                     role = string.Equals(message.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
@@ -118,7 +147,9 @@ public static class GatewayService
                         "Hermes",
                         "Risposta ricevuta da Hermes Chat Completions.",
                         false,
-                        ExtractResponseId(body));
+                        ExtractResponseId(body),
+                        VisualBlockParser.ExtractFromResponse(body),
+                        VisualBlocksContract.Version);
                 }
 
                 lastError = "Hermes Chat Completions raggiunta, ma senza contenuto utile.";
@@ -139,14 +170,20 @@ public static class GatewayService
                 BuildFallbackReply(settings, mode, lastError),
                 "Fallback locale",
                 $"Hermes non disponibile, uso fallback locale: {lastError ?? "errore sconosciuto"}.",
-                true);
+                true,
+                null,
+                VisualBlockFixtures.ShouldAttach(settings, prompt) ? VisualBlockFixtures.Create() : [],
+                VisualBlocksContract.Version);
         }
 
         return new GatewayChatResult(
             $"Hermes non raggiungibile: {lastError ?? "errore sconosciuto"}.",
             "Errore Hermes",
             $"Invio fallito: {lastError ?? "errore sconosciuto"}.",
-            false);
+            false,
+            null,
+            VisualBlockFixtures.ShouldAttach(settings, prompt) ? VisualBlockFixtures.Create() : [],
+            VisualBlocksContract.Version);
     }
 
     public static async Task<GatewayTaskResult> QueueTaskAsync(AppSettings settings, AgentTaskRecord task)
@@ -578,7 +615,7 @@ public static class GatewayService
 
         if (element.ValueKind == JsonValueKind.Object)
         {
-            foreach (var key in new[] { "text", "content", "message", "reply", "output_text" })
+            foreach (var key in new[] { "output_text", "text", "content", "message", "reply" })
             {
                 if (element.TryGetProperty(key, out var property))
                 {
