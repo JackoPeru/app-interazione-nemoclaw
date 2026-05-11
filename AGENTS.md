@@ -30,10 +30,10 @@ Branch usato:
 main
 ```
 
-Ultimo push fatto su richiesta utente:
+Ultimo push release fatto su richiesta utente:
 
 ```text
-b8ed4a9 Release ChatClaw 0.5.3
+0c28b24 Release Hermes Hub 0.6.3
 ```
 
 ## Regola Memoria
