@@ -14,6 +14,7 @@ Hermes Visual Blocks v1 implementato lato client: spiegazioni visuali statiche e
 - Sicurezza: niente HTML, niente JS, niente SVG client-side; media solo tramite Hermes proxy.
 - Versioning: client dichiara min/max supportati e mode `auto|always|never`.
 - V1 no streaming visuale: client mostra stato attesa e renderizza a response completa.
+- Backlog idee app: `prossime implementazioni.md`, inizialmente con sezione video e sezione news.
 
 ## Limiti Visual Blocks v1
 
