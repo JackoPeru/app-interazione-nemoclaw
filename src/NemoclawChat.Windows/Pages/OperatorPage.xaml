@@ -119,20 +119,6 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-
-                    <Border Grid.Row="1" Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18" Visibility="Collapsed">
-                        <StackPanel Spacing="10">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Admin Bridge" />
-                            <TextBox x:Name="AdminPathBox" Header="Path/log" PlaceholderText="/home/matteo/hermes-workspace" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Click="AdminStatus_Click" Content="Status" />
-                                <Button Click="AdminDoctor_Click" Content="Doctor" />
-                                <Button Click="AdminSecurity_Click" Content="Audit" />
-                                <Button Click="AdminRestart_Click" Content="Restart" />
-                                <Button Click="AdminTail_Click" Content="Tail log" />
-                            </StackPanel>
-                        </StackPanel>
-                    </Border>
                 </Grid>
             </StackPanel>
         </Grid>

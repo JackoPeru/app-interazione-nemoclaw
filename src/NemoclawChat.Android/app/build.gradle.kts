@@ -11,13 +11,13 @@ android {
         applicationId = "com.nemoclaw.chat"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.6.1"
+        versionCode = 15
+        versionName = "0.6.2"
     }
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
+            // Keep the same package as release so in-app update APKs replace the installed app.
         }
         release {
             isMinifyEnabled = false

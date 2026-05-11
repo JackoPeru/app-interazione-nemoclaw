@@ -198,7 +198,7 @@ sealed class BridgeConfig
         var data = Path.Combine(home, ".chatclaw-admin-bridge");
         Directory.CreateDirectory(data);
 
-        var roots = (Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_ROOTS") ?? Path.Combine(home, "openclaw-workspace"))
+        var roots = (Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_ROOTS") ?? Path.Combine(home, "hermes-workspace"))
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(path => Path.GetFullPath(path))
             .ToArray();
@@ -207,19 +207,13 @@ sealed class BridgeConfig
             Directory.CreateDirectory(root);
         }
 
-        var actions = new Dictionary<string, (string FileName, string Arguments)>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["doctor"] = ("openclaw", "doctor"),
-            ["security-audit"] = ("openclaw", "security audit"),
-            ["update-openclaw"] = ("openclaw", "update"),
-            ["plugin-list"] = ("openclaw", "plugins list")
-        };
+        var actions = new Dictionary<string, (string FileName, string Arguments)>(StringComparer.OrdinalIgnoreCase);
 
         var restart = Environment.GetEnvironmentVariable("CHATCLAW_RESTART_GATEWAY_COMMAND");
         if (!string.IsNullOrWhiteSpace(restart))
         {
             var parts = SplitCommand(restart);
-            actions["restart-gateway"] = (parts.FileName, parts.Arguments);
+            actions["restart-service"] = (parts.FileName, parts.Arguments);
         }
 
         return new BridgeConfig

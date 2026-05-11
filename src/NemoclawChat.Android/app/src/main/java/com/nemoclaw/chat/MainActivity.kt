@@ -106,23 +106,17 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.nemoclaw.chat.ui.theme.ChatClawTheme
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.security.KeyStore
-import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -1322,7 +1316,6 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
     var configPatch by remember { mutableStateOf("{\"ops\":[]}") }
     var workspacePath by remember { mutableStateOf("") }
     var workspaceText by remember { mutableStateOf("") }
-    var adminPath by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Pronto.") }
     var summary by remember { mutableStateOf("Nessuna risposta.") }
     var raw by remember { mutableStateOf("") }
@@ -1404,21 +1397,6 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
                 }
             }
         }
-        if (false) {
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Admin Bridge", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    SettingsField("Path/log", adminPath, { adminPath = it })
-                    OperatorActionButton("Status") { runAdminBridge(context, settings, "GET", "/v1/status", null, { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Doctor") { runAdminBridge(context, settings, "POST", "/v1/actions/doctor", null, { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Audit") { runAdminBridge(context, settings, "POST", "/v1/actions/security-audit", null, { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Restart") { runAdminBridge(context, settings, "POST", "/v1/actions/restart-gateway", null, { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Tail log") { runAdminBridge(context, settings, "POST", "/v1/logs/tail", JSONObject().put("path", adminPath).put("lines", 200), { status = it }, { summary = it }, { raw = it }) }
-                }
-            }
-        }
-        }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1480,27 +1458,6 @@ private fun runOperatorRpc(
     setRaw("")
     kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
         val result = hermesHttpCall(settings, loadGatewaySecret(context), method, params)
-        setStatus(result.status)
-        setSummary(result.summary)
-        setRaw(result.rawJson.ifBlank { result.summary })
-    }
-}
-
-private fun runAdminBridge(
-    context: Context,
-    settings: AppSettings,
-    method: String,
-    path: String,
-    payload: JSONObject?,
-    setStatus: (String) -> Unit,
-    setSummary: (String) -> Unit,
-    setRaw: (String) -> Unit
-) {
-    setStatus("Admin Bridge $path...")
-    setSummary("Attesa risposta Admin Bridge...")
-    setRaw("")
-    kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
-        val result = adminBridgeCall(settings, loadGatewaySecret(context), method, path, payload)
         setStatus(result.status)
         setSummary(result.summary)
         setRaw(result.rawJson.ifBlank { result.summary })
@@ -2151,85 +2108,6 @@ private suspend fun testGateway(healthUrl: String, apiKey: String?): String = wi
     }
 }
 
-private suspend fun probeGatewayWs(settings: AppSettings, authSecret: String?): GatewayWsProbe = withContext(Dispatchers.IO) {
-    val wsUrl = normalizeGatewayWsUrl(settings.gatewayWsUrl, settings.gatewayUrl)
-    val error = validateWsUrl(wsUrl, "Gateway WebSocket URL")
-    if (error != null) {
-        return@withContext GatewayWsProbe(wsUrl, false, error, "Usa ws:// o wss://.")
-    }
-
-    try {
-        val client = OkHttpClient.Builder().build()
-        val responses = mutableListOf<String>()
-        val messages = CompletableDeferred<MutableList<String>>()
-        val requestBuilder = Request.Builder()
-            .url(wsUrl)
-            .header("User-Agent", "HermesHub-Android")
-        if (!authSecret.isNullOrBlank()) {
-            requestBuilder.header("Authorization", "Bearer ${authSecret.trim()}")
-        }
-
-        lateinit var socket: WebSocket
-        socket = client.newWebSocket(
-            requestBuilder.build(),
-            object : WebSocketListener() {
-                override fun onOpen(webSocket: WebSocket, response: Response) {
-                    webSocket.send(buildConnectFrame(authSecret))
-                }
-
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    responses += text
-                    if (responses.size == 1) {
-                        GATEWAY_WS_RPC_METHODS.forEach { method ->
-                            webSocket.send(buildRpcFrame(method))
-                        }
-                    }
-                    if (responses.size >= GATEWAY_WS_RPC_METHODS.size + 1 && !messages.isCompleted) {
-                        messages.complete(responses)
-                    }
-                }
-
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    if (!messages.isCompleted) {
-                        messages.completeExceptionally(t)
-                    }
-                }
-
-                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    if (!messages.isCompleted) {
-                        messages.completeExceptionally(IllegalStateException("Socket chiuso: $code $reason"))
-                    }
-                }
-            }
-        )
-
-        val received = withTimeout(8_000) {
-            messages.await()
-        }
-        socket.close(1000, "probe complete")
-        client.dispatcher.executorService.shutdown()
-
-        val hello = received.firstOrNull().orEmpty()
-        val lines = received.drop(1).mapIndexed { index, frame ->
-            "${GATEWAY_WS_RPC_METHODS[index]}: ${summarizeGatewayFrame(frame)}"
-        }
-        GatewayWsProbe(
-            wsUrl = wsUrl,
-            connected = true,
-            status = "Gateway WS connesso.",
-            detail = "Handshake: ${summarizeGatewayFrame(hello)}",
-            capabilityLines = lines
-        )
-    } catch (ex: Exception) {
-        GatewayWsProbe(
-            wsUrl = wsUrl,
-            connected = false,
-            status = "Gateway WS non raggiungibile.",
-            detail = ex.message ?: ex.javaClass.simpleName
-        )
-    }
-}
-
 private suspend fun hermesHttpCall(
     settings: AppSettings,
     apiKey: String?,
@@ -2286,149 +2164,6 @@ private fun resolveHermesUrl(settings: AppSettings, path: String): String {
     }
 }
 
-private suspend fun gatewayRpcCall(
-    settings: AppSettings,
-    authSecret: String?,
-    method: String,
-    rawParams: String
-): GatewayRpcCallResult = withContext(Dispatchers.IO) {
-    val targetMethod = method.trim()
-    if (targetMethod.isBlank()) {
-        return@withContext GatewayRpcCallResult(method, false, "Metodo RPC obbligatorio.", "", "")
-    }
-
-    val params = try {
-        JSONObject(rawParams.ifBlank { "{}" })
-    } catch (ex: Exception) {
-        return@withContext GatewayRpcCallResult(targetMethod, false, "Parametri JSON non validi.", "", ex.message ?: ex.javaClass.simpleName)
-    }
-
-    val wsUrl = normalizeGatewayWsUrl(settings.gatewayWsUrl, settings.gatewayUrl)
-    val error = validateWsUrl(wsUrl, "Gateway WebSocket URL")
-    if (error != null) {
-        return@withContext GatewayRpcCallResult(targetMethod, false, error, "", "Usa ws:// o wss://.")
-    }
-
-    try {
-        val client = OkHttpClient.Builder().build()
-        val responseMessage = CompletableDeferred<String>()
-        val requestId = UUID.randomUUID().toString()
-        val requestBuilder = Request.Builder()
-            .url(wsUrl)
-            .header("User-Agent", "HermesHub-Android")
-        if (!authSecret.isNullOrBlank()) {
-            requestBuilder.header("Authorization", "Bearer ${authSecret.trim()}")
-        }
-
-        lateinit var socket: WebSocket
-        socket = client.newWebSocket(
-            requestBuilder.build(),
-            object : WebSocketListener() {
-                private var rpcSent = false
-
-                override fun onOpen(webSocket: WebSocket, response: Response) {
-                    webSocket.send(buildConnectFrame(authSecret))
-                }
-
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    val json = runCatching { JSONObject(text) }.getOrNull()
-                    if (json?.optString("id") == requestId && !responseMessage.isCompleted) {
-                        responseMessage.complete(text)
-                    } else if (!rpcSent) {
-                        rpcSent = true
-                        webSocket.send(buildRpcFrame(targetMethod, params, requestId))
-                    }
-                }
-
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    if (!responseMessage.isCompleted) {
-                        responseMessage.completeExceptionally(t)
-                    }
-                }
-
-                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    if (!responseMessage.isCompleted) {
-                        responseMessage.completeExceptionally(IllegalStateException("Socket chiuso: $code $reason"))
-                    }
-                }
-            }
-        )
-
-        val raw = withTimeout(12_000) { responseMessage.await() }
-        socket.close(1000, "rpc complete")
-        client.dispatcher.executorService.shutdown()
-
-        val json = JSONObject(raw)
-        val failed = json.has("error")
-        GatewayRpcCallResult(
-            method = targetMethod,
-            success = !failed,
-            status = if (failed) "RPC errore." else "RPC completata.",
-            rawJson = prettyJson(raw),
-            summary = summarizeGatewayFrame(raw)
-        )
-    } catch (ex: Exception) {
-        GatewayRpcCallResult(
-            method = targetMethod,
-            success = false,
-            status = "RPC fallita.",
-            rawJson = "",
-            summary = ex.message ?: ex.javaClass.simpleName
-        )
-    }
-}
-
-private suspend fun adminBridgeCall(
-    settings: AppSettings,
-    token: String?,
-    method: String,
-    path: String,
-    payload: JSONObject?
-): GatewayRpcCallResult = withContext(Dispatchers.IO) {
-    val baseUrl = settings.adminBridgeUrl.trimEnd('/')
-    val error = validateHttpUrl(baseUrl, "Admin Bridge URL")
-    if (error != null) {
-        return@withContext GatewayRpcCallResult(path, false, error, "", "Usa http/https valido.")
-    }
-
-    try {
-        val client = OkHttpClient.Builder().build()
-        val builder = Request.Builder()
-            .url("$baseUrl$path")
-            .header("Accept", "application/json")
-            .header("User-Agent", "HermesHub-Android")
-        if (!token.isNullOrBlank()) {
-            builder.header("Authorization", "Bearer ${token.trim()}")
-        }
-
-        val request = when (method.uppercase()) {
-            "GET" -> builder.get().build()
-            else -> builder
-                .method(method.uppercase(), (payload ?: JSONObject()).toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-                .build()
-        }
-
-        client.newCall(request).execute().use { response ->
-            val body = response.body.string()
-            GatewayRpcCallResult(
-                method = path,
-                success = response.isSuccessful,
-                status = if (response.isSuccessful) "Admin Bridge OK." else "Admin Bridge HTTP ${response.code}.",
-                rawJson = prettyJson(body),
-                summary = summarizeGatewayFrame(body)
-            )
-        }
-    } catch (ex: Exception) {
-        GatewayRpcCallResult(
-            method = path,
-            success = false,
-            status = "Admin Bridge fallito.",
-            rawJson = "",
-            summary = ex.message ?: ex.javaClass.simpleName
-        )
-    }
-}
-
 private suspend fun httpGet(url: String, apiKey: String? = null): String = withContext(Dispatchers.IO) {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
@@ -2482,17 +2217,6 @@ private fun hermesRoot(settings: AppSettings): String {
     return if (api.endsWith("/v1", ignoreCase = true)) api.removeSuffix("/v1") else api
 }
 
-private val GATEWAY_WS_RPC_METHODS = listOf(
-    "status",
-    "system-presence",
-    "models.status",
-    "models.list",
-    "plugins.list",
-    "channels.status",
-    "nodes.list",
-    "exec.approvals.get"
-)
-
 private val OPERATOR_PRESETS = listOf(
     OperatorPreset("Dashboard", "Health", "GET /health", ""),
     OperatorPreset("Dashboard", "Health detailed", "GET /health/detailed", ""),
@@ -2502,112 +2226,6 @@ private val OPERATOR_PRESETS = listOf(
     OperatorPreset("Jobs", "Lista jobs", "GET /api/jobs", ""),
     OperatorPreset("Jobs", "Crea job", "POST /api/jobs", "{\"title\":\"Controllo operativo\",\"instructions\":\"Controlla stato Hermes e segnala problemi.\"}")
 )
-
-private fun normalizeGatewayWsUrl(wsUrl: String, gatewayUrl: String): String {
-    val candidate = wsUrl.ifBlank { gatewayUrl }.ifBlank { AppDefaults.gatewayWsUrl }
-    return try {
-        val uri = URI(candidate)
-        val scheme = when (uri.scheme.orEmpty().lowercase()) {
-            "https" -> "wss"
-            "http" -> "ws"
-            "ws", "wss" -> uri.scheme.lowercase()
-            else -> "wss"
-        }
-        URI(
-            scheme,
-            uri.userInfo,
-            uri.host,
-            uri.port,
-            uri.path.takeUnless { it.isNullOrBlank() },
-            uri.query,
-            uri.fragment
-        ).toString().trimEnd('/')
-    } catch (_: Exception) {
-        AppDefaults.gatewayWsUrl
-    }
-}
-
-private fun buildConnectFrame(authSecret: String?): String {
-    return JSONObject()
-        .put("type", "req")
-        .put("id", UUID.randomUUID().toString())
-        .put("method", "connect")
-        .put(
-            "params",
-            JSONObject()
-                .put("minProtocol", 3)
-                .put("maxProtocol", 3)
-                .put(
-                    "client",
-                    JSONObject()
-                        .put("id", "chatclaw-android")
-                        .put("version", "0.6.0")
-                        .put("platform", "android")
-                        .put("mode", "operator")
-                )
-                .put("role", "operator")
-                .put("scopes", JSONArray(listOf("operator.read", "operator.write", "operator.approvals", "operator.pairing")))
-                .put("caps", JSONArray())
-                .put("commands", JSONArray())
-                .put("permissions", JSONObject())
-                .put("auth", if (authSecret.isNullOrBlank()) JSONObject.NULL else JSONObject().put("token", authSecret.trim()))
-                .put("locale", "it-IT")
-                .put("userAgent", "HermesHub-Android/0.6.0")
-                .put(
-                    "device",
-                    JSONObject()
-                        .put("id", "chatclaw-android")
-                        .put("signedAt", System.currentTimeMillis())
-                )
-        )
-        .toString()
-}
-
-private fun buildRpcFrame(method: String): String {
-    return buildRpcFrame(method, JSONObject(), UUID.randomUUID().toString())
-}
-
-private fun buildRpcFrame(method: String, params: JSONObject, id: String): String {
-    return JSONObject()
-        .put("type", "req")
-        .put("id", id)
-        .put("method", method)
-        .put("params", params)
-        .toString()
-}
-
-private fun summarizeGatewayFrame(frame: String): String {
-    return try {
-        val json = JSONObject(frame)
-        val error = json.opt("error")
-        if (error != null) {
-            "errore: ${extractGatewayText(error).ifBlank { error.toString() }}".limitText(180)
-        } else {
-            val value = json.opt("result") ?: json.opt("data") ?: json.opt("payload") ?: json.opt("params") ?: frame
-            extractGatewayText(value).ifBlank { value.toString() }.limitText(180)
-        }
-    } catch (_: Exception) {
-        frame.limitText(180)
-    }
-}
-
-private fun extractGatewayText(value: Any?): String {
-    return when (value) {
-        is String -> value
-        is JSONObject -> listOf("message", "status", "version", "name", "id")
-            .firstNotNullOfOrNull { key -> value.optString(key).takeIf { it.isNotBlank() } }
-            .orEmpty()
-        else -> ""
-    }
-}
-
-private fun prettyJson(raw: String): String {
-    return try {
-        JSONObject(raw).toString(2)
-    } catch (_: Exception) {
-        raw
-    }
-}
 
 private fun String.limitText(maxLength: Int): String {
     return if (length <= maxLength) this else take(maxLength) + "..."

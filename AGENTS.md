@@ -203,6 +203,7 @@ Nota update:
 - Le app controllano `https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest`.
 - Tag release atteso: `vX.Y.Z`, esempio `v0.3.2`.
 - Android richiede APK con stesso `applicationId` e stessa firma, `versionCode` maggiore.
+- Android debug build non deve usare `applicationIdSuffix`: l'APK generato per release in-app deve restare `com.nemoclaw.chat`.
 - Android updater ora supporta download in-app con barra progresso e poi handoff all'installer di sistema.
 - Windows ora scarica asset release `.msix`, `.exe` o `.zip` dentro `%LOCALAPPDATA%\ChatClaw\updates\` e poi apre l'installer/asset.
 

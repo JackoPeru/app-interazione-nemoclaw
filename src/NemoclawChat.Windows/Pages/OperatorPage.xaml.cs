@@ -166,45 +166,6 @@ public sealed partial class OperatorPage : Page
         await RunHermesAsync(HttpMethod.Post, "/v1/runs", ParamsBox.Text);
     }
 
-    private async void AdminStatus_Click(object sender, RoutedEventArgs e)
-    {
-        await RunAdminAsync(HttpMethod.Get, "/v1/status");
-    }
-
-    private async void AdminDoctor_Click(object sender, RoutedEventArgs e)
-    {
-        await RunAdminAsync(HttpMethod.Post, "/v1/actions/doctor");
-    }
-
-    private async void AdminSecurity_Click(object sender, RoutedEventArgs e)
-    {
-        await RunAdminAsync(HttpMethod.Post, "/v1/actions/security-audit");
-    }
-
-    private async void AdminRestart_Click(object sender, RoutedEventArgs e)
-    {
-        await RunAdminAsync(HttpMethod.Post, "/v1/actions/restart-gateway");
-    }
-
-    private async void AdminTail_Click(object sender, RoutedEventArgs e)
-    {
-        await RunAdminAsync(HttpMethod.Post, "/v1/logs/tail", new { path = AdminPathBox.Text, lines = 200 });
-    }
-
-    private async Task RunAdminAsync(HttpMethod method, string path, object? payload = null)
-    {
-        var settings = AppSettingsStore.Load();
-        var secret = GatewayCredentialStore.LoadSecret();
-        StatusText.Text = $"Admin Bridge {path}...";
-        SummaryText.Text = "Attesa risposta Admin Bridge...";
-        ResultBox.Text = string.Empty;
-
-        var result = await AdminBridgeService.CallAsync(settings, secret, method, path, payload);
-        StatusText.Text = result.Status;
-        SummaryText.Text = result.Summary;
-        ResultBox.Text = string.IsNullOrWhiteSpace(result.RawJson) ? result.Summary : result.RawJson;
-    }
-
     private static string JsonEscape(string value)
     {
         return value

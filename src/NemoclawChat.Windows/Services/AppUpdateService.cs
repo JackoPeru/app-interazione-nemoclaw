@@ -32,7 +32,7 @@ public static class AppUpdateService
         var request = new HttpRequestMessage(
             HttpMethod.Get,
             $"https://api.github.com/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
-        request.Headers.UserAgent.ParseAdd("ChatClaw-Windows");
+        request.Headers.UserAgent.ParseAdd("HermesHub-Windows");
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
 
         try
@@ -127,7 +127,7 @@ public static class AppUpdateService
         var destinationPath = Path.Combine(updatesDirectory, fileName);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, assetUrl);
-        request.Headers.UserAgent.ParseAdd("ChatClaw-Windows");
+        request.Headers.UserAgent.ParseAdd("HermesHub-Windows");
         request.Headers.Accept.ParseAdd("application/octet-stream");
 
         try
