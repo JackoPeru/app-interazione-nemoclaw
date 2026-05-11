@@ -499,7 +499,7 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0x1A2DA8FF), AppColors.Background, AppColors.Background)
+                    listOf(Color(0x1AF5A524), AppColors.Background, AppColors.Background)
                 )
             )
             .padding(horizontal = 24.dp),
@@ -3474,10 +3474,10 @@ private object AppColors {
     val Surface = Color(0xFF1A1E26)
     val Elevated = Color(0xFF232831)
     val AssistantBubble = Color(0xFF1F242E)
-    val UserBubble = Color(0xFF1F4FA8)
+    val UserBubble = Color(0xFF7A3E00)
     val Muted = Color(0xFFA2ADBF)
     val Faint = Color(0xFF6B7585)
-    val Accent = Color(0xFF2DA8FF)
-    val NavIndicator = Color(0xFF2E425D)
+    val Accent = Color(0xFFF5A524)
+    val NavIndicator = Color(0xFF4A351F)
     val Border = Color(0xFF232932)
 }
