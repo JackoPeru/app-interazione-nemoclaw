@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CropFree
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Language
@@ -137,6 +139,7 @@ import org.json.JSONObject
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             ChatClawTheme {
                 ChatApp()
@@ -351,6 +354,8 @@ private fun ChatApp() {
     var settings by remember { mutableStateOf(loadSettings(context)) }
     var pendingPrompt by remember { mutableStateOf("") }
     var pendingConversationId by remember { mutableStateOf<String?>(null) }
+    val chatState = remember { ChatStateHolder() }
+    val chatScope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = AppColors.Background,
@@ -384,6 +389,8 @@ private fun ChatApp() {
                 Tab.Chat -> ChatScreen(
                     context = context,
                     settings = settings,
+                    state = chatState,
+                    scope = chatScope,
                     conversationId = pendingConversationId,
                     initialPrompt = pendingPrompt,
                     onInitialPromptConsumed = {
@@ -427,33 +434,28 @@ private fun ChatApp() {
 private fun ChatScreen(
     context: Context,
     settings: AppSettings,
+    state: ChatStateHolder,
+    scope: kotlinx.coroutines.CoroutineScope,
     conversationId: String? = null,
     initialPrompt: String = "",
     onInitialPromptConsumed: () -> Unit = {},
     onSwitchTab: (Tab) -> Unit = {}
 ) {
-    val messages = remember { mutableStateListOf<ChatMessage>() }
-    val scope = rememberCoroutineScope()
-    var draft by remember { mutableStateOf("") }
-    var mode by remember { mutableStateOf("Chat") }
-    var activeConversationId by remember { mutableStateOf<String?>(null) }
-    var previousResponseId by remember { mutableStateOf<String?>(null) }
-    var sending by remember { mutableStateOf(false) }
-    var streamingState by remember { mutableStateOf<StreamingState?>(null) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     LaunchedEffect(conversationId, initialPrompt) {
         if (!conversationId.isNullOrBlank()) {
             val saved = loadConversation(context, conversationId)
             if (saved != null) {
-                activeConversationId = saved.id
-                previousResponseId = saved.previousResponseId
-                messages.clear()
-                messages.addAll(saved.messages)
+                state.activeConversationId = saved.id
+                state.previousResponseId = saved.previousResponseId
+                state.messages.clear()
+                state.messages.addAll(saved.messages)
             }
         }
 
         if (initialPrompt.isNotBlank()) {
-            draft = initialPrompt
+            state.draft = initialPrompt
         }
 
         if (!conversationId.isNullOrBlank() || initialPrompt.isNotBlank()) {
@@ -461,51 +463,56 @@ private fun ChatScreen(
         }
     }
 
+    val streamingTextLen = state.streamingState?.text?.length ?: 0
+    LaunchedEffect(state.messages.size, streamingTextLen, state.streamingState != null) {
+        val totalItems = state.messages.size + if (state.streamingState != null) 1 else 0
+        if (totalItems > 0) {
+            listState.animateScrollToItem(totalItems - 1)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .imePadding()
-            .navigationBarsPadding()
     ) {
         TopBar(
-            mode = mode,
+            mode = state.mode,
             onModeToggle = {
-                mode = if (mode == "Agente") "Chat" else "Agente"
-            }
+                state.mode = if (state.mode == "Agente") "Chat" else "Agente"
+            },
+            onNewChat = { state.resetForNewChat() }
         )
         Box(modifier = Modifier.weight(1f)) {
-            if (messages.isEmpty()) {
-                EmptyState(onPrompt = { draft = it })
+            if (state.messages.isEmpty() && state.streamingState == null) {
+                EmptyState(onPrompt = { state.draft = it })
             }
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(18.dp, 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                items(messages) { message ->
+                items(state.messages) { message ->
                     MessageBubble(message)
                 }
-                streamingState?.let { state ->
-                    item { StreamingBubbleView(state) }
+                state.streamingState?.let { streaming ->
+                    item { StreamingBubbleView(streaming) }
                 }
             }
         }
-        val slashMatches = remember(draft) { filterSlashCommands(draft) }
-        if (slashMatches.isNotEmpty() && !sending) {
+        val slashMatches = remember(state.draft) { filterSlashCommands(state.draft) }
+        if (slashMatches.isNotEmpty() && !state.sending) {
             SlashCommandList(commands = slashMatches) { cmd ->
-                draft = ""
+                state.draft = ""
                 executeSlashCommand(
                     command = cmd,
-                    setMode = { mode = it },
-                    clear = {
-                        messages.clear()
-                        activeConversationId = null
-                        previousResponseId = null
-                    },
-                    setDraft = { draft = it },
+                    setMode = { state.mode = it },
+                    clear = { state.resetForNewChat() },
+                    setDraft = { state.draft = it },
                     addAction = { title, body ->
-                        messages.add(ChatMessage(title, body, fromUser = false, isAction = true))
+                        state.messages.add(ChatMessage(title, body, fromUser = false, isAction = true))
                     },
                     onSwitchTab = onSwitchTab
                 )
@@ -513,34 +520,37 @@ private fun ChatScreen(
         }
         Composer(
             context = context,
-            value = draft,
-            onValueChange = { draft = it },
+            value = state.draft,
+            onValueChange = { state.draft = it },
             onAction = { title, text, prompt ->
-                messages.add(ChatMessage(title, text, fromUser = false, isAction = true))
+                state.messages.add(ChatMessage(title, text, fromUser = false, isAction = true))
                 if (prompt.isNotBlank()) {
-                    draft = appendPrompt(draft, prompt)
+                    state.draft = appendPrompt(state.draft, prompt)
                 }
             },
-            onModeChange = { mode = it },
+            onModeChange = { state.mode = it },
             onSend = {
-                val text = draft.trim()
-                if (text.isNotEmpty() && !sending) {
-                    messages.add(ChatMessage("Tu", text, true))
-                    draft = ""
-                    sending = true
-                    streamingState = StreamingState()
+                val text = state.draft.trim()
+                if (text.isNotEmpty() && !state.sending) {
+                    state.messages.add(ChatMessage("Tu", text, true))
+                    state.draft = ""
+                    state.sending = true
+                    state.streamingState = StreamingState()
 
                     scope.launch {
                         var localState = StreamingState()
-                        streamChatRequest(settings, mode, text, messages, activeConversationId, previousResponseId, loadGatewaySecret(context))
+                        val mode = state.mode
+                        val convId = state.activeConversationId
+                        val prevId = state.previousResponseId
+                        streamChatRequest(settings, mode, text, state.messages.toList(), convId, prevId, loadGatewaySecret(context))
                             .collect { event ->
                                 localState = localState.applyEvent(event)
-                                streamingState = localState
+                                state.streamingState = localState
                             }
                         val finalState = localState
                         val finalText = finalState.text.ifEmpty { finalState.error ?: "" }
                         if (finalText.isNotEmpty() || finalState.visualBlocks.isNotEmpty()) {
-                            messages.add(
+                            state.messages.add(
                                 ChatMessage(
                                     "Hermes",
                                     finalText,
@@ -551,12 +561,12 @@ private fun ChatScreen(
                             )
                         }
                         if (finalState.error != null && finalText.isEmpty()) {
-                            messages.add(ChatMessage("Stato", finalState.error, fromUser = false, isAction = true))
+                            state.messages.add(ChatMessage("Stato", finalState.error, fromUser = false, isAction = true))
                         }
                         if (finalText.isNotEmpty()) {
                             val saved = saveConversationExchange(
                                 context,
-                                activeConversationId,
+                                state.activeConversationId,
                                 mode,
                                 text,
                                 finalText,
@@ -565,15 +575,15 @@ private fun ChatScreen(
                                 finalState.visualBlocks,
                                 finalState.visualBlocksVersion
                             )
-                            activeConversationId = saved.id
-                            previousResponseId = saved.previousResponseId
+                            state.activeConversationId = saved.id
+                            state.previousResponseId = saved.previousResponseId
                         }
-                        streamingState = null
-                        sending = false
+                        state.streamingState = null
+                        state.sending = false
                     }
                 }
             },
-            isBusy = sending
+            isBusy = state.sending
         )
     }
 }
@@ -614,10 +624,11 @@ private fun executeSlashCommand(
 }
 
 @Composable
-private fun TopBar(mode: String, onModeToggle: () -> Unit) {
+private fun TopBar(mode: String, onModeToggle: () -> Unit, onNewChat: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .height(72.dp)
             .padding(horizontal = 18.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -639,6 +650,21 @@ private fun TopBar(mode: String, onModeToggle: () -> Unit) {
             )
         }
         Spacer(modifier = Modifier.weight(1f))
+        Surface(
+            modifier = Modifier.clickable(onClick = onNewChat),
+            color = AppColors.Surface,
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(Icons.Rounded.Edit, contentDescription = "Nuova chat", tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                Text(text = "Nuova", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+        Spacer(modifier = Modifier.size(8.dp))
         val modeIcon = if (mode == "Agente") Icons.Rounded.SmartToy else Icons.Rounded.ChatBubbleOutline
         Surface(
             modifier = Modifier.clickable(onClick = onModeToggle),

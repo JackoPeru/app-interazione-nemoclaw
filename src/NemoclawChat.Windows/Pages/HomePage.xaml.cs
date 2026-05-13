@@ -227,6 +227,17 @@ public sealed partial class HomePage : Page
         SetMode(_mode == "Agente" ? "Chat" : "Agente");
     }
 
+    private void NewChat_Click(object sender, RoutedEventArgs e)
+    {
+        _messageHistory.Clear();
+        _conversationId = null;
+        _previousResponseId = null;
+        MessagesPanel.Children.Clear();
+        EmptyState.Visibility = Visibility.Visible;
+        PromptBox.Text = string.Empty;
+        PromptBox.Focus(FocusState.Programmatic);
+    }
+
     private void SetMode(string mode)
     {
         _mode = mode;

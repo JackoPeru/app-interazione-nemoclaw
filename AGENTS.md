@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.7 Release Hermes Hub 0.6.7
+v0.6.8 Release Hermes Hub 0.6.8
 ```
 
 ## Regola Memoria
@@ -54,6 +54,16 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
+Hermes Hub 0.6.8 (Windows + Android):
+
+- Stato chat persistente cross-tab: `ChatStateHolder` con `messages`, `draft`, `mode`, `activeConversationId`, `previousResponseId`, `streamingState`, `sending` vive in `ChatApp`; switch verso Archive/Server/Settings/etc non resetta la chat. `chatScope` rememberCoroutineScope sale a `ChatApp` per non interrompere lo streaming durante navigazione.
+- Bottone `Nuova` accanto al chip mode (Android + Windows): chiama `resetForNewChat()` Android / svuota `MessagesPanel` + `_messageHistory` su Windows.
+- Composer Android non più coperto da tastiera: manifest `android:windowSoftInputMode="adjustResize"`, `WindowCompat.setDecorFitsSystemWindows(window, false)` in onCreate, `Modifier.imePadding()` sulla Column chat + `statusBarsPadding` sulla TopBar.
+- Auto-scroll Android: `LazyListState.animateScrollToItem(last)` lanciato in `LaunchedEffect` sui cambiamenti di `messages.size` e `streamingState.text.length` per spostare la chat sempre sull'ultimo messaggio anche durante streaming.
+- Windows `HomePage` con `NavigationCacheMode="Required"`: navigando ad altre pagine il Frame riusa la stessa istanza e mantiene history/conversation.
+
+## Release 0.6.7
+
 Hermes Hub 0.6.7 (Windows + Android):
 
 - Streaming SSE token-by-token: client tenta prima `POST /v1/responses` con `stream: true`, fallback `POST /v1/chat/completions` streaming. Parser SSE comune che gestisce eventi Responses (`response.output_text.delta`, `response.reasoning.delta`, `response.output_item.added`, `response.function_call.arguments.delta`, `response.completed`) e formato Chat Completions (`choices[].delta.content`, `delta.reasoning`, `delta.tool_calls`, `usage`).
@@ -70,7 +80,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.7`.
+- Versione app: `0.6.8`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -105,7 +115,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.7`, versionCode `20`.
+- Versione app: `0.6.8`, versionCode `21`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
