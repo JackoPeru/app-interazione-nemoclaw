@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.8 Release Hermes Hub 0.6.8
+v0.6.9 Release Hermes Hub 0.6.9
 ```
 
 ## Regola Memoria
@@ -53,6 +53,15 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.9 (Windows + Android):
+
+- Header `Sto pensando` con shimmer mostrato sempre durante streaming finché non arriva il primo token di testo, anche quando il server non emette eventi `reasoning`. Si congela in `Pensato per Xs` solo se reasoning è stato ricevuto, altrimenti viene nascosto.
+- Rendering markdown del messaggio assistente (testo finale + delta streaming) su Android (`MarkdownText` con `parseMarkdownBlocks` + `renderInlineMarkdown` su `AnnotatedString`) e Windows (`Pages/MarkdownRenderer.cs` con `TextBlock` + `Inlines/Run`). Supporta `# ## ###` headers, `**bold**`, `*italic*` / `_italic_`, `` `inline code` ``, fenced ``` code blocks ``` con language hint, bullet `- ` / `* `.
+- Tool call ora dentro `Expander` (Windows) / collapsible `Surface` (Android): header con icona di stato (in corso / riuscito / fallito), nome tool, status; espandendo si vedono `Argomenti` e `Risultato` formattati come JSON pretty-printed (`JsonSerializer.Serialize(WriteIndented=true)` Windows, `org.json.JSONObject/JSONArray.toString(2)` Android) e una riga `Esito: in corso / riuscito / fallito`.
+- Inferenza esito tool: `"error"` nel payload del risultato → fallito; status `completato`/`risultato pronto`/`done`/`success` o presenza di `result` → riuscito; altrimenti in corso.
+
+## Release 0.6.8
 
 Hermes Hub 0.6.8 (Windows + Android):
 
@@ -80,7 +89,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.8`.
+- Versione app: `0.6.9`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -115,7 +124,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.8`, versionCode `21`.
+- Versione app: `0.6.9`, versionCode `22`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.

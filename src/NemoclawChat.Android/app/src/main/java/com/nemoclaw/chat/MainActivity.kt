@@ -779,7 +779,11 @@ private fun MessageBubble(message: ChatMessage) {
                     fontSize = 12.sp
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                Text(text = message.text, color = Color.White)
+                if (message.fromUser || message.isAction) {
+                    Text(text = message.text, color = Color.White)
+                } else {
+                    MarkdownText(message.text, color = Color.White)
+                }
                 if (message.visualBlocks.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -20,7 +21,7 @@ internal sealed class StreamingBubble
     private readonly Expander _thinkingExpander;
     private readonly TextBlock _thinkingText;
     private readonly StackPanel _toolCallsPanel;
-    private readonly TextBlock _assistantText;
+    private readonly ContentControl _assistantContainer;
     private readonly TextBlock _statsText;
     private readonly LinearGradientBrush _shimmerBrush;
     private readonly DispatcherTimer _shimmerTimer;
@@ -84,7 +85,7 @@ internal sealed class StreamingBubble
             Background = new SolidColorBrush(Colors.Transparent),
             BorderThickness = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Visibility = Visibility.Collapsed
+            Visibility = Visibility.Visible
         };
 
         _content.Children.Add(_thinkingExpander);
@@ -92,14 +93,12 @@ internal sealed class StreamingBubble
         _toolCallsPanel = new StackPanel { Spacing = 8 };
         _content.Children.Add(_toolCallsPanel);
 
-        _assistantText = new TextBlock
+        _assistantContainer = new ContentControl
         {
-            Text = string.Empty,
-            TextWrapping = TextWrapping.WrapWholeWords,
-            Foreground = new SolidColorBrush(Colors.White),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Visibility = Visibility.Collapsed
         };
-        _content.Children.Add(_assistantText);
+        _content.Children.Add(_assistantContainer);
 
         _statsText = new TextBlock
         {
@@ -148,12 +147,11 @@ internal sealed class StreamingBubble
             return;
         }
         _textBuilder.Append(delta);
-        _assistantText.Text = _textBuilder.ToString();
+        _assistantContainer.Content = MarkdownRenderer.Render(_textBuilder.ToString(), Colors.White);
         if (!_hasText)
         {
             _hasText = true;
-            _assistantText.Visibility = Visibility.Visible;
-            // First text token: thinking phase done, freeze shimmer label
+            _assistantContainer.Visibility = Visibility.Visible;
             if (_hasThinking)
             {
                 FreezeThinkingLabel();
@@ -161,6 +159,7 @@ internal sealed class StreamingBubble
             else
             {
                 _thinkingExpander.Visibility = Visibility.Collapsed;
+                _shimmerTimer.Stop();
             }
         }
         ScheduleScroll();
@@ -196,48 +195,111 @@ internal sealed class StreamingBubble
             return;
         }
 
-        var argsText = new TextBlock
+        var statusIcon = new FontIcon
         {
-            Text = string.Empty,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 11,
-            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
-            TextWrapping = TextWrapping.Wrap,
-            Visibility = Visibility.Collapsed
+            Glyph = "",
+            FontSize = 14,
+            Foreground = (Brush)Application.Current.Resources["AccentBrush"]
         };
-        var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        header.Children.Add(new FontIcon { Glyph = "", FontSize = 14, Foreground = (Brush)Application.Current.Resources["AccentBrush"] });
-        header.Children.Add(new TextBlock
-        {
-            Text = $"Tool · {name}",
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush(Colors.White)
-        });
         var statusText = new TextBlock
         {
             Text = "in esecuzione…",
             FontSize = 11,
             Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
         };
+        var header = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        header.Children.Add(statusIcon);
+        header.Children.Add(new TextBlock
+        {
+            Text = $"Tool · {name}",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Colors.White),
+            VerticalAlignment = VerticalAlignment.Center
+        });
         header.Children.Add(statusText);
 
-        var panel = new StackPanel { Spacing = 4 };
-        panel.Children.Add(header);
-        panel.Children.Add(argsText);
-
-        var border = new Border
+        var detailPanel = new StackPanel { Spacing = 6, Padding = new Thickness(4, 6, 4, 4) };
+        var argsLabel = new TextBlock
         {
-            Padding = new Thickness(12, 8, 12, 8),
-            CornerRadius = new CornerRadius(12),
+            Text = "Argomenti",
+            FontSize = 11,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
+        };
+        var argsBlock = new TextBlock
+        {
+            Text = "—",
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Colors.White),
+            TextWrapping = TextWrapping.Wrap
+        };
+        var argsBorder = new Border
+        {
+            Padding = new Thickness(10),
+            Background = (Brush)Application.Current.Resources["ComposerBrush"],
+            CornerRadius = new CornerRadius(8),
+            Child = argsBlock
+        };
+        detailPanel.Children.Add(argsLabel);
+        detailPanel.Children.Add(argsBorder);
+
+        var resultLabel = new TextBlock
+        {
+            Text = "Risultato",
+            FontSize = 11,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
+            Visibility = Visibility.Collapsed
+        };
+        var resultBlock = new TextBlock
+        {
+            Text = string.Empty,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Colors.White),
+            TextWrapping = TextWrapping.Wrap
+        };
+        var resultBorder = new Border
+        {
+            Padding = new Thickness(10),
+            Background = (Brush)Application.Current.Resources["ComposerBrush"],
+            CornerRadius = new CornerRadius(8),
+            Child = resultBlock,
+            Visibility = Visibility.Collapsed
+        };
+        detailPanel.Children.Add(resultLabel);
+        detailPanel.Children.Add(resultBorder);
+
+        var outcomeText = new TextBlock
+        {
+            Text = "Esito: in corso",
+            FontSize = 11,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["AccentBrush"]
+        };
+        detailPanel.Children.Add(outcomeText);
+
+        var expander = new Expander
+        {
+            Header = header,
+            Content = detailPanel,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Background = (Brush)Application.Current.Resources["SurfaceBrush"],
             BorderBrush = (Brush)Application.Current.Resources["BorderBrushSoft"],
             BorderThickness = new Thickness(1),
-            Child = panel
+            CornerRadius = new CornerRadius(12)
         };
 
-        _toolCallsPanel.Children.Add(border);
-        _toolViews[id] = new ToolCallView(border, argsText, statusText, new StringBuilder());
+        _toolCallsPanel.Children.Add(expander);
+        _toolViews[id] = new ToolCallView(expander, argsBlock, resultBlock, resultLabel, resultBorder, statusText, statusIcon, outcomeText, new StringBuilder());
         ScheduleScroll();
     }
 
@@ -253,8 +315,7 @@ internal sealed class StreamingBubble
             view = _toolViews[id];
         }
         view.Args.Append(delta);
-        view.ArgsBlock.Text = view.Args.ToString();
-        view.ArgsBlock.Visibility = Visibility.Visible;
+        view.ArgsBlock.Text = PrettifyJson(view.Args.ToString());
         ScheduleScroll();
     }
 
@@ -263,6 +324,10 @@ internal sealed class StreamingBubble
         if (_toolViews.TryGetValue(id, out var view))
         {
             view.StatusBlock.Text = "completato";
+            view.StatusIcon.Glyph = "";
+            view.StatusIcon.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0x34, 0xC7, 0x59));
+            view.OutcomeText.Text = "Esito: riuscito";
+            view.OutcomeText.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0x34, 0xC7, 0x59));
         }
     }
 
@@ -271,34 +336,29 @@ internal sealed class StreamingBubble
         if (!string.IsNullOrWhiteSpace(id) && _toolViews.TryGetValue(id!, out var view))
         {
             view.StatusBlock.Text = "risultato pronto";
-            var result = new TextBlock
+            view.ResultBlock.Text = PrettifyJson(output);
+            view.ResultLabel.Visibility = Visibility.Visible;
+            view.ResultBorder.Visibility = Visibility.Visible;
+            var isError = output.Contains("\"error\"", StringComparison.OrdinalIgnoreCase);
+            if (isError)
             {
-                Text = output,
-                FontFamily = new FontFamily("Consolas"),
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Colors.White),
-                TextWrapping = TextWrapping.Wrap
-            };
-            ((StackPanel)((Border)view.Container).Child).Children.Add(result);
+                view.StatusIcon.Glyph = "";
+                view.StatusIcon.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xFF, 0x45, 0x3A));
+                view.OutcomeText.Text = "Esito: fallito";
+                view.OutcomeText.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xFF, 0x45, 0x3A));
+            }
+            else
+            {
+                view.StatusIcon.Glyph = "";
+                view.StatusIcon.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0x34, 0xC7, 0x59));
+                view.OutcomeText.Text = "Esito: riuscito";
+                view.OutcomeText.Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0x34, 0xC7, 0x59));
+            }
         }
         else
         {
-            var resultBorder = new Border
-            {
-                Padding = new Thickness(12, 8, 12, 8),
-                CornerRadius = new CornerRadius(12),
-                Background = (Brush)Application.Current.Resources["SurfaceBrush"],
-                BorderBrush = (Brush)Application.Current.Resources["BorderBrushSoft"],
-                BorderThickness = new Thickness(1),
-                Child = new TextBlock
-                {
-                    Text = $"Tool · {name ?? "risultato"}\n{output}",
-                    Foreground = new SolidColorBrush(Colors.White),
-                    TextWrapping = TextWrapping.Wrap,
-                    FontSize = 12
-                }
-            };
-            _toolCallsPanel.Children.Add(resultBorder);
+            StartToolCall(id ?? "tool", name ?? "tool");
+            AddToolResult(id ?? "tool", name, output);
         }
         ScheduleScroll();
     }
@@ -330,7 +390,7 @@ internal sealed class StreamingBubble
 
         if (!_hasText && _textBuilder.Length > 0)
         {
-            _assistantText.Visibility = Visibility.Visible;
+            _assistantContainer.Visibility = Visibility.Visible;
             _hasText = true;
         }
 
@@ -376,5 +436,32 @@ internal sealed class StreamingBubble
         _ = _scroll.ChangeView(null, _scroll.ScrollableHeight, null, true);
     }
 
-    private sealed record ToolCallView(Border Container, TextBlock ArgsBlock, TextBlock StatusBlock, StringBuilder Args);
+    private static string PrettifyJson(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return "—";
+        }
+        var trimmed = raw.Trim();
+        try
+        {
+            using var doc = JsonDocument.Parse(trimmed);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return raw;
+        }
+    }
+
+    private sealed record ToolCallView(
+        Expander Container,
+        TextBlock ArgsBlock,
+        TextBlock ResultBlock,
+        TextBlock ResultLabel,
+        Border ResultBorder,
+        TextBlock StatusBlock,
+        FontIcon StatusIcon,
+        TextBlock OutcomeText,
+        StringBuilder Args);
 }

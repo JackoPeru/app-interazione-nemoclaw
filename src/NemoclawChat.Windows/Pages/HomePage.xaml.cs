@@ -437,12 +437,19 @@ public sealed partial class HomePage : Page
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Colors.White)
         });
-        content.Children.Add(new TextBlock
+        if (string.Equals(author, "Hermes", StringComparison.OrdinalIgnoreCase))
         {
-            Text = text,
-            TextWrapping = TextWrapping.WrapWholeWords,
-            Foreground = new SolidColorBrush(Colors.White)
-        });
+            content.Children.Add(MarkdownRenderer.Render(text, Colors.White));
+        }
+        else
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.WrapWholeWords,
+                Foreground = new SolidColorBrush(Colors.White)
+            });
+        }
 
         if (visualBlocks is { Count: > 0 })
         {

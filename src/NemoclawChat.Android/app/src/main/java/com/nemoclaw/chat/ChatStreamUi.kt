@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Card
@@ -65,10 +67,11 @@ internal fun StreamingBubbleView(state: StreamingState) {
                     fontSize = 12.sp
                 )
 
-                if (state.hasThinking) {
+                val showThinkingHeader = state.hasThinking || (state.text.isEmpty() && !state.isDone)
+                if (showThinkingHeader) {
                     ThinkingExpander(
                         thinking = state.thinking,
-                        active = !state.thinkingFrozen,
+                        active = !state.thinkingFrozen && state.text.isEmpty(),
                         elapsedSec = state.thinkingElapsedSec
                     )
                 }
@@ -78,7 +81,7 @@ internal fun StreamingBubbleView(state: StreamingState) {
                 }
 
                 if (state.text.isNotEmpty()) {
-                    Text(text = state.text, color = Color.White, fontSize = 14.sp)
+                    MarkdownText(state.text, color = Color.White)
                 }
 
                 state.visualBlocks.filter { it.isValidVisualBlock() }.forEach { block ->
@@ -191,45 +194,270 @@ internal fun ShimmerText(text: String) {
 
 @Composable
 internal fun ToolCallCard(tool: ToolCallState) {
+    var expanded by remember { mutableStateOf(false) }
+    val outcome = inferToolOutcome(tool)
+    val statusColor = when (outcome) {
+        ToolOutcome.Success -> Color(0xFF34C759)
+        ToolOutcome.Error -> Color(0xFFFF453A)
+        ToolOutcome.Pending -> AppColors.Accent
+    }
+    val statusIcon = when (outcome) {
+        ToolOutcome.Success -> Icons.Rounded.CheckCircle
+        ToolOutcome.Error -> Icons.Rounded.Error
+        ToolOutcome.Pending -> Icons.Rounded.AutoAwesome
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = AppColors.Surface,
         shape = RoundedCornerShape(12.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(
-                    imageVector = Icons.Rounded.AutoAwesome,
-                    contentDescription = "Tool",
-                    tint = AppColors.Accent,
-                    modifier = Modifier.size(14.dp)
-                )
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(statusIcon, contentDescription = null, tint = statusColor, modifier = Modifier.size(14.dp))
                 Text(
                     text = "Tool · ${tool.name}",
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f)
                 )
                 Text(text = tool.status, color = AppColors.Muted, fontSize = 11.sp)
-            }
-            if (tool.args.isNotEmpty()) {
-                Text(
-                    text = tool.args,
-                    color = AppColors.Muted,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = if (expanded) "Chiudi" else "Apri",
+                    tint = AppColors.Muted,
+                    modifier = Modifier.size(16.dp)
                 )
             }
-            tool.result?.takeIf { it.isNotEmpty() }?.let { res ->
-                Text(
-                    text = res,
-                    color = Color.White,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp
-                )
+            if (expanded) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(text = "Argomenti", color = AppColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Surface(color = AppColors.Composer, shape = RoundedCornerShape(8.dp)) {
+                        Text(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            text = if (tool.args.isEmpty()) "—" else prettifyJson(tool.args),
+                            color = Color.White,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp
+                        )
+                    }
+                    if (!tool.result.isNullOrEmpty()) {
+                        Text(text = "Risultato", color = AppColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Surface(color = AppColors.Composer, shape = RoundedCornerShape(8.dp)) {
+                            Text(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                text = prettifyJson(tool.result!!),
+                                color = Color.White,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Esito: ${outcome.label}",
+                        color = statusColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
             }
         }
     }
+}
+
+internal enum class ToolOutcome(val label: String) {
+    Pending("in corso"),
+    Success("riuscito"),
+    Error("fallito")
+}
+
+internal fun inferToolOutcome(tool: ToolCallState): ToolOutcome {
+    val s = tool.status.lowercase()
+    val r = tool.result?.lowercase().orEmpty()
+    return when {
+        s.contains("error") || s.contains("fail") || s.contains("fallit") || r.contains("\"error\"") -> ToolOutcome.Error
+        s.contains("completat") || s.contains("risultato") || s.contains("success") || s.contains("done") || tool.result != null -> ToolOutcome.Success
+        else -> ToolOutcome.Pending
+    }
+}
+
+internal fun prettifyJson(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return raw
+    return try {
+        when {
+            trimmed.startsWith("{") -> org.json.JSONObject(trimmed).toString(2)
+            trimmed.startsWith("[") -> org.json.JSONArray(trimmed).toString(2)
+            else -> raw
+        }
+    } catch (_: Exception) {
+        raw
+    }
+}
+
+@Composable
+internal fun MarkdownText(
+    markdown: String,
+    color: Color = Color.White,
+    fontSize: androidx.compose.ui.unit.TextUnit = 14.sp
+) {
+    val blocks = remember(markdown) { parseMarkdownBlocks(markdown) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        blocks.forEach { block ->
+            when (block) {
+                is MdBlock.Paragraph -> Text(
+                    text = renderInlineMarkdown(block.text, color),
+                    color = color,
+                    fontSize = fontSize
+                )
+                is MdBlock.Header -> Text(
+                    text = renderInlineMarkdown(block.text, color),
+                    color = color,
+                    fontSize = when (block.level) { 1 -> 20.sp; 2 -> 17.sp; else -> 15.sp },
+                    fontWeight = FontWeight.SemiBold
+                )
+                is MdBlock.Bullet -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("•", color = color, fontSize = fontSize)
+                    Text(
+                        text = renderInlineMarkdown(block.text, color),
+                        color = color,
+                        fontSize = fontSize
+                    )
+                }
+                is MdBlock.CodeBlock -> Surface(
+                    color = AppColors.Composer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (block.language.isNotBlank()) {
+                            Text(block.language, color = AppColors.Muted, fontSize = 11.sp)
+                        }
+                        Text(
+                            block.code,
+                            color = color,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal sealed class MdBlock {
+    data class Paragraph(val text: String) : MdBlock()
+    data class Header(val level: Int, val text: String) : MdBlock()
+    data class Bullet(val text: String) : MdBlock()
+    data class CodeBlock(val language: String, val code: String) : MdBlock()
+}
+
+internal fun parseMarkdownBlocks(markdown: String): List<MdBlock> {
+    val blocks = mutableListOf<MdBlock>()
+    val lines = markdown.replace("\r\n", "\n").split("\n")
+    var i = 0
+    val paragraph = StringBuilder()
+    fun flushParagraph() {
+        if (paragraph.isNotEmpty()) {
+            blocks += MdBlock.Paragraph(paragraph.toString().trim())
+            paragraph.clear()
+        }
+    }
+    while (i < lines.size) {
+        val line = lines[i]
+        when {
+            line.startsWith("```") -> {
+                flushParagraph()
+                val lang = line.removePrefix("```").trim()
+                val codeBuf = StringBuilder()
+                i++
+                while (i < lines.size && !lines[i].startsWith("```")) {
+                    if (codeBuf.isNotEmpty()) codeBuf.append('\n')
+                    codeBuf.append(lines[i])
+                    i++
+                }
+                blocks += MdBlock.CodeBlock(lang, codeBuf.toString())
+                i++
+            }
+            line.startsWith("# ") -> { flushParagraph(); blocks += MdBlock.Header(1, line.removePrefix("# ").trim()); i++ }
+            line.startsWith("## ") -> { flushParagraph(); blocks += MdBlock.Header(2, line.removePrefix("## ").trim()); i++ }
+            line.startsWith("### ") -> { flushParagraph(); blocks += MdBlock.Header(3, line.removePrefix("### ").trim()); i++ }
+            line.startsWith("- ") || line.startsWith("* ") -> {
+                flushParagraph()
+                blocks += MdBlock.Bullet(line.drop(2).trim())
+                i++
+            }
+            line.isBlank() -> { flushParagraph(); i++ }
+            else -> {
+                if (paragraph.isNotEmpty()) paragraph.append(' ')
+                paragraph.append(line)
+                i++
+            }
+        }
+    }
+    flushParagraph()
+    return blocks
+}
+
+internal fun renderInlineMarkdown(text: String, baseColor: Color): androidx.compose.ui.text.AnnotatedString {
+    val builder = androidx.compose.ui.text.AnnotatedString.Builder()
+    var i = 0
+    while (i < text.length) {
+        val ch = text[i]
+        if (ch == '*' && i + 1 < text.length && text[i + 1] == '*') {
+            val end = text.indexOf("**", i + 2)
+            if (end > i + 2) {
+                builder.pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold))
+                builder.append(text.substring(i + 2, end))
+                builder.pop()
+                i = end + 2
+                continue
+            }
+        }
+        if ((ch == '*' || ch == '_') && i + 1 < text.length && text[i + 1] != ch) {
+            val end = text.indexOf(ch, i + 1)
+            if (end > i + 1) {
+                builder.pushStyle(androidx.compose.ui.text.SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic))
+                builder.append(text.substring(i + 1, end))
+                builder.pop()
+                i = end + 1
+                continue
+            }
+        }
+        if (ch == '`') {
+            val end = text.indexOf('`', i + 1)
+            if (end > i + 1) {
+                builder.pushStyle(androidx.compose.ui.text.SpanStyle(
+                    fontFamily = FontFamily.Monospace,
+                    background = Color(0x33A2ADBF)
+                ))
+                builder.append(text.substring(i + 1, end))
+                builder.pop()
+                i = end + 1
+                continue
+            }
+        }
+        builder.append(ch)
+        i++
+    }
+    return builder.toAnnotatedString()
 }
 
 internal data class SlashCommand(
