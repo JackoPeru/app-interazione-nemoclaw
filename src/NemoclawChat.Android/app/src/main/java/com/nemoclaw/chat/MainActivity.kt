@@ -389,7 +389,8 @@ private fun ChatApp() {
                     onInitialPromptConsumed = {
                         pendingPrompt = ""
                         pendingConversationId = null
-                    }
+                    },
+                    onSwitchTab = { tab -> selectedTab = tab }
                 )
                 Tab.Archive -> ArchiveScreen(
                     context = context,
@@ -428,7 +429,8 @@ private fun ChatScreen(
     settings: AppSettings,
     conversationId: String? = null,
     initialPrompt: String = "",
-    onInitialPromptConsumed: () -> Unit = {}
+    onInitialPromptConsumed: () -> Unit = {},
+    onSwitchTab: (Tab) -> Unit = {}
 ) {
     val messages = remember { mutableStateListOf<ChatMessage>() }
     val scope = rememberCoroutineScope()
@@ -437,6 +439,7 @@ private fun ChatScreen(
     var activeConversationId by remember { mutableStateOf<String?>(null) }
     var previousResponseId by remember { mutableStateOf<String?>(null) }
     var sending by remember { mutableStateOf(false) }
+    var streamingState by remember { mutableStateOf<StreamingState?>(null) }
 
     LaunchedEffect(conversationId, initialPrompt) {
         if (!conversationId.isNullOrBlank()) {
@@ -483,6 +486,29 @@ private fun ChatScreen(
                 items(messages) { message ->
                     MessageBubble(message)
                 }
+                streamingState?.let { state ->
+                    item { StreamingBubbleView(state) }
+                }
+            }
+        }
+        val slashMatches = remember(draft) { filterSlashCommands(draft) }
+        if (slashMatches.isNotEmpty() && !sending) {
+            SlashCommandList(commands = slashMatches) { cmd ->
+                draft = ""
+                executeSlashCommand(
+                    command = cmd,
+                    setMode = { mode = it },
+                    clear = {
+                        messages.clear()
+                        activeConversationId = null
+                        previousResponseId = null
+                    },
+                    setDraft = { draft = it },
+                    addAction = { title, body ->
+                        messages.add(ChatMessage(title, body, fromUser = false, isAction = true))
+                    },
+                    onSwitchTab = onSwitchTab
+                )
             }
         }
         Composer(
@@ -502,43 +528,88 @@ private fun ChatScreen(
                     messages.add(ChatMessage("Tu", text, true))
                     draft = ""
                     sending = true
-                    if (!settings.visualBlocksMode.equals("never", ignoreCase = true)) {
-                        messages.add(ChatMessage("Hermes", "Hermes sta preparando la risposta e gli eventuali blocchi visuali...", fromUser = false, isAction = true))
-                    }
+                    streamingState = StreamingState()
 
                     scope.launch {
-                        val result = sendChatRequest(settings, mode, text, messages, activeConversationId, previousResponseId, loadGatewaySecret(context))
-                        messages.add(
-                            ChatMessage(
-                                "Hermes",
-                                result.text,
-                                false,
-                                visualBlocksVersion = result.visualBlocksVersion,
-                                visualBlocks = result.visualBlocks
+                        var localState = StreamingState()
+                        streamChatRequest(settings, mode, text, messages, activeConversationId, previousResponseId, loadGatewaySecret(context))
+                            .collect { event ->
+                                localState = localState.applyEvent(event)
+                                streamingState = localState
+                            }
+                        val finalState = localState
+                        val finalText = finalState.text.ifEmpty { finalState.error ?: "" }
+                        if (finalText.isNotEmpty() || finalState.visualBlocks.isNotEmpty()) {
+                            messages.add(
+                                ChatMessage(
+                                    "Hermes",
+                                    finalText,
+                                    false,
+                                    visualBlocksVersion = finalState.visualBlocksVersion,
+                                    visualBlocks = finalState.visualBlocks
+                                )
                             )
-                        )
-                        if (result.usedFallback) {
-                            messages.add(ChatMessage("Stato", result.statusMessage, fromUser = false, isAction = true))
                         }
-                        val saved = saveConversationExchange(
-                            context,
-                            activeConversationId,
-                            mode,
-                            text,
-                            result.text,
-                            result.source,
-                            result.responseId,
-                            result.visualBlocks,
-                            result.visualBlocksVersion
-                        )
-                        activeConversationId = saved.id
-                        previousResponseId = saved.previousResponseId
+                        if (finalState.error != null && finalText.isEmpty()) {
+                            messages.add(ChatMessage("Stato", finalState.error, fromUser = false, isAction = true))
+                        }
+                        if (finalText.isNotEmpty()) {
+                            val saved = saveConversationExchange(
+                                context,
+                                activeConversationId,
+                                mode,
+                                text,
+                                finalText,
+                                if (finalState.error != null) "Errore Hermes" else "Hermes",
+                                finalState.responseId,
+                                finalState.visualBlocks,
+                                finalState.visualBlocksVersion
+                            )
+                            activeConversationId = saved.id
+                            previousResponseId = saved.previousResponseId
+                        }
+                        streamingState = null
                         sending = false
                     }
                 }
             },
             isBusy = sending
         )
+    }
+}
+
+private fun executeSlashCommand(
+    command: SlashCommand,
+    setMode: (String) -> Unit,
+    clear: () -> Unit,
+    setDraft: (String) -> Unit,
+    addAction: (String, String) -> Unit,
+    onSwitchTab: (Tab) -> Unit
+) {
+    when (command.action) {
+        SlashAction.ModeChat -> {
+            setMode("Chat"); addAction("Modalita", "Chat attiva.")
+        }
+        SlashAction.ModeAgent -> {
+            setMode("Agente"); addAction("Modalita", "Agente attivo.")
+        }
+        SlashAction.Clear -> clear()
+        SlashAction.Help -> {
+            val lines = slashCommands().distinctBy { it.display }.joinToString("\n") { "${it.display} — ${it.title}" }
+            addAction("Comandi", lines)
+        }
+        SlashAction.PromptSetup -> setDraft("Preparami i passaggi per avviare Hermes Agent API Server su Tailscale/LAN.")
+        SlashAction.PromptVisual -> setDraft("Spiega con blocchi visuali (tabella, diagramma, chart o callout) mantenendo output_text completo.")
+        SlashAction.PromptResearch -> setDraft("Esegui una ricerca approfondita citando fonti e chiedendo conferma prima di uscire dalla LAN/VPN.")
+        SlashAction.PromptWeb -> setDraft("Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN.")
+        SlashAction.PromptImage -> setDraft("Prepara una richiesta di generazione immagine, chiedendo conferma prima di usare tool esterni.")
+        SlashAction.Health -> setDraft("Controlla stato Hermes, modello disponibile e capabilities API.")
+        SlashAction.OpenServer -> onSwitchTab(Tab.Server)
+        SlashAction.OpenOperator -> onSwitchTab(Tab.Operator)
+        SlashAction.OpenArchive -> onSwitchTab(Tab.Archive)
+        SlashAction.OpenTasks -> onSwitchTab(Tab.Tasks)
+        SlashAction.OpenSettings -> onSwitchTab(Tab.Settings)
+        SlashAction.OpenAbout -> onSwitchTab(Tab.Profile)
     }
 }
 
@@ -697,7 +768,7 @@ private fun MessageBubble(message: ChatMessage) {
 }
 
 @Composable
-private fun VisualBlockView(block: VisualBlock) {
+internal fun VisualBlockView(block: VisualBlock) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = AppColors.Surface,
@@ -2794,7 +2865,7 @@ private fun String.jsonEscaped(): String {
         .replace("\n", "\\n")
 }
 
-private fun extractAssistantText(body: String): String {
+internal fun extractAssistantText(body: String): String {
     val trimmed = body.trim()
     if (trimmed.isBlank()) {
         return ""
@@ -2870,7 +2941,7 @@ private fun extractJsonText(value: Any?): String {
     }
 }
 
-private fun extractVisualBlocks(body: String): List<VisualBlock> {
+internal fun extractVisualBlocks(body: String): List<VisualBlock> {
     val trimmed = body.trim()
     if (!trimmed.startsWith("{") || trimmed.toByteArray(Charsets.UTF_8).size > VISUAL_BLOCKS_MAX_PAYLOAD_BYTES * 3) {
         return emptyList()
@@ -2999,7 +3070,7 @@ private fun readIntArray(array: JSONArray?): List<Int> = buildList {
     }
 }
 
-private fun VisualBlock.isValidVisualBlock(): Boolean {
+internal fun VisualBlock.isValidVisualBlock(): Boolean {
     if (id.isBlank()) return false
     return when (type.lowercase()) {
         "markdown" -> text.isNotBlank()
@@ -3128,7 +3199,7 @@ private fun extractTaskStatus(body: String): String? {
     }
 }
 
-private fun extractResponseId(body: String): String? {
+internal fun extractResponseId(body: String): String? {
     return try {
         val json = JSONObject(body)
         json.extractString("id")
@@ -3907,7 +3978,7 @@ private fun makeTitle(prompt: String): String {
     return if (oneLine.length <= 46) oneLine else oneLine.take(46).trimEnd() + "..."
 }
 
-private const val VISUAL_BLOCKS_VERSION = 1
+internal const val VISUAL_BLOCKS_VERSION = 1
 private const val VISUAL_BLOCKS_MAX_BLOCKS = 20
 private const val VISUAL_BLOCKS_MAX_PAYLOAD_BYTES = 500 * 1024
 
@@ -3994,7 +4065,7 @@ private object AppDefaults {
     const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"
 }
 
-private object AppColors {
+internal object AppColors {
     val Background = Color(0xFF0F1115)
     val Sidebar = Color(0xFF14171D)
     val Composer = Color(0xFF1A1E26)

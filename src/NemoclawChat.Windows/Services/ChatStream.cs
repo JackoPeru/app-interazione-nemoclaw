@@ -1,0 +1,732 @@
+using System.Diagnostics;
+using System.Net.Http;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
+
+namespace NemoclawChat_Windows.Services;
+
+public sealed record ChatStreamStats(
+    double? TimeToFirstTokenMs,
+    double? TotalMs,
+    int? TokensOut,
+    double? TokensPerSecond,
+    int? PromptTokens);
+
+public abstract record ChatStreamEvent;
+public sealed record StreamTextDelta(string Delta) : ChatStreamEvent;
+public sealed record StreamThinkingDelta(string Delta) : ChatStreamEvent;
+public sealed record StreamToolCallStart(string Id, string Name) : ChatStreamEvent;
+public sealed record StreamToolCallArguments(string Id, string Delta) : ChatStreamEvent;
+public sealed record StreamToolCallEnd(string Id) : ChatStreamEvent;
+public sealed record StreamToolResult(string? Id, string? Name, string Output) : ChatStreamEvent;
+public sealed record StreamResponseId(string Id) : ChatStreamEvent;
+public sealed record StreamVisualBlocks(IReadOnlyList<VisualBlockRecord> Blocks, int Version) : ChatStreamEvent;
+public sealed record StreamDone(ChatStreamStats Stats, string AccumulatedText, string AccumulatedThinking) : ChatStreamEvent;
+public sealed record StreamError(string Message) : ChatStreamEvent;
+public sealed record StreamStatus(string Message) : ChatStreamEvent;
+
+public static class ChatStreamClient
+{
+    private static readonly HttpClient StreamClient = new()
+    {
+        Timeout = TimeSpan.FromMinutes(60)
+    };
+
+    public static async IAsyncEnumerable<ChatStreamEvent> StreamChatAsync(
+        AppSettings settings,
+        string mode,
+        string prompt,
+        IReadOnlyList<ChatMessageRecord> history,
+        string? conversationId,
+        string? previousResponseId,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string? responseId = null;
+        var accumulatedText = new StringBuilder();
+        var accumulatedThinking = new StringBuilder();
+        IReadOnlyList<VisualBlockRecord>? visualBlocks = null;
+        double? ttft = null;
+        int? promptTokens = null;
+        int? completionTokens = null;
+        bool sawAnyDelta = false;
+        string? lastError = null;
+
+        var supportsResponses = await GatewayService.SupportsResponsesAsync(settings);
+
+        if (supportsResponses)
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                model = settings.Model,
+                input = prompt,
+                instructions = mode.Equals("Agente", StringComparison.OrdinalIgnoreCase)
+                    ? "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni."
+                    : "Rispondi come assistente conversazionale Hermes.",
+                store = true,
+                stream = true,
+                conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
+                previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
+                metadata = new
+                {
+                    client = "hermes-hub",
+                    visual_blocks = new
+                    {
+                        min_supported_version = VisualBlocksContract.Version,
+                        max_supported_version = VisualBlocksContract.Version,
+                        mode = settings.VisualBlocksMode
+                    }
+                }
+            });
+
+            var url = $"{settings.GatewayUrl.TrimEnd('/')}/responses";
+            await foreach (var ev in OpenStreamAsync(url, payload, "Hermes Responses API stream", cancellationToken))
+            {
+                if (ev is StreamError err)
+                {
+                    lastError = err.Message;
+                    break;
+                }
+
+                if (ev is StreamTextDelta td)
+                {
+                    if (!sawAnyDelta)
+                    {
+                        ttft = stopwatch.Elapsed.TotalMilliseconds;
+                        sawAnyDelta = true;
+                    }
+                    accumulatedText.Append(td.Delta);
+                }
+                else if (ev is StreamThinkingDelta th)
+                {
+                    if (!sawAnyDelta)
+                    {
+                        ttft = stopwatch.Elapsed.TotalMilliseconds;
+                        sawAnyDelta = true;
+                    }
+                    accumulatedThinking.Append(th.Delta);
+                }
+                else if (ev is StreamResponseId rid)
+                {
+                    responseId = rid.Id;
+                }
+                else if (ev is StreamVisualBlocks vb)
+                {
+                    visualBlocks = vb.Blocks;
+                }
+                else if (ev is StreamUsage u)
+                {
+                    promptTokens = u.PromptTokens;
+                    completionTokens = u.CompletionTokens;
+                }
+
+                yield return ev;
+            }
+        }
+
+        if (!sawAnyDelta && lastError is null)
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                model = settings.Model,
+                stream = true,
+                metadata = new
+                {
+                    client = "hermes-hub",
+                    visual_blocks = new
+                    {
+                        min_supported_version = VisualBlocksContract.Version,
+                        max_supported_version = VisualBlocksContract.Version,
+                        mode = settings.VisualBlocksMode
+                    }
+                },
+                messages = history.Select(m => new
+                {
+                    role = string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
+                    content = m.Text
+                })
+            });
+
+            var url = $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions";
+            await foreach (var ev in OpenStreamAsync(url, payload, "Hermes Chat Completions stream", cancellationToken))
+            {
+                if (ev is StreamError err)
+                {
+                    lastError = err.Message;
+                    break;
+                }
+
+                if (ev is StreamTextDelta td)
+                {
+                    if (!sawAnyDelta)
+                    {
+                        ttft = stopwatch.Elapsed.TotalMilliseconds;
+                        sawAnyDelta = true;
+                    }
+                    accumulatedText.Append(td.Delta);
+                }
+                else if (ev is StreamThinkingDelta th)
+                {
+                    if (!sawAnyDelta)
+                    {
+                        ttft = stopwatch.Elapsed.TotalMilliseconds;
+                        sawAnyDelta = true;
+                    }
+                    accumulatedThinking.Append(th.Delta);
+                }
+                else if (ev is StreamResponseId rid)
+                {
+                    responseId = rid.Id;
+                }
+                else if (ev is StreamVisualBlocks vb)
+                {
+                    visualBlocks = vb.Blocks;
+                }
+                else if (ev is StreamUsage u)
+                {
+                    promptTokens = u.PromptTokens;
+                    completionTokens = u.CompletionTokens;
+                }
+
+                yield return ev;
+            }
+        }
+
+        stopwatch.Stop();
+
+        if (!sawAnyDelta)
+        {
+            yield return new StreamError(lastError ?? "Stream Hermes vuoto.");
+            yield break;
+        }
+
+        var totalMs = stopwatch.Elapsed.TotalMilliseconds;
+        var tokensOut = completionTokens ?? EstimateTokens(accumulatedText.ToString());
+        double? tps = null;
+        if (tokensOut > 0 && totalMs > 0)
+        {
+            var sinceFirst = ttft.HasValue ? Math.Max(1, totalMs - ttft.Value) : totalMs;
+            tps = tokensOut / (sinceFirst / 1000.0);
+        }
+
+        if (responseId is not null)
+        {
+            yield return new StreamResponseId(responseId);
+        }
+
+        yield return new StreamDone(
+            new ChatStreamStats(ttft, totalMs, tokensOut, tps, promptTokens),
+            accumulatedText.ToString(),
+            accumulatedThinking.ToString());
+    }
+
+    private static async IAsyncEnumerable<ChatStreamEvent> OpenStreamAsync(
+        string url,
+        string jsonPayload,
+        string label,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
+        };
+        request.Headers.TryAddWithoutValidation("Accept", "text/event-stream, application/json");
+        request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
+        var apiKey = GatewayCredentialStore.LoadSecret();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        }
+
+        HttpResponseMessage? response = null;
+        string? sendError = null;
+        try
+        {
+            response = await StreamClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            sendError = ex.Message;
+        }
+
+        if (sendError is not null || response is null)
+        {
+            yield return new StreamError($"{label}: {sendError ?? "errore sconosciuto"}");
+            yield break;
+        }
+
+        try
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                yield return new StreamError($"{label}: HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {Trim(body)}");
+                yield break;
+            }
+
+            var mediaType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+            var isSse = mediaType.Contains("event-stream", StringComparison.OrdinalIgnoreCase);
+
+            if (!isSse)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                foreach (var ev in FallbackParseFullBody(body))
+                {
+                    yield return ev;
+                }
+                yield break;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+
+            var dataBuilder = new StringBuilder();
+            string? eventName = null;
+
+            while (!reader.EndOfStream)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line is null)
+                {
+                    break;
+                }
+
+                if (line.Length == 0)
+                {
+                    if (dataBuilder.Length > 0)
+                    {
+                        var data = dataBuilder.ToString();
+                        dataBuilder.Clear();
+                        var ev = eventName;
+                        eventName = null;
+                        foreach (var parsed in ParseSseEvent(ev, data))
+                        {
+                            yield return parsed;
+                        }
+                    }
+                    continue;
+                }
+
+                if (line.StartsWith(":", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
+                {
+                    eventName = line[6..].Trim();
+                    continue;
+                }
+
+                if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var part = line[5..].TrimStart();
+                    if (dataBuilder.Length > 0)
+                    {
+                        dataBuilder.Append('\n');
+                    }
+                    dataBuilder.Append(part);
+                    continue;
+                }
+            }
+
+            if (dataBuilder.Length > 0)
+            {
+                foreach (var parsed in ParseSseEvent(eventName, dataBuilder.ToString()))
+                {
+                    yield return parsed;
+                }
+            }
+        }
+        finally
+        {
+            response.Dispose();
+        }
+    }
+
+    private static IEnumerable<ChatStreamEvent> ParseSseEvent(string? eventName, string data)
+    {
+        if (string.IsNullOrWhiteSpace(data) || data.Trim() == "[DONE]")
+        {
+            yield break;
+        }
+
+        JsonDocument? document = null;
+        try
+        {
+            document = JsonDocument.Parse(data);
+        }
+        catch
+        {
+            document = null;
+        }
+
+        if (document is null)
+        {
+            yield return new StreamTextDelta(data);
+            yield break;
+        }
+
+        using (document)
+        {
+            foreach (var ev in ParseEventElement(eventName, document.RootElement))
+            {
+                yield return ev;
+            }
+        }
+    }
+
+    private static IEnumerable<ChatStreamEvent> ParseEventElement(string? eventName, JsonElement element)
+    {
+        var type = eventName;
+        if (type is null && element.ValueKind == JsonValueKind.Object && element.TryGetProperty("type", out var typeProp) && typeProp.ValueKind == JsonValueKind.String)
+        {
+            type = typeProp.GetString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(type))
+        {
+            var t = type!.ToLowerInvariant();
+            if (t.Contains("output_text.delta") || t.EndsWith(".delta") && t.Contains("output_text"))
+            {
+                var delta = GetString(element, "delta") ?? GetString(element, "text");
+                if (!string.IsNullOrEmpty(delta))
+                {
+                    yield return new StreamTextDelta(delta);
+                }
+                yield break;
+            }
+
+            if (t.Contains("reasoning") && t.Contains("delta"))
+            {
+                var delta = GetString(element, "delta") ?? GetString(element, "text");
+                if (!string.IsNullOrEmpty(delta))
+                {
+                    yield return new StreamThinkingDelta(delta);
+                }
+                yield break;
+            }
+
+            if (t.Contains("function_call") && t.Contains("arguments") && t.Contains("delta"))
+            {
+                var id = GetString(element, "item_id") ?? GetString(element, "id") ?? "tool";
+                var delta = GetString(element, "delta") ?? string.Empty;
+                yield return new StreamToolCallArguments(id, delta);
+                yield break;
+            }
+
+            if (t.Contains("output_item.added"))
+            {
+                if (element.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.Object)
+                {
+                    var itemType = GetString(item, "type") ?? string.Empty;
+                    if (itemType.Contains("function", StringComparison.OrdinalIgnoreCase) || itemType.Contains("tool", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var id = GetString(item, "id") ?? "tool";
+                        var name = GetString(item, "name") ?? "tool";
+                        yield return new StreamToolCallStart(id, name);
+                    }
+                }
+                yield break;
+            }
+
+            if (t.Contains("output_item.done") || t.Contains("function_call.completed"))
+            {
+                if (element.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.Object)
+                {
+                    var id = GetString(item, "id") ?? "tool";
+                    yield return new StreamToolCallEnd(id);
+                }
+                yield break;
+            }
+
+            if (t.Contains("response.created") || t.Contains("response.started"))
+            {
+                if (element.TryGetProperty("response", out var resp) && resp.ValueKind == JsonValueKind.Object)
+                {
+                    var rid = GetString(resp, "id");
+                    if (!string.IsNullOrWhiteSpace(rid))
+                    {
+                        yield return new StreamResponseId(rid!);
+                    }
+                }
+                yield break;
+            }
+
+            if (t.Contains("response.completed") || t.Contains("response.done"))
+            {
+                if (element.TryGetProperty("response", out var resp) && resp.ValueKind == JsonValueKind.Object)
+                {
+                    var rid = GetString(resp, "id");
+                    if (!string.IsNullOrWhiteSpace(rid))
+                    {
+                        yield return new StreamResponseId(rid!);
+                    }
+
+                    if (resp.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object)
+                    {
+                        yield return ExtractUsage(usage);
+                    }
+
+                    var blocks = ExtractVisualBlocksFromElement(resp);
+                    if (blocks is { Count: > 0 })
+                    {
+                        yield return new StreamVisualBlocks(blocks, VisualBlocksContract.Version);
+                    }
+                }
+                yield break;
+            }
+        }
+
+        // Chat Completions delta shape
+        if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var choice in choices.EnumerateArray())
+            {
+                if (choice.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (choice.TryGetProperty("delta", out var delta) && delta.ValueKind == JsonValueKind.Object)
+                {
+                    var content = GetString(delta, "content");
+                    if (!string.IsNullOrEmpty(content))
+                    {
+                        yield return new StreamTextDelta(content);
+                    }
+                    var reasoning = GetString(delta, "reasoning") ?? GetString(delta, "reasoning_content");
+                    if (!string.IsNullOrEmpty(reasoning))
+                    {
+                        yield return new StreamThinkingDelta(reasoning);
+                    }
+
+                    if (delta.TryGetProperty("tool_calls", out var toolCalls) && toolCalls.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var call in toolCalls.EnumerateArray())
+                        {
+                            if (call.ValueKind != JsonValueKind.Object)
+                            {
+                                continue;
+                            }
+                            var id = GetString(call, "id") ?? "tool";
+                            if (call.TryGetProperty("function", out var fn) && fn.ValueKind == JsonValueKind.Object)
+                            {
+                                var name = GetString(fn, "name");
+                                if (!string.IsNullOrWhiteSpace(name))
+                                {
+                                    yield return new StreamToolCallStart(id, name!);
+                                }
+                                var args = GetString(fn, "arguments");
+                                if (!string.IsNullOrEmpty(args))
+                                {
+                                    yield return new StreamToolCallArguments(id, args);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (choice.TryGetProperty("finish_reason", out var finish) && finish.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(finish.GetString()))
+                {
+                    // End of stream message; usage may come on the same chunk or next
+                }
+            }
+
+            if (element.TryGetProperty("usage", out var usageChat) && usageChat.ValueKind == JsonValueKind.Object)
+            {
+                yield return ExtractUsage(usageChat);
+            }
+
+            var blocksChat = ExtractVisualBlocksFromElement(element);
+            if (blocksChat is { Count: > 0 })
+            {
+                yield return new StreamVisualBlocks(blocksChat, VisualBlocksContract.Version);
+            }
+        }
+    }
+
+    private static IEnumerable<ChatStreamEvent> FallbackParseFullBody(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            yield break;
+        }
+
+        string text = string.Empty;
+        IReadOnlyList<VisualBlockRecord>? blocks = null;
+        string? responseId = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body.Trim());
+            text = ExtractText(doc.RootElement);
+            blocks = VisualBlockParser.ExtractFromResponse(body);
+            responseId = TryGetString(doc.RootElement, "id", "response_id", "responseId");
+        }
+        catch
+        {
+            text = body.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(responseId))
+        {
+            yield return new StreamResponseId(responseId);
+        }
+
+        if (!string.IsNullOrEmpty(text))
+        {
+            yield return new StreamTextDelta(text);
+        }
+
+        if (blocks is { Count: > 0 })
+        {
+            yield return new StreamVisualBlocks(blocks, VisualBlocksContract.Version);
+        }
+    }
+
+    private static string? GetString(JsonElement element, string key)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(key, out var prop))
+        {
+            return null;
+        }
+        if (prop.ValueKind == JsonValueKind.String)
+        {
+            return prop.GetString();
+        }
+        if (prop.ValueKind == JsonValueKind.Object && prop.TryGetProperty("value", out var inner) && inner.ValueKind == JsonValueKind.String)
+        {
+            return inner.GetString();
+        }
+        return null;
+    }
+
+    private static string? TryGetString(JsonElement element, params string[] keys)
+    {
+        foreach (var k in keys)
+        {
+            var s = GetString(element, k);
+            if (!string.IsNullOrWhiteSpace(s))
+            {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    private static StreamUsage ExtractUsage(JsonElement usage)
+    {
+        int? prompt = null, completion = null;
+        if (usage.TryGetProperty("input_tokens", out var p) && p.ValueKind == JsonValueKind.Number)
+        {
+            prompt = p.GetInt32();
+        }
+        else if (usage.TryGetProperty("prompt_tokens", out var p2) && p2.ValueKind == JsonValueKind.Number)
+        {
+            prompt = p2.GetInt32();
+        }
+        if (usage.TryGetProperty("output_tokens", out var c) && c.ValueKind == JsonValueKind.Number)
+        {
+            completion = c.GetInt32();
+        }
+        else if (usage.TryGetProperty("completion_tokens", out var c2) && c2.ValueKind == JsonValueKind.Number)
+        {
+            completion = c2.GetInt32();
+        }
+        return new StreamUsage(prompt, completion);
+    }
+
+    private static IReadOnlyList<VisualBlockRecord>? ExtractVisualBlocksFromElement(JsonElement element)
+    {
+        try
+        {
+            var json = element.GetRawText();
+            return VisualBlockParser.ExtractFromResponse(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string ExtractText(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            return element.GetString() ?? string.Empty;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var key in new[] { "output_text", "text", "content", "message", "reply" })
+            {
+                if (element.TryGetProperty(key, out var prop))
+                {
+                    var nested = ExtractText(prop);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                    {
+                        return nested;
+                    }
+                }
+            }
+            if (element.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var choice in choices.EnumerateArray())
+                {
+                    if (choice.TryGetProperty("message", out var msg))
+                    {
+                        var nested = ExtractText(msg);
+                        if (!string.IsNullOrWhiteSpace(nested))
+                        {
+                            return nested;
+                        }
+                    }
+                    var nested2 = ExtractText(choice);
+                    if (!string.IsNullOrWhiteSpace(nested2))
+                    {
+                        return nested2;
+                    }
+                }
+            }
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            var builder = new StringBuilder();
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = ExtractText(item);
+                if (!string.IsNullOrWhiteSpace(nested))
+                {
+                    builder.Append(nested);
+                }
+            }
+            return builder.ToString();
+        }
+
+        return string.Empty;
+    }
+
+    private static int EstimateTokens(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 0;
+        }
+        return Math.Max(1, text.Length / 4);
+    }
+
+    private static string Trim(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return string.Empty;
+        }
+        var t = body.Trim();
+        return t.Length > 240 ? t[..240] + "…" : t;
+    }
+}
+
+internal sealed record StreamUsage(int? PromptTokens, int? CompletionTokens) : ChatStreamEvent;

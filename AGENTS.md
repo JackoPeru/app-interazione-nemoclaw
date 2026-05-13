@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.6 Release Hermes Hub 0.6.6
+v0.6.7 Release Hermes Hub 0.6.7
 ```
 
 ## Regola Memoria
@@ -52,13 +52,25 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
+## Release Corrente
+
+Hermes Hub 0.6.7 (Windows + Android):
+
+- Streaming SSE token-by-token: client tenta prima `POST /v1/responses` con `stream: true`, fallback `POST /v1/chat/completions` streaming. Parser SSE comune che gestisce eventi Responses (`response.output_text.delta`, `response.reasoning.delta`, `response.output_item.added`, `response.function_call.arguments.delta`, `response.completed`) e formato Chat Completions (`choices[].delta.content`, `delta.reasoning`, `delta.tool_calls`, `usage`).
+- Bubble assistente live: header "Sto pensando" con shimmer gradient continuo (LinearGradientBrush animato Windows, `Brush.linearGradient` su `TextStyle` Compose Android). Header cliccabile per espandere il ragionamento (delta di `reasoning`/`reasoning_content`). Dopo il primo token utile lo shimmer si congela in `Pensato per Xs`.
+- Tool calls visibili inline: card per ogni tool con nome, status, argomenti streamed e risultato.
+- Statistiche risposta: `TTFT / token/s / token / prompt-token / durata` calcolate da `Stopwatch` lato client, usando `usage` server quando disponibile, altrimenti stima `len/4`.
+- Composer slash-command: digitando `/` compare popup con lista comandi (`/chat /agente /clear /new /health /server /runs /archive /tasks /settings /about /setup /visual /research /web /image /help`). Navigation tabbed da slash su Android, `Frame.Navigate` su Windows.
+- Rimosso vecchio messaggio placeholder `Hermes sta preparando la risposta...` su entrambi i client.
+- File `agent.md` (duplicato di `AGENTS.md`) eliminato: era inutile contesto duplicato.
+
 ## Stato Attuale
 
 Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.6`.
+- Versione app: `0.6.7`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -93,7 +105,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.6`, versionCode `19`.
+- Versione app: `0.6.7`, versionCode `20`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.

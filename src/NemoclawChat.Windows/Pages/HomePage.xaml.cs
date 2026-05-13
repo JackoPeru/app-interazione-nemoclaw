@@ -1,15 +1,17 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
-using Microsoft.UI.Xaml.Shapes;
 using NemoclawChat_Windows.Services;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
 using Windows.Storage.Pickers;
 using Windows.System;
-using Windows.Foundation;
 using WinRT.Interop;
 
 namespace NemoclawChat_Windows.Pages;
@@ -22,9 +24,16 @@ public sealed partial class HomePage : Page
     private readonly List<ChatMessageRecord> _messageHistory = [];
     private bool _isSending;
 
+    private Popup? _slashPopup;
+    private ListView? _slashList;
+    private readonly List<SlashCommand> _slashCommands;
+
     public HomePage()
     {
         InitializeComponent();
+        _slashCommands = BuildSlashCommands();
+        PromptBox.TextChanged += PromptBox_TextChanged;
+        Loaded += HomePage_Loaded;
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -51,6 +60,11 @@ public sealed partial class HomePage : Page
         }
     }
 
+    private void HomePage_Loaded(object sender, RoutedEventArgs e)
+    {
+        BuildSlashPopup();
+    }
+
     private async void Send_Click(object sender, RoutedEventArgs e)
     {
         await SendCurrentPromptAsync();
@@ -58,6 +72,42 @@ public sealed partial class HomePage : Page
 
     private async void PromptBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (_slashPopup?.IsOpen == true && _slashList is not null)
+        {
+            if (e.Key == VirtualKey.Down)
+            {
+                e.Handled = true;
+                var next = Math.Min((_slashList.Items?.Count ?? 1) - 1, _slashList.SelectedIndex + 1);
+                _slashList.SelectedIndex = Math.Max(0, next);
+                return;
+            }
+            if (e.Key == VirtualKey.Up)
+            {
+                e.Handled = true;
+                var prev = Math.Max(0, _slashList.SelectedIndex - 1);
+                _slashList.SelectedIndex = prev;
+                return;
+            }
+            if (e.Key == VirtualKey.Escape)
+            {
+                e.Handled = true;
+                CloseSlashPopup();
+                return;
+            }
+            if (e.Key == VirtualKey.Enter)
+            {
+                e.Handled = true;
+                ActivateSelectedSlashCommand();
+                return;
+            }
+            if (e.Key == VirtualKey.Tab)
+            {
+                e.Handled = true;
+                ActivateSelectedSlashCommand();
+                return;
+            }
+        }
+
         if (e.Key == VirtualKey.Enter && !IsShiftPressed())
         {
             e.Handled = true;
@@ -181,7 +231,7 @@ public sealed partial class HomePage : Page
     {
         _mode = mode;
         ModeBadge.Text = _mode;
-        ModeToggleIcon.Glyph = _mode == "Agente" ? "\uE7BE" : "\uE8BD";
+        ModeToggleIcon.Glyph = _mode == "Agente" ? "" : "";
     }
 
     private async Task SendCurrentPromptAsync()
@@ -197,8 +247,12 @@ public sealed partial class HomePage : Page
             return;
         }
 
+        CloseSlashPopup();
+
         _isSending = true;
         SendButton.IsEnabled = false;
+
+        StreamingBubble? bubble = null;
 
         try
         {
@@ -208,24 +262,106 @@ public sealed partial class HomePage : Page
             PromptBox.Text = string.Empty;
 
             var settings = AppSettingsStore.Load();
-            if (!settings.VisualBlocksMode.Equals("never", StringComparison.OrdinalIgnoreCase))
+            bubble = CreateStreamingAssistantBubble();
+
+            IReadOnlyList<VisualBlockRecord>? finalBlocks = null;
+            int? finalBlocksVersion = null;
+            string? finalResponseId = null;
+            string finalText = string.Empty;
+            string finalThinking = string.Empty;
+            string statusMessage = "Risposta ricevuta da Hermes.";
+            string source = "Hermes";
+            bool usedFallback = false;
+            string? streamError = null;
+
+            await foreach (var ev in ChatStreamClient.StreamChatAsync(settings, _mode, prompt, _messageHistory, _conversationId, _previousResponseId))
             {
-                AddAction("Hermes", "Hermes sta preparando la risposta e gli eventuali blocchi visuali...");
+                switch (ev)
+                {
+                    case StreamTextDelta td:
+                        bubble.AppendText(td.Delta);
+                        finalText += td.Delta;
+                        break;
+                    case StreamThinkingDelta th:
+                        bubble.AppendThinking(th.Delta);
+                        finalThinking += th.Delta;
+                        break;
+                    case StreamToolCallStart tcs:
+                        bubble.StartToolCall(tcs.Id, tcs.Name);
+                        break;
+                    case StreamToolCallArguments tca:
+                        bubble.AppendToolCallArguments(tca.Id, tca.Delta);
+                        break;
+                    case StreamToolCallEnd tce:
+                        bubble.EndToolCall(tce.Id);
+                        break;
+                    case StreamToolResult tr:
+                        bubble.AddToolResult(tr.Id, tr.Name, tr.Output);
+                        break;
+                    case StreamResponseId rid:
+                        finalResponseId = rid.Id;
+                        break;
+                    case StreamVisualBlocks vb:
+                        finalBlocks = vb.Blocks;
+                        finalBlocksVersion = vb.Version;
+                        bubble.SetVisualBlocks(vb.Blocks, RenderVisualBlock);
+                        break;
+                    case StreamStatus ss:
+                        statusMessage = ss.Message;
+                        break;
+                    case StreamDone done:
+                        bubble.Complete(done.Stats);
+                        if (string.IsNullOrEmpty(finalText) && !string.IsNullOrEmpty(done.AccumulatedText))
+                        {
+                            finalText = done.AccumulatedText;
+                        }
+                        if (string.IsNullOrEmpty(finalThinking) && !string.IsNullOrEmpty(done.AccumulatedThinking))
+                        {
+                            finalThinking = done.AccumulatedThinking;
+                        }
+                        break;
+                    case StreamError se:
+                        streamError = se.Message;
+                        break;
+                }
             }
-            var result = await GatewayService.SendChatAsync(settings, _mode, prompt, _messageHistory, _conversationId, _previousResponseId);
-            AddBubble("Hermes", result.Message, "AssistantBubbleBrush", HorizontalAlignment.Left, result.VisualBlocks);
-            _messageHistory.Add(new ChatMessageRecord("Hermes", result.Message, DateTimeOffset.Now, result.VisualBlocksVersion, result.VisualBlocks?.ToList()));
-            var saved = ChatArchiveStore.SaveExchange(_conversationId, _mode, prompt, result.Message, result.Source, result.ResponseId, result.VisualBlocks, result.VisualBlocksVersion);
+
+            if (string.IsNullOrEmpty(finalText) && streamError is not null && settings.DemoMode)
+            {
+                finalText = $"Hermes assente, fallback locale: {streamError}";
+                bubble.AppendText(finalText);
+                source = "Fallback locale";
+                usedFallback = true;
+                statusMessage = $"Hermes non disponibile: {streamError}";
+                bubble.Complete(new ChatStreamStats(null, null, null, null, null));
+            }
+            else if (string.IsNullOrEmpty(finalText) && streamError is not null)
+            {
+                finalText = $"Hermes non raggiungibile: {streamError}";
+                bubble.AppendText(finalText);
+                source = "Errore Hermes";
+                statusMessage = $"Invio fallito: {streamError}";
+                bubble.Complete(new ChatStreamStats(null, null, null, null, null));
+            }
+
+            _messageHistory.Add(new ChatMessageRecord("Hermes", finalText, DateTimeOffset.Now, finalBlocksVersion, finalBlocks?.ToList()));
+            var saved = ChatArchiveStore.SaveExchange(_conversationId, _mode, prompt, finalText, source, finalResponseId, finalBlocks, finalBlocksVersion);
             _conversationId = saved.Id;
             _previousResponseId = saved.PreviousResponseId;
 
-            if (result.UsedFallback || result.Source.Contains("Errore", StringComparison.OrdinalIgnoreCase))
+            if (usedFallback || source.Contains("Errore", StringComparison.OrdinalIgnoreCase))
             {
-                AddAction("Stato", result.StatusMessage);
+                AddAction("Stato", statusMessage);
             }
+        }
+        catch (Exception ex)
+        {
+            bubble?.AppendText($"\n[errore stream] {ex.Message}");
+            bubble?.Complete(new ChatStreamStats(null, null, null, null, null));
         }
         finally
         {
+            bubble?.StopShimmer();
             _isSending = false;
             SendButton.IsEnabled = true;
         }
@@ -288,13 +424,13 @@ public sealed partial class HomePage : Page
             Text = author,
             FontSize = 12,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Microsoft.UI.Colors.White)
+            Foreground = new SolidColorBrush(Colors.White)
         });
         content.Children.Add(new TextBlock
         {
             Text = text,
             TextWrapping = TextWrapping.WrapWholeWords,
-            Foreground = new SolidColorBrush(Microsoft.UI.Colors.White)
+            Foreground = new SolidColorBrush(Colors.White)
         });
 
         if (visualBlocks is { Count: > 0 })
@@ -321,6 +457,253 @@ public sealed partial class HomePage : Page
         _ = MessagesScroll.ChangeView(null, MessagesScroll.ScrollableHeight, null);
     }
 
+    private StreamingBubble CreateStreamingAssistantBubble()
+    {
+        var bubble = new StreamingBubble(this, MessagesPanel, MessagesScroll);
+        return bubble;
+    }
+
+    // ----- Slash commands -----
+
+    private static List<SlashCommand> BuildSlashCommands()
+    {
+        return new List<SlashCommand>
+        {
+            new("/chat", "Modalita Chat", "Conversazione normale", SlashAction.ModeChat),
+            new("/agente", "Modalita Agente", "Esegui Runs/Jobs Hermes", SlashAction.ModeAgent),
+            new("/agent", "Modalita Agente", "Alias di /agente", SlashAction.ModeAgent),
+            new("/clear", "Pulisci chat", "Svuota la conversazione corrente", SlashAction.Clear),
+            new("/new", "Nuova chat", "Inizia una conversazione nuova", SlashAction.Clear),
+            new("/health", "Controlla Hermes", "Verifica /health e capabilities", SlashAction.Health),
+            new("/server", "Apri Server", "Vai alla dashboard server", SlashAction.OpenServer),
+            new("/runs", "Apri Operator/Runs", "Apri probe API Hermes", SlashAction.OpenOperator),
+            new("/archive", "Apri Archivio", "Cerca conversazioni salvate", SlashAction.OpenArchive),
+            new("/tasks", "Apri Task agente", "Coda jobs Hermes", SlashAction.OpenTasks),
+            new("/settings", "Impostazioni", "Apri pagina settings", SlashAction.OpenSettings),
+            new("/about", "Info app", "Versione, profilo, gateway", SlashAction.OpenAbout),
+            new("/setup", "Setup Hermes", "Prompt: prepara setup", SlashAction.PromptSetup),
+            new("/visual", "Spiegazione visiva", "Richiedi blocchi visuali", SlashAction.PromptVisual),
+            new("/research", "Deep research", "Approfondisci con fonti", SlashAction.PromptResearch),
+            new("/web", "Ricerca web", "Cerca sul web", SlashAction.PromptWeb),
+            new("/image", "Crea immagine", "Prepara richiesta immagine", SlashAction.PromptImage),
+            new("/help", "Aiuto", "Mostra comandi disponibili", SlashAction.Help),
+        };
+    }
+
+    private void BuildSlashPopup()
+    {
+        if (_slashPopup is not null)
+        {
+            return;
+        }
+
+        var border = new Border
+        {
+            Background = (Brush)Application.Current.Resources["ElevatedSurfaceBrush"],
+            BorderBrush = (Brush)Application.Current.Resources["BorderBrushSoft"],
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(6),
+            Width = 420,
+            MaxHeight = 320
+        };
+
+        _slashList = new ListView
+        {
+            SelectionMode = ListViewSelectionMode.Single,
+            Background = new SolidColorBrush(Colors.Transparent),
+            ItemTemplate = BuildSlashItemTemplate()
+        };
+        _slashList.Tapped += (_, _) => ActivateSelectedSlashCommand();
+
+        border.Child = _slashList;
+
+        _slashPopup = new Popup
+        {
+            Child = border,
+            IsLightDismissEnabled = false
+        };
+
+        if (XamlRoot is not null)
+        {
+            _slashPopup.XamlRoot = XamlRoot;
+        }
+    }
+
+    private DataTemplate BuildSlashItemTemplate()
+    {
+        var xaml = @"<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>
+                        <StackPanel Padding='8,4'>
+                            <TextBlock Text='{Binding Display}' Foreground='White' FontWeight='SemiBold' FontSize='13' />
+                            <TextBlock Text='{Binding Description}' Foreground='#FFA2ADBF' FontSize='11' TextWrapping='Wrap' />
+                        </StackPanel>
+                     </DataTemplate>";
+        return (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(xaml);
+    }
+
+    private void PromptBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        var text = PromptBox.Text ?? string.Empty;
+        if (string.IsNullOrEmpty(text) || !text.StartsWith("/", StringComparison.Ordinal) || text.Contains('\n'))
+        {
+            CloseSlashPopup();
+            return;
+        }
+
+        ShowSlashPopup(text);
+    }
+
+    private void ShowSlashPopup(string query)
+    {
+        if (_slashPopup is null || _slashList is null)
+        {
+            BuildSlashPopup();
+        }
+        if (_slashPopup is null || _slashList is null)
+        {
+            return;
+        }
+
+        _slashPopup.XamlRoot = XamlRoot;
+
+        var q = query.ToLowerInvariant();
+        var filtered = _slashCommands
+            .Where(c => c.Display.StartsWith(q, StringComparison.OrdinalIgnoreCase) || c.Display.Contains(q.TrimStart('/'), StringComparison.OrdinalIgnoreCase) || c.Title.Contains(q.TrimStart('/'), StringComparison.OrdinalIgnoreCase))
+            .Take(10)
+            .ToList();
+
+        if (filtered.Count == 0)
+        {
+            CloseSlashPopup();
+            return;
+        }
+
+        _slashList.ItemsSource = filtered.Select(c => new
+        {
+            c.Display,
+            Description = $"{c.Title} · {c.Description}",
+            Command = c
+        }).ToList();
+        _slashList.SelectedIndex = 0;
+
+        try
+        {
+            var transform = PromptBox.TransformToVisual(this);
+            var prompt = transform.TransformPoint(new Point(0, 0));
+            _slashPopup.HorizontalOffset = prompt.X;
+            _slashPopup.VerticalOffset = prompt.Y - 330;
+        }
+        catch
+        {
+        }
+
+        if (!_slashPopup.IsOpen)
+        {
+            _slashPopup.IsOpen = true;
+        }
+    }
+
+    private void CloseSlashPopup()
+    {
+        if (_slashPopup is not null && _slashPopup.IsOpen)
+        {
+            _slashPopup.IsOpen = false;
+        }
+    }
+
+    private void ActivateSelectedSlashCommand()
+    {
+        if (_slashList?.SelectedItem is null)
+        {
+            CloseSlashPopup();
+            return;
+        }
+
+        var dynItem = _slashList.SelectedItem;
+        var command = (SlashCommand?)dynItem?.GetType().GetProperty("Command")?.GetValue(dynItem);
+        if (command is null)
+        {
+            CloseSlashPopup();
+            return;
+        }
+
+        CloseSlashPopup();
+        PromptBox.Text = string.Empty;
+        ExecuteSlashCommand(command);
+    }
+
+    private void ExecuteSlashCommand(SlashCommand command)
+    {
+        switch (command.Action)
+        {
+            case SlashAction.ModeChat:
+                SetMode("Chat");
+                AddAction("Modalita", "Chat attiva.");
+                break;
+            case SlashAction.ModeAgent:
+                SetMode("Agente");
+                AddAction("Modalita", "Agente attivo.");
+                break;
+            case SlashAction.Clear:
+                _messageHistory.Clear();
+                _conversationId = null;
+                _previousResponseId = null;
+                MessagesPanel.Children.Clear();
+                EmptyState.Visibility = Visibility.Visible;
+                break;
+            case SlashAction.Help:
+                var lines = string.Join("\n", _slashCommands
+                    .DistinctBy(c => c.Display)
+                    .Select(c => $"{c.Display} — {c.Title}"));
+                AddAction("Comandi", lines);
+                break;
+            case SlashAction.PromptSetup:
+                PromptBox.Text = "Preparami i passaggi per avviare Hermes Agent API Server su Tailscale/LAN.";
+                PromptBox.Focus(FocusState.Programmatic);
+                break;
+            case SlashAction.PromptVisual:
+                PromptBox.Text = "Spiega con blocchi visuali (tabella, diagramma, chart o callout) mantenendo output_text completo.";
+                PromptBox.Focus(FocusState.Programmatic);
+                break;
+            case SlashAction.PromptResearch:
+                PromptBox.Text = "Esegui una ricerca approfondita citando fonti e chiedendo conferma prima di uscire dalla LAN/VPN.";
+                PromptBox.Focus(FocusState.Programmatic);
+                break;
+            case SlashAction.PromptWeb:
+                PromptBox.Text = "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN.";
+                PromptBox.Focus(FocusState.Programmatic);
+                break;
+            case SlashAction.PromptImage:
+                PromptBox.Text = "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni.";
+                PromptBox.Focus(FocusState.Programmatic);
+                break;
+            case SlashAction.Health:
+                PromptBox.Text = "Controlla stato Hermes, modello disponibile e capabilities API.";
+                PromptBox.Focus(FocusState.Programmatic);
+                break;
+            case SlashAction.OpenServer:
+                Frame?.Navigate(typeof(ServerPage));
+                break;
+            case SlashAction.OpenOperator:
+                Frame?.Navigate(typeof(OperatorPage));
+                break;
+            case SlashAction.OpenArchive:
+                Frame?.Navigate(typeof(ArchivePage));
+                break;
+            case SlashAction.OpenTasks:
+                Frame?.Navigate(typeof(TasksPage));
+                break;
+            case SlashAction.OpenSettings:
+                Frame?.Navigate(typeof(SettingsPage));
+                break;
+            case SlashAction.OpenAbout:
+                Frame?.Navigate(typeof(AboutPage));
+                break;
+        }
+    }
+
+    // ----- Visual block render preserved -----
+
     private UIElement RenderVisualBlock(VisualBlockRecord block)
     {
         var panel = new StackPanel { Spacing = 8 };
@@ -329,7 +712,7 @@ public sealed partial class HomePage : Page
             panel.Children.Add(new TextBlock
             {
                 Text = block.Title,
-                Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+                Foreground = new SolidColorBrush(Colors.White),
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 15
             });
@@ -387,7 +770,7 @@ public sealed partial class HomePage : Page
                 Text = line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal)
                     ? $"• {text}"
                     : text,
-                Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+                Foreground = new SolidColorBrush(Colors.White),
                 TextWrapping = TextWrapping.WrapWholeWords
             };
 
@@ -444,7 +827,7 @@ public sealed partial class HomePage : Page
             {
                 Text = code,
                 FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-                Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+                Foreground = new SolidColorBrush(Colors.White),
                 TextWrapping = TextWrapping.NoWrap
             }
         });
@@ -496,7 +879,7 @@ public sealed partial class HomePage : Page
             Child = new TextBlock
             {
                 Text = text,
-                Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+                Foreground = new SolidColorBrush(Colors.White),
                 FontWeight = header ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
                 TextWrapping = TextWrapping.NoWrap
             }
@@ -532,7 +915,7 @@ public sealed partial class HomePage : Page
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.Children.Add(new TextBlock { Text = label, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), FontSize = 12 });
+            row.Children.Add(new TextBlock { Text = label, Foreground = new SolidColorBrush(Colors.White), FontSize = 12 });
             var bar = new Border
             {
                 Width = width,
@@ -603,10 +986,10 @@ public sealed partial class HomePage : Page
     {
         var accent = block.Variant switch
         {
-            "warning" => Microsoft.UI.Colors.Goldenrod,
-            "error" => Microsoft.UI.Colors.IndianRed,
-            "success" => Microsoft.UI.Colors.MediumSeaGreen,
-            _ => Microsoft.UI.Colors.DodgerBlue
+            "warning" => Colors.Goldenrod,
+            "error" => Colors.IndianRed,
+            "success" => Colors.MediumSeaGreen,
+            _ => Colors.DodgerBlue
         };
         return new Border
         {
@@ -649,3 +1032,25 @@ public sealed partial class HomePage : Page
             : new Uri($"{GatewayService.HermesRoot(AppSettingsStore.Load()).TrimEnd('/')}{value}");
     }
 }
+
+internal enum SlashAction
+{
+    ModeChat,
+    ModeAgent,
+    Clear,
+    Help,
+    Health,
+    OpenServer,
+    OpenOperator,
+    OpenArchive,
+    OpenTasks,
+    OpenSettings,
+    OpenAbout,
+    PromptSetup,
+    PromptVisual,
+    PromptResearch,
+    PromptWeb,
+    PromptImage
+}
+
+internal sealed record SlashCommand(string Display, string Title, string Description, SlashAction Action);
