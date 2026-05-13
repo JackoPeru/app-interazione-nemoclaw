@@ -1,4 +1,4 @@
 # Prossime implementazioni
 
-- Sezione video: avviata con pagina separata per brief, script, storyboard e futura generazione Hermes.
-- Sezione news: avviata con pagina separata per ricerche, briefing e futuri aggiornamenti Hermes.
+- Sezione video: ready to go con invio reale a Hermes Runs, fallback chat e storico locale separato.
+- Sezione news: ready to go con invio reale a Hermes Runs, fallback chat e storico locale separato.

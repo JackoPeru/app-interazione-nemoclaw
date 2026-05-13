@@ -43,11 +43,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.ManageSearch
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Article
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CropFree
@@ -151,7 +151,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Server("Hermes", Icons.Rounded.Dns),
     Operator("Runs", Icons.Rounded.Terminal),
     Video("Video", Icons.Rounded.PlayCircle),
-    News("News", Icons.Rounded.Article),
+    News("News", Icons.AutoMirrored.Rounded.Article),
     Settings("Imposta", Icons.Rounded.Tune),
     Profile("Profilo", Icons.Rounded.AccountCircle)
 }
@@ -247,6 +247,17 @@ data class LocalConversation(
     val previousResponseId: String? = null
 )
 
+data class WorkspaceRequest(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val prompt: String,
+    val result: String,
+    val source: String,
+    val status: String,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 private data class UpdateCheckResult(
     val hasUpdate: Boolean,
     val latestVersion: String?,
@@ -319,6 +330,12 @@ private data class GatewayRpcCallResult(
     val summary: String
 )
 
+private data class WorkspaceRunResult(
+    val result: String,
+    val source: String,
+    val status: String
+)
+
 private data class OperatorPreset(
     val group: String,
     val label: String,
@@ -384,8 +401,8 @@ private fun ChatApp() {
                 Tab.Tasks -> TasksScreen(context, settings)
                 Tab.Server -> ServerScreen(context, settings)
                 Tab.Operator -> OperatorScreen(context, settings)
-                Tab.Video -> VideoScreen()
-                Tab.News -> NewsScreen()
+                Tab.Video -> VideoScreen(context, settings)
+                Tab.News -> NewsScreen(context, settings)
                 Tab.Settings -> SettingsScreen(
                     settings = settings,
                     onSave = {
@@ -1717,9 +1734,13 @@ private fun OperatorActionButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun VideoScreen() {
+private fun VideoScreen(context: Context, settings: AppSettings) {
+    val scope = rememberCoroutineScope()
     var brief by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("Pronto. Questa sezione resta separata dalla chat e servira' per futuri tool video Hermes.") }
+    var status by remember { mutableStateOf("Pronto. Invia un brief: Hermes eseguira' un run reale o usera' fallback chat.") }
+    var resultText by remember { mutableStateOf("") }
+    var recentKey by remember { mutableStateOf(0) }
+    val recent = remember(recentKey) { loadWorkspaceRequests(context, "Video") }
 
     LazyColumn(
         modifier = Modifier
@@ -1739,13 +1760,21 @@ private fun VideoScreen() {
                     Text("Prepara brief, tono, durata, formato e lista asset necessari.", color = AppColors.Muted)
                     SettingsField("Brief video", brief, { brief = it })
                     Button(onClick = {
-                        status = if (brief.isBlank()) {
-                            "Scrivi un brief video prima di preparare la richiesta."
-                        } else {
-                            "Richiesta pronta per Hermes: script, storyboard, asset necessari e piano generazione video."
+                        if (brief.isBlank()) {
+                            status = "Scrivi un brief video prima di inviare a Hermes."
+                            return@Button
+                        }
+                        status = "Invio a Hermes Video..."
+                        resultText = ""
+                        scope.launch {
+                            val result = sendWorkspaceRunRequest(settings, "Video", brief, loadGatewaySecret(context))
+                            status = result.status
+                            resultText = result.result
+                            saveWorkspaceRequest(context, "Video", brief, result.result, result.source, result.status)
+                            recentKey++
                         }
                     }) {
-                        Text("Prepara richiesta Hermes")
+                        Text("Invia a Hermes")
                     }
                 }
             }
@@ -1766,13 +1795,43 @@ private fun VideoScreen() {
                 Text(modifier = Modifier.padding(16.dp), text = status, color = AppColors.Muted)
             }
         }
+        if (resultText.isNotBlank()) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                    Text(modifier = Modifier.padding(16.dp), text = resultText, color = Color.White, fontSize = 13.sp)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Recenti video", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    if (recent.isEmpty()) {
+                        Text("Nessun progetto video ancora.", color = AppColors.Muted)
+                    }
+                    recent.forEach { item ->
+                        Button(onClick = {
+                            brief = item.prompt
+                            resultText = item.result
+                            status = item.status
+                        }) {
+                            Text("${item.title} · ${item.source}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun NewsScreen() {
+private fun NewsScreen(context: Context, settings: AppSettings) {
+    val scope = rememberCoroutineScope()
     var brief by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("Pronto. Questa sezione resta separata dalla chat e servira' per futuri briefing news Hermes.") }
+    var status by remember { mutableStateOf("Pronto. Invia un brief: Hermes eseguira' un run reale o usera' fallback chat.") }
+    var resultText by remember { mutableStateOf("") }
+    var recentKey by remember { mutableStateOf(0) }
+    val recent = remember(recentKey) { loadWorkspaceRequests(context, "News") }
 
     LazyColumn(
         modifier = Modifier
@@ -1792,13 +1851,21 @@ private fun NewsScreen() {
                     Text("Definisci argomento, fonti desiderate, frequenza e formato del report.", color = AppColors.Muted)
                     SettingsField("Brief news", brief, { brief = it })
                     Button(onClick = {
-                        status = if (brief.isBlank()) {
-                            "Scrivi un brief news prima di preparare la ricerca."
-                        } else {
-                            "Ricerca pronta per Hermes: argomenti, fonti, filtri, formato briefing e frequenza."
+                        if (brief.isBlank()) {
+                            status = "Scrivi un brief news prima di inviare a Hermes."
+                            return@Button
+                        }
+                        status = "Invio a Hermes News..."
+                        resultText = ""
+                        scope.launch {
+                            val result = sendWorkspaceRunRequest(settings, "News", brief, loadGatewaySecret(context))
+                            status = result.status
+                            resultText = result.result
+                            saveWorkspaceRequest(context, "News", brief, result.result, result.source, result.status)
+                            recentKey++
                         }
                     }) {
-                        Text("Prepara ricerca Hermes")
+                        Text("Invia a Hermes")
                     }
                 }
             }
@@ -1817,6 +1884,32 @@ private fun NewsScreen() {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Text(modifier = Modifier.padding(16.dp), text = status, color = AppColors.Muted)
+            }
+        }
+        if (resultText.isNotBlank()) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                    Text(modifier = Modifier.padding(16.dp), text = resultText, color = Color.White, fontSize = 13.sp)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Recenti news", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    if (recent.isEmpty()) {
+                        Text("Nessun briefing news ancora.", color = AppColors.Muted)
+                    }
+                    recent.forEach { item ->
+                        Button(onClick = {
+                            brief = item.prompt
+                            resultText = item.result
+                            status = item.status
+                        }) {
+                            Text("${item.title} · ${item.source}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
             }
         }
     }
@@ -2558,6 +2651,54 @@ private suspend fun hermesHttpCall(
             summary = ex.message ?: ex.javaClass.simpleName
         )
     }
+}
+
+private suspend fun sendWorkspaceRunRequest(
+    settings: AppSettings,
+    kind: String,
+    prompt: String,
+    apiKey: String?
+): WorkspaceRunResult = withContext(Dispatchers.IO) {
+    val runPrompt = if (kind.equals("Video", ignoreCase = true)) {
+        "Sezione Video Hermes Hub. Crea output operativo per produzione video: brief, script, storyboard, scene, asset, voce, musica, rischi, prossimi step.\n\nRichiesta utente:\n$prompt"
+    } else {
+        "Sezione News Hermes Hub. Crea output operativo per ricerca e aggiornamento: query, fonti da consultare, filtri, sintesi attesa, frequenza, formato briefing, rischi di affidabilita.\n\nRichiesta utente:\n$prompt"
+    }
+
+    val payload = JSONObject()
+        .put("model", settings.model)
+        .put("input", runPrompt)
+        .put(
+            "metadata",
+            JSONObject()
+                .put("client", "hermes-hub")
+                .put("workspace", kind.lowercase())
+                .put("source", "workspace-section")
+        )
+
+    try {
+        val run = postJson(resolveHermesUrl(settings, "/v1/runs"), payload, apiKey)
+        if (run.first in 200..299) {
+            return@withContext WorkspaceRunResult(
+                result = run.second.ifBlank { "Run creata su Hermes." },
+                source = "Hermes Runs",
+                status = "Run Hermes completata."
+            )
+        }
+    } catch (_: Exception) {
+        // Fall through to chat fallback.
+    }
+
+    val chat = sendChatRequest(
+        settings = settings,
+        mode = "Agente",
+        prompt = runPrompt,
+        history = listOf(ChatMessage("Tu", runPrompt, fromUser = true)),
+        conversationId = null,
+        previousResponseId = null,
+        apiKey = apiKey
+    )
+    WorkspaceRunResult(chat.text, chat.source, chat.statusMessage)
 }
 
 private fun resolveHermesUrl(settings: AppSettings, path: String): String {
@@ -3405,6 +3546,64 @@ private fun loadConversation(context: Context, id: String): LocalConversation? {
     return loadConversations(context).firstOrNull { it.id == id }
 }
 
+private fun loadWorkspaceRequests(context: Context, kind: String): List<WorkspaceRequest> {
+    val raw = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE).getString("items", "[]") ?: "[]"
+    return try {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                add(
+                    WorkspaceRequest(
+                        id = obj.optString("id"),
+                        kind = obj.optString("kind"),
+                        title = obj.optString("title", "Nuova richiesta"),
+                        prompt = obj.optString("prompt"),
+                        result = obj.optString("result"),
+                        source = obj.optString("source"),
+                        status = obj.optString("status"),
+                        updatedAt = obj.optLong("updatedAt")
+                    )
+                )
+            }
+        }
+            .filter { it.kind.equals(kind, ignoreCase = true) }
+            .sortedByDescending { it.updatedAt }
+            .take(8)
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun saveWorkspaceRequest(context: Context, kind: String, prompt: String, result: String, source: String, status: String) {
+    val prefs = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE)
+    val existingRaw = prefs.getString("items", "[]") ?: "[]"
+    val existing = try {
+        JSONArray(existingRaw)
+    } catch (_: Exception) {
+        JSONArray()
+    }
+    val now = System.currentTimeMillis()
+    val all = mutableListOf<JSONObject>()
+    all.add(
+        JSONObject()
+            .put("id", "workspace_$now")
+            .put("kind", kind)
+            .put("title", makeTitle(prompt))
+            .put("prompt", prompt)
+            .put("result", result)
+            .put("source", source)
+            .put("status", status)
+            .put("updatedAt", now)
+    )
+    for (i in 0 until existing.length()) {
+        existing.optJSONObject(i)?.let { all.add(it) }
+    }
+    val array = JSONArray()
+    all.sortedByDescending { it.optLong("updatedAt") }.take(200).forEach { array.put(it) }
+    prefs.edit().putString("items", array.toString()).apply()
+}
+
 private fun saveConversationExchange(
     context: Context,
     conversationId: String?,
@@ -3771,6 +3970,7 @@ private const val CURRENT_ARCHIVE_PREFS = "chatclaw_archive"
 private const val LEGACY_ARCHIVE_PREFS = "nemoclaw_archive"
 private const val CURRENT_TASKS_PREFS = "chatclaw_tasks"
 private const val LEGACY_TASKS_PREFS = "nemoclaw_tasks"
+private const val CURRENT_WORKSPACE_PREFS = "chatclaw_workspace_requests"
 private const val GATEWAY_SECRET_PREF_KEY = "gatewaySecretCiphertext"
 private const val GATEWAY_SECRET_KEY_ALIAS = "chatclaw_gateway_secret"
 

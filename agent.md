@@ -14,7 +14,7 @@ Hermes Visual Blocks v1 implementato lato client: spiegazioni visuali statiche e
 - Sicurezza: niente HTML, niente JS, niente SVG client-side; media solo tramite Hermes proxy.
 - Versioning: client dichiara min/max supportati e mode `auto|always|never`.
 - V1 no streaming visuale: client mostra stato attesa e renderizza a response completa.
-- Sezioni Video e News avviate: aree separate dalla chat per futuri tool Hermes di generazione video e ricerche/briefing news. Backlog in `prossime implementazioni.md`.
+- Sezioni Video e News ready to go: aree separate dalla chat con invio reale a Hermes Runs, fallback chat e storico locale separato. Backlog in `prossime implementazioni.md`.
 
 ## Limiti Visual Blocks v1
 

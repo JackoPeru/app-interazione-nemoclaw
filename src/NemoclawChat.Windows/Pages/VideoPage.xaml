@@ -13,6 +13,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <StackPanel Spacing="8">
@@ -50,11 +51,12 @@
                             PlaceholderText="Esempio: crea script per video demo Hermes Hub da 60 secondi..."
                             TextWrapping="Wrap" />
                         <Button
+                            x:Name="VideoRunButton"
                             HorizontalAlignment="Left"
                             Background="{StaticResource AccentGreenBrush}"
                             BorderThickness="0"
                             Click="PrepareVideo_Click"
-                            Content="Prepara richiesta Hermes"
+                            Content="Invia a Hermes"
                             Foreground="White" />
                     </StackPanel>
                 </Border>
@@ -82,7 +84,23 @@
                     <TextBlock
                         x:Name="VideoStatusText"
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Pronto. Questa sezione e' separata dalla chat e pensata per i futuri tool video Hermes." />
+                        Text="Pronto. Invia un brief: Hermes eseguira' un run reale o usera' fallback chat." />
+                    <TextBox
+                        x:Name="VideoResultBox"
+                        MinHeight="180"
+                        AcceptsReturn="True"
+                        IsReadOnly="True"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="3" Style="{StaticResource PremiumCardBorderStyle}">
+                <StackPanel Spacing="10">
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Foreground="White"
+                        Text="Recenti video" />
+                    <StackPanel x:Name="VideoRecentPanel" Spacing="8" />
                 </StackPanel>
             </Border>
         </Grid>

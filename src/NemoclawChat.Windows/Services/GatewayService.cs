@@ -30,6 +30,8 @@ public enum TaskCommand
 
 public sealed record GatewayTaskResult(AgentTaskRecord Task, string Message);
 
+public sealed record WorkspaceRunResult(string Result, string Source, string Status);
+
 public static class GatewayService
 {
     private static readonly HttpClient HttpClient = new()
@@ -301,6 +303,45 @@ public static class GatewayService
         {
             return BuildTaskFallback(settings, task with { Status = targetStatus }, $"Aggiornamento job fallito: {ex.Message}");
         }
+    }
+
+    public static async Task<WorkspaceRunResult> SendWorkspaceRunAsync(AppSettings settings, string kind, string prompt)
+    {
+        var runPrompt = kind.Equals("Video", StringComparison.OrdinalIgnoreCase)
+            ? $"Sezione Video Hermes Hub. Crea output operativo per produzione video: brief, script, storyboard, scene, asset, voce, musica, rischi, prossimi step.\n\nRichiesta utente:\n{prompt}"
+            : $"Sezione News Hermes Hub. Crea output operativo per ricerca e aggiornamento: query, fonti da consultare, filtri, sintesi attesa, frequenza, formato briefing, rischi di affidabilita.\n\nRichiesta utente:\n{prompt}";
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            model = settings.Model,
+            input = runPrompt,
+            metadata = new
+            {
+                client = "hermes-hub",
+                workspace = kind.ToLowerInvariant(),
+                source = "workspace-section"
+            }
+        });
+
+        try
+        {
+            var runResult = await SendHermesRequestAsync(settings, HttpMethod.Post, "/v1/runs", payload);
+            if (!runResult.StartsWith("HTTP ", StringComparison.OrdinalIgnoreCase))
+            {
+                return new WorkspaceRunResult(runResult, "Hermes Runs", "Run Hermes completata.");
+            }
+        }
+        catch
+        {
+            // Fall through to chat fallback.
+        }
+
+        var history = new List<ChatMessageRecord>
+        {
+            new("Tu", runPrompt, DateTimeOffset.Now)
+        };
+        var chat = await SendChatAsync(settings, "Agente", runPrompt, history);
+        return new WorkspaceRunResult(chat.Message, chat.Source, chat.StatusMessage);
     }
 
     public static async Task<ServerSnapshot> GetServerSnapshotAsync(AppSettings settings)
