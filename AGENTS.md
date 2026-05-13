@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-9fb6d62 Release Hermes Hub 0.6.4
+v0.6.5 Release Hermes Hub 0.6.5
 ```
 
 ## Regola Memoria
@@ -58,7 +58,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.4`.
+- Versione app: `0.6.5`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -93,7 +93,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.4`, versionCode `17`.
+- Versione app: `0.6.5`, versionCode `18`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
@@ -114,6 +114,7 @@ Android:
 - Top bar chat Android: niente label `Demo: ...`; mostra solo brand + chip `Chat/Agente`.
 - Icona launcher Android: adaptive icon con foreground ritagliato piu' grande per ridurre il vuoto attorno al logo tra le app.
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test Hermes `/health`.
+- Android consente cleartext HTTP verso Hermes locale/Tailscale/LAN tramite `network_security_config`, necessario per `http://<ip-pc>:8642/v1`.
 - Settings salvate in `SharedPreferences` `chatclaw_settings` con migrazione automatica da `nemoclaw_settings`.
 - Conversazioni/progetti salvati in `SharedPreferences` `chatclaw_archive` con migrazione automatica da `nemoclaw_archive`.
 - Task salvati in `SharedPreferences` `chatclaw_tasks`.

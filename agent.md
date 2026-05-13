@@ -6,6 +6,8 @@ Hermes Hub e' client Windows + Android per comunicare con Hermes Agent API Serve
 
 ## Decisione corrente
 
+Android 0.6.5 abilita cleartext HTTP per Hermes locale/Tailscale/LAN: necessario per usare `http://<ip-pc>:8642/v1` dal telefono. Il telefono non deve usare `127.0.0.1`, che punta al telefono stesso.
+
 Hermes Visual Blocks v1 implementato lato client: spiegazioni visuali statiche e sicure nella chat testuale.
 
 - Contratto: `docs/visual-blocks-schema.md` e `config/visual-blocks.schema.json`.
