@@ -95,6 +95,18 @@
                             <TextBlock Text="Runs" />
                         </StackPanel>
                     </Button>
+                    <Button Click="Video_Click" Style="{StaticResource SidebarButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon FontSize="15" Glyph="&#xE714;" />
+                            <TextBlock Text="Video" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="News_Click" Style="{StaticResource SidebarButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon FontSize="15" Glyph="&#xE789;" />
+                            <TextBlock Text="News" />
+                        </StackPanel>
+                    </Button>
                     <Button Click="Settings_Click" Style="{StaticResource SidebarButtonStyle}">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE713;" />

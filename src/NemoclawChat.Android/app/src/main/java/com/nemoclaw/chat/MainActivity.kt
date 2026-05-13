@@ -47,6 +47,7 @@ import androidx.compose.material.icons.automirrored.rounded.ManageSearch
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Article
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CropFree
@@ -58,6 +59,7 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.ManageSearch
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Terminal
@@ -148,6 +150,8 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Tasks("Jobs", Icons.Rounded.TaskAlt),
     Server("Hermes", Icons.Rounded.Dns),
     Operator("Runs", Icons.Rounded.Terminal),
+    Video("Video", Icons.Rounded.PlayCircle),
+    News("News", Icons.Rounded.Article),
     Settings("Imposta", Icons.Rounded.Tune),
     Profile("Profilo", Icons.Rounded.AccountCircle)
 }
@@ -380,6 +384,8 @@ private fun ChatApp() {
                 Tab.Tasks -> TasksScreen(context, settings)
                 Tab.Server -> ServerScreen(context, settings)
                 Tab.Operator -> OperatorScreen(context, settings)
+                Tab.Video -> VideoScreen()
+                Tab.News -> NewsScreen()
                 Tab.Settings -> SettingsScreen(
                     settings = settings,
                     onSave = {
@@ -1707,6 +1713,112 @@ private fun OperatorActionButton(label: String, onClick: () -> Unit) {
         onClick = onClick
     ) {
         Text(label)
+    }
+}
+
+@Composable
+private fun VideoScreen() {
+    var brief by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("Pronto. Questa sezione resta separata dalla chat e servira' per futuri tool video Hermes.") }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("Video", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Workspace separato per chiedere a Hermes idee, script, storyboard e future generazioni video.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Nuovo progetto video", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Prepara brief, tono, durata, formato e lista asset necessari.", color = AppColors.Muted)
+                    SettingsField("Brief video", brief, { brief = it })
+                    Button(onClick = {
+                        status = if (brief.isBlank()) {
+                            "Scrivi un brief video prima di preparare la richiesta."
+                        } else {
+                            "Richiesta pronta per Hermes: script, storyboard, asset necessari e piano generazione video."
+                        }
+                    }) {
+                        Text("Prepara richiesta Hermes")
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Pipeline futura", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("1. Brief e obiettivo", color = AppColors.Muted)
+                    Text("2. Script e storyboard", color = AppColors.Muted)
+                    Text("3. Asset, voce, musica", color = AppColors.Muted)
+                    Text("4. Generazione video tramite Hermes quando il backend sara' pronto", color = AppColors.Muted)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Text(modifier = Modifier.padding(16.dp), text = status, color = AppColors.Muted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NewsScreen() {
+    var brief by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("Pronto. Questa sezione resta separata dalla chat e servira' per futuri briefing news Hermes.") }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("News", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Area separata per ricerche, briefing e aggiornamenti periodici preparati da Hermes.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Nuovo briefing news", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Definisci argomento, fonti desiderate, frequenza e formato del report.", color = AppColors.Muted)
+                    SettingsField("Brief news", brief, { brief = it })
+                    Button(onClick = {
+                        status = if (brief.isBlank()) {
+                            "Scrivi un brief news prima di preparare la ricerca."
+                        } else {
+                            "Ricerca pronta per Hermes: argomenti, fonti, filtri, formato briefing e frequenza."
+                        }
+                    }) {
+                        Text("Prepara ricerca Hermes")
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Pipeline futura", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("1. Argomenti e priorita", color = AppColors.Muted)
+                    Text("2. Fonti e filtri", color = AppColors.Muted)
+                    Text("3. Sintesi con citazioni", color = AppColors.Muted)
+                    Text("4. Automazioni e notifiche quando Hermes supportera' schedulazione news", color = AppColors.Muted)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Text(modifier = Modifier.padding(16.dp), text = status, color = AppColors.Muted)
+            }
+        }
     }
 }
 

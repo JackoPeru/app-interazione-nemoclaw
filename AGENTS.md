@@ -239,7 +239,7 @@ src/NemoclawChat.Android/app/build/
 
 ## Prossimi Passi Probabili
 
-- Backlog idee app mantenuto in `prossime implementazioni.md`; idee iniziali: sezione video e sezione news.
+- Sezioni Video e News avviate: aree separate dalla chat per futuri tool Hermes di generazione video e ricerche/briefing news. Backlog in `prossime implementazioni.md`.
 - Migliorare ulteriormente UI desktop/mobile.
 - Migliorare UI verticale oltre console unica: pagine separate per approvals realtime, config diff/rollback visuale, file/workspace manager, Admin Bridge, security center avanzato.
 - Se arriva backend definitivo, allineare i payload/contratti reali se differiscono da quelli flessibili attuali.

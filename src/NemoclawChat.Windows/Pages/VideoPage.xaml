@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="NemoclawChat_Windows.Pages.VideoPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer Background="{StaticResource AppBackgroundBrush}">
+        <Grid Padding="44,36" RowSpacing="22">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Spacing="8">
+                <TextBlock
+                    FontSize="30"
+                    FontWeight="SemiBold"
+                    Foreground="White"
+                    Text="Video" />
+                <TextBlock
+                    MaxWidth="820"
+                    Foreground="{StaticResource MutedTextBrush}"
+                    Text="Workspace separato per chiedere a Hermes idee, script, storyboard e future generazioni video senza mischiarle alla chat principale." />
+            </StackPanel>
+
+            <Grid Grid.Row="1" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Style="{StaticResource PremiumCardBorderStyle}">
+                    <StackPanel Spacing="12">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Foreground="White"
+                            Text="Nuovo progetto video" />
+                        <TextBlock
+                            Foreground="{StaticResource MutedTextBrush}"
+                            Text="Prepara brief, tono, durata, formato e lista asset necessari." />
+                        <TextBox
+                            x:Name="VideoPromptBox"
+                            MinHeight="130"
+                            AcceptsReturn="True"
+                            Header="Brief video"
+                            PlaceholderText="Esempio: crea script per video demo Hermes Hub da 60 secondi..."
+                            TextWrapping="Wrap" />
+                        <Button
+                            HorizontalAlignment="Left"
+                            Background="{StaticResource AccentGreenBrush}"
+                            BorderThickness="0"
+                            Click="PrepareVideo_Click"
+                            Content="Prepara richiesta Hermes"
+                            Foreground="White" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource PremiumCardBorderStyle}">
+                    <StackPanel Spacing="12">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Foreground="White"
+                            Text="Pipeline futura" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="1. Brief e obiettivo" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="2. Script e storyboard" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="3. Asset, voce, musica" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="4. Generazione video tramite Hermes quando il backend sara' pronto" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="2" Style="{StaticResource PremiumCardBorderStyle}">
+                <StackPanel Spacing="10">
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Foreground="White"
+                        Text="Stato" />
+                    <TextBlock
+                        x:Name="VideoStatusText"
+                        Foreground="{StaticResource MutedTextBrush}"
+                        Text="Pronto. Questa sezione e' separata dalla chat e pensata per i futuri tool video Hermes." />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </ScrollViewer>
+</Page>
