@@ -8,6 +8,8 @@ Hermes Hub e' client Windows + Android per comunicare con Hermes Agent API Serve
 
 Android 0.6.5 abilita cleartext HTTP per Hermes locale/Tailscale/LAN: necessario per usare `http://<ip-pc>:8642/v1` dal telefono. Il telefono non deve usare `127.0.0.1`, che punta al telefono stesso.
 
+Android 0.6.6: timeout chat Android portato a 60 minuti su richieste `POST` Hermes, per evitare falso `Hermes non raggiungibile: timeout` mentre LM Studio sta ancora generando.
+
 Hermes Visual Blocks v1 implementato lato client: spiegazioni visuali statiche e sicure nella chat testuale.
 
 - Contratto: `docs/visual-blocks-schema.md` e `config/visual-blocks.schema.json`.

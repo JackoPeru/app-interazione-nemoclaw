@@ -125,6 +125,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.util.concurrent.TimeUnit
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -2733,7 +2734,12 @@ private suspend fun httpGet(url: String, apiKey: String? = null): String = withC
 }
 
 private suspend fun postJson(url: String, payload: JSONObject, apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
-    val client = OkHttpClient.Builder().build()
+    val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.MINUTES)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.MINUTES)
+        .build()
     val builder = Request.Builder()
         .url(url)
         .header("Accept", "text/event-stream, application/json, text/plain")
