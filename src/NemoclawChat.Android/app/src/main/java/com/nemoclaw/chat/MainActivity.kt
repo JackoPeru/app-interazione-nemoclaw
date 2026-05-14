@@ -493,8 +493,27 @@ private fun ChatScreen(
         }
     }
 
+    val isEmptyChat = state.messages.isEmpty() && state.streamingState == null
+
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                if (isEmptyChat) {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0x22F5A524),
+                            Color(0x14181510),
+                            AppColors.Background,
+                            AppColors.Background
+                        ),
+                        startY = -180f,
+                        endY = 720f
+                    )
+                } else {
+                    Brush.verticalGradient(listOf(AppColors.Background, AppColors.Background))
+                }
+            )
     ) {
         TopBar(
             mode = state.mode,
@@ -504,7 +523,7 @@ private fun ChatScreen(
             onNewChat = { state.resetForNewChat() }
         )
         Box(modifier = Modifier.weight(1f)) {
-            if (state.messages.isEmpty() && state.streamingState == null) {
+            if (isEmptyChat) {
                 EmptyState(onPrompt = { state.draft = it })
             }
 
@@ -687,35 +706,27 @@ private fun TopBar(mode: String, onModeToggle: () -> Unit, onNewChat: () -> Unit
             )
         }
         Spacer(modifier = Modifier.weight(1f))
-        Surface(
-            modifier = Modifier.clickable(onClick = onNewChat),
-            color = AppColors.Surface,
-            shape = RoundedCornerShape(18.dp)
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onNewChat)
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(Icons.Rounded.Edit, contentDescription = "Nuova chat", tint = AppColors.Accent, modifier = Modifier.size(16.dp))
-                Text(text = "Nuova", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            }
+            Icon(Icons.Rounded.Edit, contentDescription = "Nuova chat", tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+            Text(text = "Nuova", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
         Spacer(modifier = Modifier.size(8.dp))
         val modeIcon = if (mode == "Agente") Icons.Rounded.SmartToy else Icons.Rounded.ChatBubbleOutline
-        Surface(
-            modifier = Modifier.clickable(onClick = onModeToggle),
-            color = AppColors.Surface,
-            shape = RoundedCornerShape(18.dp)
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onModeToggle)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(modeIcon, contentDescription = mode, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
-                Text(text = mode, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            }
+            Icon(modeIcon, contentDescription = mode, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+            Text(text = mode, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -725,11 +736,6 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0x1AF5A524), AppColors.Background, AppColors.Background)
-                )
-            )
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
