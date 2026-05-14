@@ -95,6 +95,16 @@ internal fun StreamingBubbleView(state: StreamingState) {
 @Composable
 internal fun HermesActivityExpander(state: StreamingState) {
     var expanded by remember { mutableStateOf(false) }
+    val transition = rememberInfiniteTransition(label = "activity-progress")
+    val progressPhase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 90000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "progress-phase"
+    )
     val pendingTool = state.toolCalls.lastOrNull { inferToolOutcome(it) == ToolOutcome.Pending }
     val active = !state.isDone
     val title = when {
@@ -108,6 +118,8 @@ internal fun HermesActivityExpander(state: StreamingState) {
         state.toolCalls.isNotEmpty() -> "Tool usati"
         else -> "Attivita Hermes"
     }
+    val progress = activityProgressPercent(state, progressPhase)
+    val stage = activityStageLabel(state)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -122,17 +134,18 @@ internal fun HermesActivityExpander(state: StreamingState) {
             } else {
                 Text(text = title, color = AppColors.Muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
-            Text(
-                text = state.status,
-                color = AppColors.Muted,
-                fontSize = 11.sp,
-                modifier = Modifier.weight(1f)
-            )
             Icon(
                 imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                 contentDescription = if (expanded) "Chiudi attivita" else "Mostra attivita",
                 tint = AppColors.Muted,
                 modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "$progress%",
+                color = AppColors.Muted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
         if (expanded) {
@@ -142,12 +155,12 @@ internal fun HermesActivityExpander(state: StreamingState) {
                     .padding(start = 2.dp, end = 4.dp, bottom = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
-                ActivityLine("Stato", state.status)
+                ActivityLine("Fase", "$stage  $progress%")
                 if (state.hasThinking || !state.isDone) {
                     HorizontalDivider(color = AppColors.Border)
                     ActivityLine(
                         "Ragionamento",
-                        state.thinking.ifBlank { "Nessun token di reasoning ricevuto dal server. Se Hermes/LM Studio lo invia, appare qui live." },
+                        state.thinking.ifBlank { "Reasoning non ricevuto dal server." },
                         monospaced = state.thinking.isNotBlank()
                     )
                 }
@@ -160,6 +173,29 @@ internal fun HermesActivityExpander(state: StreamingState) {
                 }
             }
         }
+    }
+}
+
+internal fun activityProgressPercent(state: StreamingState, phase: Float): Int {
+    if (state.isDone) return 100
+    val pendingTool = state.toolCalls.any { inferToolOutcome(it) == ToolOutcome.Pending }
+    val value = when {
+        pendingTool -> 45f + phase * 50f
+        state.text.isNotBlank() -> 58f + phase * 38f
+        state.hasThinking -> 24f + phase * 54f
+        else -> 6f + phase * 36f
+    }
+    return value.coerceIn(1f, 97f).toInt()
+}
+
+internal fun activityStageLabel(state: StreamingState): String {
+    val pendingTool = state.toolCalls.lastOrNull { inferToolOutcome(it) == ToolOutcome.Pending }
+    return when {
+        pendingTool != null -> "Tool: ${pendingTool.name}"
+        state.text.isNotBlank() && !state.isDone -> "Generazione"
+        state.hasThinking && !state.isDone -> "Ragionamento"
+        state.isDone -> "Completato"
+        else -> "Processing"
     }
 }
 
@@ -213,17 +249,18 @@ internal fun ShimmerText(text: String) {
         ),
         label = "phase"
     )
-    val width = 360f
+    val sweep = 520f
+    val x = -260f + phase * 900f
     val brush = Brush.linearGradient(
         colors = listOf(
             Color(0xFF6F7888),
-            Color(0xFFAEB7C6),
+            Color(0xFF8B95A5),
             Color(0xFFFFFFFF),
-            Color(0xFFAEB7C6),
+            Color(0xFF8B95A5),
             Color(0xFF6F7888)
         ),
-        start = Offset(x = (phase * width) - width, y = 0f),
-        end = Offset(x = phase * width, y = 0f),
+        start = Offset(x = x - sweep, y = 0f),
+        end = Offset(x = x, y = 0f),
         tileMode = TileMode.Clamp
     )
     Text(
