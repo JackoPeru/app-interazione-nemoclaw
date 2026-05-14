@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.9 Release Hermes Hub 0.6.9
+v0.6.10 Release Hermes Hub 0.6.10
 ```
 
 ## Regola Memoria
@@ -53,6 +53,14 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.10 (Windows + Android):
+
+- Android chat UI: composer compatto stile ChatGPT Android con `+` esterno, send interno, mic placeholder rimosso; risposte assistente libere senza vignetta; `Sto pensando` libero/cliccabile con shimmer e reasoning espandibile.
+- Android streaming control: durante generazione il bottone invio diventa stop e interrompe job + chiamata OkHttp; testo parziale resta in chat marcato come interrotto.
+- Setup locale Hermes Hub: wrapper `hermes-hub.ps1` forza modello LM Studio caricato, `terminal.cwd=C:/Users/Matteo` e Tirith disattivato se non installato per ridurre warning Windows non fatali.
+
+## Release 0.6.9
 
 Hermes Hub 0.6.9 (Windows + Android):
 
@@ -89,7 +97,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.9`.
+- Versione app: `0.6.10`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -124,11 +132,11 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.9`, versionCode `22`.
-- Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile rifatto, menu `+` con Material icons, profilo locale.
+- Versione app: `0.6.10`, versionCode `23`.
+- Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
-- Azioni locali: file picker Android, camera intent, dettatura intent, fallback testuale se intent non disponibile.
-- Chat: action bubble per menu `+`, mode `Chat`/`Agente`, chip mode in alto a destra cliccabile, tentativo Hermes reale (`/v1/responses`, fallback `/v1/chat/completions`), fallback locale esplicito se abilitato, composer stabile a campo singolo, salvataggio cronologia locale con `previous_response_id`.
+- Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.
+- Chat: action bubble per menu `+`, mode `Chat`/`Agente`, chip mode in alto a destra cliccabile, tentativo Hermes reale (`/v1/responses`, fallback `/v1/chat/completions`), fallback locale esplicito se abilitato, composer stabile compatto a campo singolo/multiriga con `+` esterno e send interno; durante generazione il send diventa stop e cancella job + chiamata OkHttp; mic placeholder rimosso; risposte assistente Android libere senza vignetta, thinking cliccabile con shimmer e reasoning espandibile, salvataggio cronologia locale con `previous_response_id`.
 - Visual Blocks v1 implementato lato client: stesso contratto Windows, storage retrocompatibile, renderer Compose statico sicuro, nessun HTML/JS/SVG client-side.
 - Archivio: tab mobile con ricerca locale persistente, filtri, riapertura conversazioni, salvataggio progetti, contatori, export appunti, rename/delete conversazioni salvate, conferma preventiva prima del delete, icona delete sempre visibile sulla card e azioni che vanno a capo su schermi stretti; nessun seed progetto/chat finto.
 - Android UI hardening: righe di azioni in Archivio, Ordini, Server, Aggiornamenti e Settings convertite a layout che va a capo su schermi stretti, per evitare pulsanti nascosti o compressi.
@@ -147,6 +155,7 @@ Android:
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test Hermes `/health`.
 - Android consente cleartext HTTP verso Hermes locale/Tailscale/LAN tramite `network_security_config`, necessario per `http://<ip-pc>:8642/v1`.
 - Android chat HTTP usa timeout lungo per richieste Hermes lente: connect 15s, write 60s, read/call 60 minuti. Serve per modelli LM Studio locali che continuano a generare oltre il timeout breve OkHttp default.
+- Setup locale Matteo: `%LOCALAPPDATA%\hermes\.env` contiene default Hermes API Server + LM Studio; comando PATH `hermes-hub.cmd` avvia `hermes-hub.ps1`, legge il modello LLM attualmente caricato da LM Studio via `/api/v1/models` (`loaded_instances`), aggiorna `model.default/provider/base_url` in `%LOCALAPPDATA%\hermes\config.yaml`, forza `terminal.cwd=C:/Users/Matteo`, disattiva Tirith se non installato (`TIRITH_ENABLED=false`/`security.tirith_enabled=false`), poi avvia `hermes gateway run --replace`. Serve perché Hermes dà precedenza al config model rispetto a `HERMES_INFERENCE_MODEL` e per ridurre warning Windows non fatali.
 - Settings salvate in `SharedPreferences` `chatclaw_settings` con migrazione automatica da `nemoclaw_settings`.
 - Conversazioni/progetti salvati in `SharedPreferences` `chatclaw_archive` con migrazione automatica da `nemoclaw_archive`.
 - Task salvati in `SharedPreferences` `chatclaw_tasks`.

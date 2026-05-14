@@ -11,7 +11,6 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.speech.RecognizerIntent
 import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
@@ -32,11 +32,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -59,10 +61,10 @@ import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.ManageSearch
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tune
@@ -102,6 +104,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -110,6 +113,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -117,6 +121,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.nemoclaw.chat.ui.theme.ChatClawTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -537,51 +542,68 @@ private fun ChatScreen(
                     state.sending = true
                     state.streamingState = StreamingState()
 
-                    scope.launch {
+                    val job = scope.launch {
                         var localState = StreamingState()
                         val mode = state.mode
                         val convId = state.activeConversationId
                         val prevId = state.previousResponseId
-                        streamChatRequest(settings, mode, text, state.messages.toList(), convId, prevId, loadGatewaySecret(context))
-                            .collect { event ->
-                                localState = localState.applyEvent(event)
-                                state.streamingState = localState
+                        var interrupted = false
+                        try {
+                            streamChatRequest(settings, mode, text, state.messages.toList(), convId, prevId, loadGatewaySecret(context))
+                                .collect { event ->
+                                    localState = localState.applyEvent(event)
+                                    state.streamingState = localState
+                                }
+                        } catch (_: CancellationException) {
+                            interrupted = true
+                        } finally {
+                            val finalState = localState
+                            val partialText = finalState.text.trimEnd()
+                            val finalText = when {
+                                interrupted && partialText.isNotEmpty() -> "$partialText\n\n_Interrotto._"
+                                interrupted -> "Generazione interrotta."
+                                else -> finalState.text.ifEmpty { finalState.error ?: "" }
                             }
-                        val finalState = localState
-                        val finalText = finalState.text.ifEmpty { finalState.error ?: "" }
-                        if (finalText.isNotEmpty() || finalState.visualBlocks.isNotEmpty()) {
-                            state.messages.add(
-                                ChatMessage(
-                                    "Hermes",
-                                    finalText,
-                                    false,
-                                    visualBlocksVersion = finalState.visualBlocksVersion,
-                                    visualBlocks = finalState.visualBlocks
+                            if (finalText.isNotEmpty() || finalState.visualBlocks.isNotEmpty()) {
+                                state.messages.add(
+                                    ChatMessage(
+                                        if (interrupted && partialText.isEmpty()) "Stato" else "Hermes",
+                                        finalText,
+                                        fromUser = false,
+                                        isAction = interrupted && partialText.isEmpty(),
+                                        visualBlocksVersion = finalState.visualBlocksVersion,
+                                        visualBlocks = finalState.visualBlocks
+                                    )
                                 )
-                            )
+                            }
+                            if (finalState.error != null && finalText.isEmpty()) {
+                                state.messages.add(ChatMessage("Stato", finalState.error, fromUser = false, isAction = true))
+                            }
+                            if (partialText.isNotEmpty() || (!interrupted && finalText.isNotEmpty())) {
+                                val saved = saveConversationExchange(
+                                    context,
+                                    state.activeConversationId,
+                                    mode,
+                                    text,
+                                    finalText,
+                                    if (interrupted) "Hermes interrotto" else if (finalState.error != null) "Errore Hermes" else "Hermes",
+                                    finalState.responseId,
+                                    finalState.visualBlocks,
+                                    finalState.visualBlocksVersion
+                                )
+                                state.activeConversationId = saved.id
+                                state.previousResponseId = saved.previousResponseId
+                            }
+                            state.streamingState = null
+                            state.sending = false
+                            state.activeStreamJob = null
                         }
-                        if (finalState.error != null && finalText.isEmpty()) {
-                            state.messages.add(ChatMessage("Stato", finalState.error, fromUser = false, isAction = true))
-                        }
-                        if (finalText.isNotEmpty()) {
-                            val saved = saveConversationExchange(
-                                context,
-                                state.activeConversationId,
-                                mode,
-                                text,
-                                finalText,
-                                if (finalState.error != null) "Errore Hermes" else "Hermes",
-                                finalState.responseId,
-                                finalState.visualBlocks,
-                                finalState.visualBlocksVersion
-                            )
-                            state.activeConversationId = saved.id
-                            state.previousResponseId = saved.previousResponseId
-                        }
-                        state.streamingState = null
-                        state.sending = false
                     }
+                    state.activeStreamJob = job
                 }
+            },
+            onStop = {
+                state.activeStreamJob?.cancel()
             },
             isBusy = state.sending
         )
@@ -756,6 +778,25 @@ private fun SuggestionButton(text: String, onClick: () -> Unit) {
 
 @Composable
 private fun MessageBubble(message: ChatMessage) {
+    if (!message.fromUser && !message.isAction) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            MarkdownText(message.text, color = Color.White, fontSize = 15.sp)
+            if (message.visualBlocks.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    message.visualBlocks.filter { it.isValidVisualBlock() }.forEach { block ->
+                        VisualBlockView(block)
+                    }
+                }
+            }
+        }
+        return
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start
@@ -976,6 +1017,7 @@ private fun Composer(
     onAction: (String, String, String) -> Unit,
     onModeChange: (String) -> Unit,
     onSend: () -> Unit,
+    onStop: () -> Unit,
     isBusy: Boolean
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -984,199 +1026,214 @@ private fun Composer(
         onAction(title, detail, prompt)
     }
 
-    Surface(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .widthIn(max = 1040.dp),
-        color = AppColors.Composer,
-        shape = RoundedCornerShape(30.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Bottom
     ) {
-        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-            TextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = value,
-                onValueChange = onValueChange,
-                placeholder = { Text("Fai una domanda", color = AppColors.Muted) },
-                minLines = 1,
-                maxLines = 7,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    cursorColor = AppColors.Accent
+        Box {
+            Surface(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clickable { expanded = true },
+                color = AppColors.Surface,
+                shape = CircleShape
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Apri menu azioni", tint = Color.White, modifier = Modifier.size(30.dp))
+                }
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                containerColor = AppColors.Elevated
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Aggiungi file al task", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.AttachFile, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        val opened = openAndroidIntent(
+                            context,
+                            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = "*/*"
+                            }
+                        )
+                        queueAction(
+                            "File task",
+                            if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
+                            "Allega un file al prossimo job e analizzalo nel contesto Hermes."
+                        )
+                    }
                 )
-            )
+                DropdownMenuItem(
+                    text = { Text("Cattura screenshot", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.CropFree, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        queueAction(
+                            "Screenshot",
+                            "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.",
+                            "Usa uno screenshot come contesto visivo per capire app o server."
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Scatta foto", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+                        queueAction(
+                            "Foto",
+                            if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
+                            "Acquisisci una foto e usala come allegato per la conversazione."
+                        )
+                    }
+                )
+                HorizontalDivider(color = AppColors.Border)
+                DropdownMenuItem(
+                    text = { Text("Passa a modalita Chat", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        onModeChange("Chat")
+                        onAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.", "")
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Passa a modalita Agente", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.SmartToy, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        onModeChange("Agente")
+                        onAction("Modalita", "Agente attivo: usa Hermes Runs/Jobs se disponibili, altrimenti fallback locale.", "")
+                    }
+                )
+                HorizontalDivider(color = AppColors.Border)
+                DropdownMenuItem(
+                    text = { Text("Crea immagine", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        queueAction(
+                            "Immagine",
+                            "Generazione immagine richiedera' tool Hermes dedicato e conferma prima di chiamate esterne.",
+                            "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni."
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Deep Research locale", color = Color.White) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ManageSearch, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        queueAction(
+                            "Deep Research",
+                            "Ricerca approfondita locale; rete solo dopo approvazione esplicita.",
+                            "Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione."
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Ricerca web autorizzata", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.Language, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        queueAction(
+                            "Web",
+                            "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.",
+                            "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN."
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Spiegazione visiva", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        queueAction(
+                            "Visuale",
+                            "Spiegazione visiva richiesta: Hermes usera' blocchi statici sicuri se disponibili.",
+                            "Spiega anche con blocchi visuali se utile: tabella, diagramma, chart o callout. Mantieni output_text completo."
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Progetti e workspace", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        queueAction(
+                            "Workspace",
+                            "Workspace/progetti saranno collegati ai Jobs Hermes con audit trail.",
+                            "Lavora sul workspace o progetto selezionato e mostra piano prima di modificare file."
+                        )
+                    }
+                )
+            }
+        }
+
+        Surface(
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 54.dp, max = 156.dp),
+            color = AppColors.Composer,
+            shape = RoundedCornerShape(28.dp)
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.Bottom
             ) {
-                Box {
-                    IconButton(onClick = { expanded = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Apri menu azioni", tint = AppColors.Muted)
-                    }
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false },
-                        containerColor = AppColors.Elevated
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Aggiungi file al task", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.AttachFile, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                val opened = openAndroidIntent(
-                                    context,
-                                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                        addCategory(Intent.CATEGORY_OPENABLE)
-                                        type = "*/*"
-                                    }
-                                )
-                                queueAction(
-                                    "File task",
-                                    if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
-                                    "Allega un file al prossimo job e analizzalo nel contesto Hermes."
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Cattura screenshot", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.CropFree, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                queueAction(
-                                    "Screenshot",
-                                    "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.",
-                                    "Usa uno screenshot come contesto visivo per capire app o server."
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Scatta foto", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                val opened = openAndroidIntent(context, Intent(MediaStore.ACTION_IMAGE_CAPTURE))
-                                queueAction(
-                                    "Foto",
-                                    if (opened) "Fotocamera Android aperta. Scatta la foto e allegala al task quando pronta." else "Nessuna app fotocamera disponibile. Seleziona una foto esistente dal menu file.",
-                                    "Acquisisci una foto e usala come allegato per la conversazione."
-                                )
-                            }
-                        )
-                        HorizontalDivider(color = AppColors.Border)
-                        DropdownMenuItem(
-                            text = { Text("Passa a modalita Chat", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                onModeChange("Chat")
-                                onAction("Modalita", "Chat attiva: messaggi normali, nessun task agente automatico.", "")
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Passa a modalita Agente", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.SmartToy, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                onModeChange("Agente")
-                                onAction("Modalita", "Agente attivo: usa Hermes Runs/Jobs se disponibili, altrimenti fallback locale.", "")
-                            }
-                        )
-                        HorizontalDivider(color = AppColors.Border)
-                        DropdownMenuItem(
-                            text = { Text("Crea immagine", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                queueAction(
-                                    "Immagine",
-                                    "Generazione immagine richiedera' tool Hermes dedicato e conferma prima di chiamate esterne.",
-                                    "Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni."
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Deep Research locale", color = Color.White) },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ManageSearch, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                queueAction(
-                                    "Deep Research",
-                                    "Ricerca approfondita locale; rete solo dopo approvazione esplicita.",
-                                    "Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione."
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Ricerca web autorizzata", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.Language, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                queueAction(
-                                    "Web",
-                                    "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.",
-                                    "Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN."
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Spiegazione visiva", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                queueAction(
-                                    "Visuale",
-                                    "Spiegazione visiva richiesta: Hermes usera' blocchi statici sicuri se disponibili.",
-                                    "Spiega anche con blocchi visuali se utile: tabella, diagramma, chart o callout. Mantieni output_text completo."
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Progetti e workspace", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, tint = Color.White) },
-                            onClick = {
-                                expanded = false
-                                queueAction(
-                                    "Workspace",
-                                    "Workspace/progetti saranno collegati ai Jobs Hermes con audit trail.",
-                                    "Lavora sul workspace o progetto selezionato e mostra piano prima di modificare file."
-                                )
-                            }
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                IconButton(onClick = {
-                    val opened = openAndroidIntent(
-                        context,
-                        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Detta il prompt per Hermes")
-                        }
-                    )
-                    onAction(
-                        "Voce",
-                        if (opened) "Dettatura Android aperta. Inserisci o rifinisci il testo nel prompt." else "Dettatura non disponibile su questo dispositivo. Scrivi la nota vocale nel prompt.",
-                        "Trascrivi questa nota vocale e usala come contesto: "
-                    )
-                }) {
-                    Icon(Icons.Rounded.Mic, contentDescription = "Dettatura", tint = AppColors.Muted)
-                }
-                Button(
-                    modifier = Modifier.size(44.dp),
-                    onClick = onSend,
-                    enabled = value.isNotBlank() && !isBusy,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
-                    shape = CircleShape,
-                    contentPadding = PaddingValues(0.dp)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 38.dp, max = 138.dp)
+                        .padding(vertical = 5.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    Icon(Icons.Rounded.ArrowUpward, contentDescription = "Invia")
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        minLines = 1,
+                        maxLines = 5,
+                        textStyle = TextStyle(
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            lineHeight = 25.sp
+                        ),
+                        cursorBrush = SolidColor(AppColors.Accent),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (value.isEmpty()) {
+                        Text("Fai una domanda", color = AppColors.Muted, fontSize = 18.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                val canSend = value.isNotBlank() && !isBusy
+                val canPress = isBusy || canSend
+                Surface(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clickable(enabled = canPress) {
+                            if (isBusy) onStop() else onSend()
+                        },
+                    color = if (canPress) Color.White else AppColors.Surface,
+                    shape = CircleShape,
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            imageVector = if (isBusy) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward,
+                            contentDescription = if (isBusy) "Interrompi generazione" else "Invia",
+                            tint = if (canPress) Color.Black else AppColors.Muted
+                        )
+                    }
                 }
             }
         }

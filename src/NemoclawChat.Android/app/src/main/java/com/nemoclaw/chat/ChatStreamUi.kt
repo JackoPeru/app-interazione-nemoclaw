@@ -26,8 +26,6 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,23 +48,12 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 internal fun StreamingBubbleView(state: StreamingState) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(0.94f),
-            colors = CardDefaults.cardColors(containerColor = AppColors.AssistantBubble),
-            shape = RoundedCornerShape(20.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Hermes",
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp
-                )
-
                 val showThinkingHeader = state.hasThinking || (state.text.isEmpty() && !state.isDone)
                 if (showThinkingHeader) {
                     ThinkingExpander(
@@ -81,7 +68,7 @@ internal fun StreamingBubbleView(state: StreamingState) {
                 }
 
                 if (state.text.isNotEmpty()) {
-                    MarkdownText(state.text, color = Color.White)
+                    MarkdownText(state.text, color = Color.White, fontSize = 15.sp)
                 }
 
                 state.visualBlocks.filter { it.isValidVisualBlock() }.forEach { block ->
@@ -110,8 +97,6 @@ internal fun StreamingBubbleView(state: StreamingState) {
                     }
                 }
             }
-        }
-    }
 }
 
 @Composable
@@ -131,30 +116,23 @@ internal fun ThinkingExpander(thinking: String, active: Boolean, elapsedSec: Dou
                 val label = if (elapsedSec >= 1) "Pensato per ${"%.1f".format(elapsedSec)}s" else "Ragionamento"
                 Text(text = label, color = AppColors.Muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
-            if (thinking.isNotEmpty()) {
-                Icon(
-                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                    contentDescription = "Mostra ragionamento",
-                    tint = AppColors.Muted,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Chiudi ragionamento" else "Mostra ragionamento",
+                tint = AppColors.Muted,
+                modifier = Modifier.size(16.dp)
+            )
         }
-        if (expanded && thinking.isNotEmpty()) {
-            Surface(
-                color = AppColors.Surface,
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    modifier = Modifier
-                        .heightIn(max = 220.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(12.dp),
-                    text = thinking,
-                    color = AppColors.Muted,
-                    fontSize = 12.sp
-                )
-            }
+        if (expanded) {
+            Text(
+                modifier = Modifier
+                    .heightIn(max = 220.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 2.dp, end = 8.dp, bottom = 4.dp),
+                text = thinking.ifBlank { "Hermes non ha ancora inviato token di reasoning. Se il modello/server li manda, appariranno qui in tempo reale." },
+                color = AppColors.Muted,
+                fontSize = 12.sp
+            )
         }
     }
 }
@@ -171,15 +149,17 @@ internal fun ShimmerText(text: String) {
         ),
         label = "phase"
     )
-    val width = 600f
+    val width = 360f
     val brush = Brush.linearGradient(
         colors = listOf(
             Color(0xFF6F7888),
+            Color(0xFFAEB7C6),
             Color(0xFFFFFFFF),
+            Color(0xFFAEB7C6),
             Color(0xFF6F7888)
         ),
-        start = Offset(x = (phase - 0.5f) * width, y = 0f),
-        end = Offset(x = (phase + 0.5f) * width, y = 0f),
+        start = Offset(x = (phase * width) - width, y = 0f),
+        end = Offset(x = phase * width, y = 0f),
         tileMode = TileMode.Clamp
     )
     Text(
@@ -187,7 +167,7 @@ internal fun ShimmerText(text: String) {
         style = TextStyle(
             brush = brush,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp
+            fontSize = 16.sp
         )
     )
 }

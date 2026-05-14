@@ -1,6 +1,10 @@
 package com.nemoclaw.chat
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -8,6 +12,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Call
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -253,6 +258,12 @@ private suspend inline fun openSseStream(
     label: String,
     crossinline onEvent: suspend (ChatStreamEvent) -> Boolean
 ): Boolean {
+    var call: Call? = null
+    val cancellationHook = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
+        if (cause is CancellationException) {
+            call?.cancel()
+        }
+    }
     return try {
         val client = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -269,7 +280,8 @@ private suspend inline fun openSseStream(
         }
         val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request = builder.post(body).build()
-        client.newCall(request).execute().use { response ->
+        call = client.newCall(request)
+        call!!.execute().use { response ->
             if (!response.isSuccessful) {
                 val text = response.body?.string().orEmpty().take(240)
                 onEvent(ChatStreamEvent.Error("$label HTTP ${response.code}: $text"))
@@ -285,6 +297,7 @@ private suspend inline fun openSseStream(
             val dataBuf = StringBuilder()
             var eventName: String? = null
             while (!source.exhausted()) {
+                currentCoroutineContext().ensureActive()
                 val line = source.readUtf8Line() ?: break
                 if (line.isEmpty()) {
                     if (dataBuf.isNotEmpty()) {
@@ -310,9 +323,13 @@ private suspend inline fun openSseStream(
             }
             false
         }
+    } catch (ex: CancellationException) {
+        throw ex
     } catch (ex: Exception) {
         onEvent(ChatStreamEvent.Error("$label: ${ex.message ?: ex.javaClass.simpleName}"))
         true
+    } finally {
+        cancellationHook?.dispose()
     }
 }
 

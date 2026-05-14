@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import kotlinx.coroutines.Job
 
 internal class ChatStateHolder {
     val messages: SnapshotStateList<ChatMessage> = mutableStateListOf()
@@ -14,8 +15,11 @@ internal class ChatStateHolder {
     var previousResponseId: String? by mutableStateOf(null)
     var streamingState: StreamingState? by mutableStateOf(null)
     var sending: Boolean by mutableStateOf(false)
+    var activeStreamJob: Job? = null
 
     fun resetForNewChat() {
+        activeStreamJob?.cancel()
+        activeStreamJob = null
         messages.clear()
         activeConversationId = null
         previousResponseId = null
