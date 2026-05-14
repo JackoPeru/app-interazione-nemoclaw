@@ -57,23 +57,11 @@ public static class GatewayService
                 {
                     model = settings.Model,
                     input = prompt,
-                    instructions = mode.Equals("Agente", StringComparison.OrdinalIgnoreCase)
-                        ? "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni. Se generi immagini per la chat, restituiscile come visual_blocks image_gallery usando solo media_url del proxy Hermes /v1/media/... con alt e caption."
-                        : "Rispondi come assistente conversazionale Hermes. Se invii immagini, usa visual_blocks image_gallery con media_url del proxy Hermes /v1/media/..., alt e caption.",
+                    instructions = HermesHubProtocol.Instructions(mode),
                     store = true,
                     conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
                     previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
-                    metadata = new
-                    {
-                        client = "hermes-hub",
-                        visual_blocks = new
-                        {
-                            min_supported_version = VisualBlocksContract.Version,
-                            max_supported_version = VisualBlocksContract.Version,
-                            mode = settings.VisualBlocksMode,
-                            image_gallery = "supported via /v1/media proxy URLs only"
-                        }
-                    }
+                    metadata = HermesHubProtocol.Metadata(settings)
                 });
 
                 using var request = BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/responses", responsePayload);
@@ -119,22 +107,19 @@ public static class GatewayService
             {
                 model = settings.Model,
                 stream = false,
-                metadata = new
+                metadata = HermesHubProtocol.Metadata(settings),
+                messages = new[]
                 {
-                    client = "hermes-hub",
-                    visual_blocks = new
+                    new
                     {
-                        min_supported_version = VisualBlocksContract.Version,
-                        max_supported_version = VisualBlocksContract.Version,
-                        mode = settings.VisualBlocksMode,
-                        image_gallery = "supported via /v1/media proxy URLs only"
+                        role = "system",
+                        content = HermesHubProtocol.Instructions(mode)
                     }
-                },
-                messages = history.Select(message => new
+                }.Concat(history.Select(message => new
                 {
                     role = string.Equals(message.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
                     content = message.Text
-                })
+                }))
             });
 
             using var request = BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions", chatPayload);
@@ -201,7 +186,8 @@ public static class GatewayService
             requiresApproval = task.RequiresApproval,
             approvalRequired = task.RequiresApproval,
             model = settings.Model,
-            provider = settings.Provider
+            provider = settings.Provider,
+            metadata = HermesHubProtocol.Metadata(settings, source: "jobs-section")
         });
 
         try
@@ -310,8 +296,8 @@ public static class GatewayService
     public static async Task<WorkspaceRunResult> SendWorkspaceRunAsync(AppSettings settings, string kind, string prompt)
     {
         var runPrompt = kind.Equals("Video", StringComparison.OrdinalIgnoreCase)
-            ? $"Sezione Video Hermes Hub. Crea output operativo per produzione video: brief, script, storyboard, scene, asset, voce, musica, rischi, prossimi step.\n\nRichiesta utente:\n{prompt}"
-            : $"Sezione News Hermes Hub. Crea output operativo per ricerca e aggiornamento: query, fonti da consultare, filtri, sintesi attesa, frequenza, formato briefing, rischi di affidabilita.\n\nRichiesta utente:\n{prompt}";
+            ? $"Destinazione: Hermes Hub / Video.\nMemoria: usa la memoria agente condivisa Hermes/CLI/app per preferenze utente, stile, durata, ritmo, fonti e regole editoriali. Se impari una preferenza stabile, salvala lato Hermes se possibile.\nObiettivo: crea output operativo per produzione video su PC/Hermes: brief, script, storyboard, scene, asset, voce, musica, rischi, prossimi step, stream_url/download_url se disponibili.\n\nRichiesta utente:\n{prompt}"
+            : $"Destinazione: Hermes Hub / News.\nMemoria: usa la memoria agente condivisa Hermes/CLI/app per interessi, fonti preferite, profondita, tono e filtri di qualita. Se impari una preferenza stabile, salvala lato Hermes se possibile.\nObiettivo: crea output operativo per articolo/briefing: query, fonti consultate, filtri, sintesi, frequenza, formato briefing, rischi di affidabilita.\n\nRichiesta utente:\n{prompt}";
 
         var payload = JsonSerializer.Serialize(new
         {
@@ -320,8 +306,11 @@ public static class GatewayService
             metadata = new
             {
                 client = "hermes-hub",
+                client_surface = "windows-app",
                 workspace = kind.ToLowerInvariant(),
-                source = "workspace-section"
+                source = "workspace-section",
+                memory_scope = "shared-hermes-agent-memory",
+                share_with_cli = true
             }
         });
 

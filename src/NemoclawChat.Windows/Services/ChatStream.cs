@@ -53,105 +53,85 @@ public static class ChatStreamClient
         bool sawAnyDelta = false;
         string? lastError = null;
 
-        var supportsResponses = await GatewayService.SupportsResponsesAsync(settings);
-
-        if (supportsResponses)
+        var responsesPayload = JsonSerializer.Serialize(new
         {
-            var payload = JsonSerializer.Serialize(new
+            model = settings.Model,
+            input = prompt,
+            instructions = HermesHubProtocol.Instructions(mode),
+            store = true,
+            stream = true,
+            conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
+            previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
+            metadata = HermesHubProtocol.Metadata(settings)
+        });
+
+        var responsesUrl = $"{settings.GatewayUrl.TrimEnd('/')}/responses";
+        await foreach (var ev in OpenStreamAsync(responsesUrl, responsesPayload, "Hermes Responses API stream", cancellationToken))
+        {
+            if (ev is StreamError err)
             {
-                model = settings.Model,
-                input = prompt,
-                instructions = mode.Equals("Agente", StringComparison.OrdinalIgnoreCase)
-                    ? "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni. Se generi immagini per la chat, restituiscile come visual_blocks image_gallery usando solo media_url del proxy Hermes /v1/media/... con alt e caption."
-                    : "Rispondi come assistente conversazionale Hermes. Se invii immagini, usa visual_blocks image_gallery con media_url del proxy Hermes /v1/media/..., alt e caption.",
-                store = true,
-                stream = true,
-                conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
-                previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
-                metadata = new
-                {
-                    client = "hermes-hub",
-                    visual_blocks = new
-                    {
-                        min_supported_version = VisualBlocksContract.Version,
-                        max_supported_version = VisualBlocksContract.Version,
-                        mode = settings.VisualBlocksMode,
-                        image_gallery = "supported via /v1/media proxy URLs only"
-                    }
-                }
-            });
-
-            var url = $"{settings.GatewayUrl.TrimEnd('/')}/responses";
-            await foreach (var ev in OpenStreamAsync(url, payload, "Hermes Responses API stream", cancellationToken))
-            {
-                if (ev is StreamError err)
-                {
-                    lastError = err.Message;
-                    break;
-                }
-
-                if (ev is StreamTextDelta td)
-                {
-                    if (!sawAnyDelta)
-                    {
-                        ttft = stopwatch.Elapsed.TotalMilliseconds;
-                        sawAnyDelta = true;
-                    }
-                    accumulatedText.Append(td.Delta);
-                }
-                else if (ev is StreamThinkingDelta th)
-                {
-                    if (!sawAnyDelta)
-                    {
-                        ttft = stopwatch.Elapsed.TotalMilliseconds;
-                        sawAnyDelta = true;
-                    }
-                    accumulatedThinking.Append(th.Delta);
-                }
-                else if (ev is StreamResponseId rid)
-                {
-                    responseId = rid.Id;
-                }
-                else if (ev is StreamVisualBlocks vb)
-                {
-                    visualBlocks = vb.Blocks;
-                }
-                else if (ev is StreamUsage u)
-                {
-                    promptTokens = u.PromptTokens;
-                    completionTokens = u.CompletionTokens;
-                }
-
-                yield return ev;
+                lastError = err.Message;
+                break;
             }
+
+            if (ev is StreamTextDelta td)
+            {
+                if (!sawAnyDelta)
+                {
+                    ttft = stopwatch.Elapsed.TotalMilliseconds;
+                    sawAnyDelta = true;
+                }
+                accumulatedText.Append(td.Delta);
+            }
+            else if (ev is StreamThinkingDelta th)
+            {
+                if (!sawAnyDelta)
+                {
+                    ttft = stopwatch.Elapsed.TotalMilliseconds;
+                    sawAnyDelta = true;
+                }
+                accumulatedThinking.Append(th.Delta);
+            }
+            else if (ev is StreamResponseId rid)
+            {
+                responseId = rid.Id;
+            }
+            else if (ev is StreamVisualBlocks vb)
+            {
+                visualBlocks = vb.Blocks;
+            }
+            else if (ev is StreamUsage u)
+            {
+                promptTokens = u.PromptTokens;
+                completionTokens = u.CompletionTokens;
+            }
+
+            yield return ev;
         }
 
         if (!sawAnyDelta && lastError is null)
         {
-            var payload = JsonSerializer.Serialize(new
+            var chatPayload = JsonSerializer.Serialize(new
             {
                 model = settings.Model,
                 stream = true,
-                metadata = new
+                metadata = HermesHubProtocol.Metadata(settings),
+                messages = new[]
                 {
-                    client = "hermes-hub",
-                    visual_blocks = new
+                    new
                     {
-                        min_supported_version = VisualBlocksContract.Version,
-                        max_supported_version = VisualBlocksContract.Version,
-                        mode = settings.VisualBlocksMode,
-                        image_gallery = "supported via /v1/media proxy URLs only"
+                        role = "system",
+                        content = HermesHubProtocol.Instructions(mode)
                     }
-                },
-                messages = history.Select(m => new
+                }.Concat(history.Select(m => new
                 {
                     role = string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
                     content = m.Text
-                })
+                }))
             });
 
-            var url = $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions";
-            await foreach (var ev in OpenStreamAsync(url, payload, "Hermes Chat Completions stream", cancellationToken))
+            var chatUrl = $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions";
+            await foreach (var ev in OpenStreamAsync(chatUrl, chatPayload, "Hermes Chat Completions stream", cancellationToken))
             {
                 if (ev is StreamError err)
                 {

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,17 +55,9 @@ internal fun StreamingBubbleView(state: StreamingState) {
             .padding(horizontal = 2.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-                val showThinkingHeader = state.hasThinking || (state.text.isEmpty() && !state.isDone)
-                if (showThinkingHeader) {
-                    ThinkingExpander(
-                        thinking = state.thinking,
-                        active = !state.thinkingFrozen && state.text.isEmpty(),
-                        elapsedSec = state.thinkingElapsedSec
-                    )
-                }
-
-                state.toolCalls.forEach { tool ->
-                    ToolCallCard(tool)
+                val showActivity = !state.isDone || state.hasThinking || state.toolCalls.isNotEmpty()
+                if (showActivity) {
+                    HermesActivityExpander(state)
                 }
 
                 if (state.text.isNotEmpty()) {
@@ -97,6 +90,77 @@ internal fun StreamingBubbleView(state: StreamingState) {
                     }
                 }
             }
+}
+
+@Composable
+internal fun HermesActivityExpander(state: StreamingState) {
+    var expanded by remember { mutableStateOf(false) }
+    val pendingTool = state.toolCalls.lastOrNull { inferToolOutcome(it) == ToolOutcome.Pending }
+    val active = !state.isDone
+    val title = when {
+        pendingTool != null -> "Uso tool: ${pendingTool.name}"
+        active && state.hasThinking && state.text.isEmpty() -> "Sto pensando"
+        active && state.text.isNotEmpty() -> "Sto generando"
+        active -> "Sto processando"
+        state.hasThinking -> {
+            if (state.thinkingElapsedSec >= 1) "Pensato per ${"%.1f".format(state.thinkingElapsedSec)}s" else "Ragionamento"
+        }
+        state.toolCalls.isNotEmpty() -> "Tool usati"
+        else -> "Attivita Hermes"
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (active) {
+                ShimmerText(title)
+            } else {
+                Text(text = title, color = AppColors.Muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+            Text(
+                text = state.status,
+                color = AppColors.Muted,
+                fontSize = 11.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Chiudi attivita" else "Mostra attivita",
+                tint = AppColors.Muted,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 2.dp, end = 4.dp, bottom = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                ActivityLine("Stato", state.status)
+                if (state.hasThinking || !state.isDone) {
+                    HorizontalDivider(color = AppColors.Border)
+                    ActivityLine(
+                        "Ragionamento",
+                        state.thinking.ifBlank { "Nessun token di reasoning ricevuto dal server. Se Hermes/LM Studio lo invia, appare qui live." },
+                        monospaced = state.thinking.isNotBlank()
+                    )
+                }
+                if (state.toolCalls.isNotEmpty()) {
+                    HorizontalDivider(color = AppColors.Border)
+                    Text("Tool", color = AppColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    state.toolCalls.forEach { tool ->
+                        ToolActivityRow(tool)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -170,6 +234,63 @@ internal fun ShimmerText(text: String) {
             fontSize = 16.sp
         )
     )
+}
+
+@Composable
+internal fun ActivityLine(label: String, value: String, monospaced: Boolean = false) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = AppColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            modifier = Modifier
+                .heightIn(max = 180.dp)
+                .verticalScroll(rememberScrollState()),
+            text = value,
+            color = if (value.startsWith("Nessun token")) AppColors.Muted else Color.White,
+            fontFamily = if (monospaced) FontFamily.Monospace else FontFamily.Default,
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+internal fun ToolActivityRow(tool: ToolCallState) {
+    var expanded by remember { mutableStateOf(false) }
+    val outcome = inferToolOutcome(tool)
+    val statusColor = when (outcome) {
+        ToolOutcome.Success -> Color(0xFF34C759)
+        ToolOutcome.Error -> Color(0xFFFF453A)
+        ToolOutcome.Pending -> AppColors.Accent
+    }
+    val statusIcon = when (outcome) {
+        ToolOutcome.Success -> Icons.Rounded.CheckCircle
+        ToolOutcome.Error -> Icons.Rounded.Error
+        ToolOutcome.Pending -> Icons.Rounded.AutoAwesome
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(statusIcon, contentDescription = null, tint = statusColor, modifier = Modifier.size(14.dp))
+            Text(tool.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(outcome.label, color = statusColor, fontSize = 11.sp)
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Chiudi tool" else "Apri tool",
+                tint = AppColors.Muted,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+        if (expanded) {
+            ActivityLine("Argomenti", if (tool.args.isBlank()) "-" else prettifyJson(tool.args), monospaced = true)
+            if (!tool.result.isNullOrBlank()) {
+                ActivityLine("Risultato", prettifyJson(tool.result!!), monospaced = true)
+            }
+        }
+    }
 }
 
 @Composable

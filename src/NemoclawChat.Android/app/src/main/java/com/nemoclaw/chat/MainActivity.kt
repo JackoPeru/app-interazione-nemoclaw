@@ -691,6 +691,10 @@ private fun ChatScreen(
                 }
             },
             onStop = {
+                state.streamingState = state.streamingState?.copy(
+                    status = "Interruzione richiesta. Chiudo stream Hermes...",
+                    error = null
+                )
                 state.activeStreamJob?.cancel()
             },
             isBusy = state.sending
@@ -2879,17 +2883,37 @@ private fun validateRequired(value: String, label: String): String? {
 }
 
 internal fun hermesHubChatInstructions(): String {
-    return "Rispondi come assistente conversazionale Hermes. Hermes Hub supporta immagini in chat tramite visual_blocks image_gallery: usa solo media_url da proxy Hermes /v1/media/... con alt e caption, mai file://, data: o URL esterni diretti. Hermes Hub ha sezioni Video e News: se l'utente chiede contenuti destinati a quelle sezioni, dichiara chiaramente destinazione, titolo e prossimi passi."
+    return """
+        ${hermesHubSharedContext()}
+
+        Rispondi come assistente conversazionale Hermes.
+        Se l'utente esprime una preferenza stabile, un gusto editoriale, una regola di lavoro o una decisione di progetto, trattala come memoria agente condivisa e persistente usando gli strumenti/memoria disponibili lato Hermes. Non considerare la chat dell'app una memoria separata.
+        Se l'utente chiede contenuti destinati a Video o News, dichiara chiaramente destinazione, titolo, stato job/artifact e prossimi passi.
+    """.trimIndent()
 }
 
 internal fun hermesHubAgentInstructions(): String {
     return """
+        ${hermesHubSharedContext()}
+
         Agisci come Hermes Agent operativo. Usa strumenti, memoria, jobs e filesystem disponibili lato server e conserva un riepilogo chiaro delle azioni.
-        Hermes Hub espone due sezioni aggregate:
-        - Video: feed personale di video generati su PC/Hermes. Non inviare il file al telefono; genera/salva lato server e restituisci stream_url e download_url solo se disponibili. Accetta feedback utente per migliorare editing, ritmo, durata, voce, fonti e contenuto.
-        - News: feed personale di articoli/briefing con fonti. Cerca, valuta, sintetizza, cita fonti e accetta feedback per adattare interessi, tono e profondita.
-        - Immagini in chat: se generi o recuperi immagini, inviale come visual_blocks image_gallery con media_url servito dal proxy Hermes /v1/media/..., alt descrittivo e caption. Non usare file://, data: o URL esterni diretti nel client.
+        Memoria: app, CLI, jobs, Video e News devono contribuire alla stessa memoria agente/profilo Matteo quando l'informazione e' stabile o utile in futuro. Se esiste un tool di memoria, usalo. Se non esiste, conserva la preferenza nel riepilogo operativo e nel job/artifact server.
+        Se l'utente chiede un video, articolo, cron, briefing o contenuto ricorrente, crea/aggiorna job o artifact lato Hermes con metadata workspace=video/news, cosi Hermes Hub puo' mostrarlo nella sezione corretta.
         Quando crei un output destinato a Video o News, produci anche un oggetto JSON compatto con: kind, title, summary, status, job_id, stream_url, download_url, sources.
+    """.trimIndent()
+}
+
+internal fun hermesHubSharedContext(): String {
+    return """
+        Stai ricevendo messaggi da Hermes Hub, client operativo mobile/desktop di Hermes Agent.
+        Hermes Hub non e' un modello separato: deve usare la stessa memoria agente, gli stessi jobs e lo stesso profilo operativo disponibili anche da CLI Hermes.
+        Sezioni app:
+        - Chat: conversazione principale.
+        - Video: feed personale di video generati su PC/Hermes; il telefono riceve stream_url/download_url, non file locali diretti.
+        - News: feed personale di articoli/briefing con fonti e feedback utente.
+        - Jobs/Runs: coda operativa Hermes e lavori programmati.
+        - Archivio: storico locale dell'app, non memoria agente principale.
+        Immagini in chat: usa visual_blocks image_gallery con media_url dal proxy Hermes /v1/media/...; vietati file://, data: e URL esterni diretti.
     """.trimIndent()
 }
 
@@ -2950,6 +2974,11 @@ private suspend fun sendChatRequest(
             .put("stream", false)
             .put("metadata", visualBlocksMetadata(settings))
             .put("messages", JSONArray().apply {
+                put(
+                    JSONObject()
+                        .put("role", "system")
+                        .put("content", if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
+                )
                 history.filter { !it.isAction }.forEach { message ->
                     put(
                         JSONObject()
@@ -3004,11 +3033,24 @@ private suspend fun sendChatRequest(
 private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
     return JSONObject()
         .put("client", "hermes-hub")
+        .put("client_surface", "android-app")
+        .put("profile", "Matteo")
+        .put(
+            "memory_policy",
+            JSONObject()
+                .put("scope", "shared-hermes-agent-memory")
+                .put("share_with_cli", true)
+                .put("use_server_memory_tools", true)
+                .put("do_not_create_app_only_memory", true)
+        )
         .put(
             "hub_sections",
             JSONObject()
+                .put("chat", "Conversazione principale Hermes Hub.")
                 .put("video", "Feed personale video: output resta sul PC/Hermes, app usa stream_url/download_url e feedback.")
                 .put("news", "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.")
+                .put("jobs", "Coda Hermes Jobs condivisa con CLI/server.")
+                .put("runs", "Runs operative Hermes.")
         )
         .put(
             "visual_blocks",
@@ -3030,6 +3072,14 @@ private suspend fun queueTaskRequest(settings: AppSettings, task: AgentTask, api
         .put("approvalRequired", task.requiresApproval)
         .put("model", settings.model)
         .put("provider", settings.provider)
+        .put(
+            "metadata",
+            JSONObject()
+                .put("client", "hermes-hub")
+                .put("client_surface", "android-app")
+                .put("memory_scope", "shared-hermes-agent-memory")
+                .put("source", "jobs-section")
+        )
 
     try {
         val response = postJson("${hermesRoot(settings)}/api/jobs", payload, apiKey)
@@ -3224,8 +3274,11 @@ private suspend fun sendWorkspaceRunRequest(
             "metadata",
             JSONObject()
                 .put("client", "hermes-hub")
+                .put("client_surface", "android-app")
                 .put("workspace", kind.lowercase())
                 .put("destination", kind)
+                .put("memory_scope", "shared-hermes-agent-memory")
+                .put("share_with_cli", true)
                 .put("output_contract", workspaceOutputContract(kind))
         )
 
@@ -3258,8 +3311,11 @@ private suspend fun sendWorkspaceRunRequest(
             "metadata",
             JSONObject()
                 .put("client", "hermes-hub")
+                .put("client_surface", "android-app")
                 .put("workspace", kind.lowercase())
                 .put("source", "workspace-section")
+                .put("memory_scope", "shared-hermes-agent-memory")
+                .put("share_with_cli", true)
         )
 
     try {
@@ -3304,6 +3360,7 @@ private fun workspaceInstructions(kind: String, prompt: String): String {
     return if (kind.equals("Video", ignoreCase = true)) {
         """
             Destinazione: Hermes Hub / Video.
+            Memoria: usa la memoria agente condivisa Hermes/CLI/app per preferenze utente, stile, durata, ritmo, fonti e regole editoriali. Se impari una preferenza stabile, salvala lato Hermes se possibile.
             Obiettivo: crea o programma un video personale per Matteo. Il file resta sul PC/server Hermes; il telefono riceve solo metadati, stream_url e download_url opzionale.
             Produzione: ricerca tema se necessario, crea script, storyboard, asset plan, eventuale Remotion project/render o pipeline IA se disponibile lato server.
             Feedback: usa feedback precedenti per adattare durata, ritmo, editing, tono, fonti, voce, musica e livello tecnico.
@@ -3315,6 +3372,7 @@ private fun workspaceInstructions(kind: String, prompt: String): String {
     } else {
         """
             Destinazione: Hermes Hub / News.
+            Memoria: usa la memoria agente condivisa Hermes/CLI/app per interessi, fonti preferite, profondita, tono e filtri di qualita. Se impari una preferenza stabile, salvala lato Hermes se possibile.
             Obiettivo: crea un articolo/briefing personale per Matteo con fonti verificabili e sintesi ragionata.
             Produzione: cerca notizie rilevanti, filtra per interesse, cita fonti, separa fatti da inferenze e prepara testo leggibile come giornale personale.
             Feedback: usa feedback precedenti per adattare argomenti, profondita, tono, fonti e frequenza.
@@ -4415,6 +4473,7 @@ private suspend fun sendWorkspaceFeedback(settings: AppSettings, item: Workspace
         $feedback
 
         Aggiorna il contenuto rispettando preferenze utente. Se e' Video, migliora editing/contenuto e mantieni output sul PC con stream_url/download_url. Se e' News, aggiorna articolo e fonti.
+        Se il feedback contiene una preferenza stabile, salvala o incorporala nella memoria agente condivisa Hermes/CLI/app, non solo in questo item.
         Job originale: ${item.remoteId ?: "non disponibile"}
     """.trimIndent()
     try {

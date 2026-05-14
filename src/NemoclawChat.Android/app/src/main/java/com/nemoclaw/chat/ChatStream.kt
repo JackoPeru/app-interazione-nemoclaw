@@ -45,7 +45,7 @@ data class StreamingState(
     val visualBlocksVersion: Int? = null,
     val responseId: String? = null,
     val stats: ChatStreamStats? = null,
-    val status: String = "",
+    val status: String = "Invio prompt a Hermes...",
     val error: String? = null,
     val source: String = "Hermes",
     val usedFallback: Boolean = false,
@@ -55,6 +55,7 @@ data class StreamingState(
     fun applyEvent(event: ChatStreamEvent): StreamingState = when (event) {
         is ChatStreamEvent.TextDelta -> copy(
             text = text + event.delta,
+            status = if (toolCalls.any { inferToolPendingStatus(it) }) status else "Hermes sta scrivendo la risposta...",
             thinkingFrozen = thinkingFrozen || hasThinking,
             thinkingElapsedSec = if (!thinkingFrozen && hasThinking) {
                 (System.nanoTime() - startedAtNs) / 1_000_000_000.0
@@ -62,23 +63,29 @@ data class StreamingState(
         )
         is ChatStreamEvent.ThinkingDelta -> copy(
             thinking = thinking + event.delta,
-            hasThinking = true
+            hasThinking = true,
+            thinkingFrozen = false,
+            status = "Hermes sta ragionando..."
         )
         is ChatStreamEvent.ToolCallStart -> copy(
+            status = "Tool in esecuzione: ${event.name}",
             toolCalls = if (toolCalls.any { it.id == event.id }) toolCalls
                 else toolCalls + ToolCallState(event.id, event.name)
         )
         is ChatStreamEvent.ToolCallArgs -> copy(
+            status = "Preparazione tool...",
             toolCalls = toolCalls.map {
                 if (it.id == event.id) it.copy(args = it.args + event.delta) else it
             }
         )
         is ChatStreamEvent.ToolCallEnd -> copy(
+            status = "Tool completato.",
             toolCalls = toolCalls.map {
                 if (it.id == event.id) it.copy(status = "completato") else it
             }
         )
         is ChatStreamEvent.ToolResult -> copy(
+            status = "Risultato tool ricevuto.",
             toolCalls = toolCalls.map {
                 if (event.id != null && it.id == event.id) it.copy(result = event.output, status = "risultato pronto") else it
             }
@@ -92,13 +99,19 @@ data class StreamingState(
         is ChatStreamEvent.Done -> copy(
             stats = event.stats,
             isDone = true,
+            status = "Risposta completata.",
             thinkingFrozen = true,
             thinkingElapsedSec = if (thinkingElapsedSec > 0) thinkingElapsedSec
                 else (System.nanoTime() - startedAtNs) / 1_000_000_000.0
         )
-        is ChatStreamEvent.Error -> copy(error = event.message, isDone = true)
+        is ChatStreamEvent.Error -> copy(error = event.message, status = "Errore Hermes.", isDone = true)
         is ChatStreamEvent.Usage -> this
     }
+}
+
+private fun inferToolPendingStatus(tool: ToolCallState): Boolean {
+    val s = tool.status.lowercase()
+    return !s.contains("completat") && !s.contains("risultato") && !s.contains("success") && !s.contains("done") && !s.contains("fail") && !s.contains("error")
 }
 
 sealed class ChatStreamEvent {
@@ -165,40 +178,43 @@ fun streamChatRequest(
         return false
     }
 
-    val supportsResponses = streamSupportsResponses(settings, apiKey)
+    emit(ChatStreamEvent.Status("Invio diretto a Hermes Responses API..."))
+    val responsePayload = JSONObject()
+        .put("model", settings.model)
+        .put("input", prompt)
+        .put(
+            "instructions",
+            if (mode.equals("Agente", ignoreCase = true))
+                hermesHubAgentInstructions()
+            else
+                hermesHubChatInstructions()
+        )
+        .put("store", true)
+        .put("stream", true)
+        .put("conversation", conversationId ?: JSONObject.NULL)
+        .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
+        .put("metadata", visualBlocksMetadataJson(settings))
 
-    if (supportsResponses) {
-        val payload = JSONObject()
-            .put("model", settings.model)
-            .put("input", prompt)
-            .put(
-                "instructions",
-                if (mode.equals("Agente", ignoreCase = true))
-                    hermesHubAgentInstructions()
-                else
-                    hermesHubChatInstructions()
-            )
-            .put("store", true)
-            .put("stream", true)
-            .put("conversation", conversationId ?: JSONObject.NULL)
-            .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
-            .put("metadata", visualBlocksMetadataJson(settings))
-
-        val url = "${settings.gatewayUrl.trimEnd('/')}/responses"
-        val terminated = openSseStream(url, payload, apiKey, "Hermes Responses API") { ev ->
-            emitAndTrack(ev)
-        }
-        if (terminated && lastError != null && !sawDelta) {
-            // fall through to chat completions
-        }
+    val responseUrl = "${settings.gatewayUrl.trimEnd('/')}/responses"
+    val terminated = openSseStream(responseUrl, responsePayload, apiKey, "Hermes Responses API") { ev ->
+        emitAndTrack(ev)
+    }
+    if (terminated && lastError != null && !sawDelta) {
+        emit(ChatStreamEvent.Status("Responses API non disponibile, fallback rapido a Chat Completions..."))
     }
 
     if (!sawDelta) {
+        emit(ChatStreamEvent.Status("Fallback a Hermes Chat Completions..."))
         val payload = JSONObject()
             .put("model", settings.model)
             .put("stream", true)
             .put("metadata", visualBlocksMetadataJson(settings))
             .put("messages", JSONArray().apply {
+                put(
+                    JSONObject()
+                        .put("role", "system")
+                        .put("content", if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
+                )
                 history.filter { !it.isAction }.forEach { msg ->
                     put(
                         JSONObject()
@@ -287,6 +303,7 @@ private suspend inline fun openSseStream(
                 onEvent(ChatStreamEvent.Error("$label HTTP ${response.code}: $text"))
                 return@use true
             }
+            onEvent(ChatStreamEvent.Status("$label connesso. Attendo eventi..."))
             val ct = response.body?.contentType()?.toString().orEmpty()
             if (!ct.contains("event-stream", ignoreCase = true)) {
                 val full = response.body?.string().orEmpty()
@@ -296,7 +313,7 @@ private suspend inline fun openSseStream(
             val source = response.body?.source() ?: return@use false
             val dataBuf = StringBuilder()
             var eventName: String? = null
-            while (!source.exhausted()) {
+            while (true) {
                 currentCoroutineContext().ensureActive()
                 val line = source.readUtf8Line() ?: break
                 if (line.isEmpty()) {
@@ -477,11 +494,24 @@ private fun JSONObject.optIntOrNull(key: String): Int? {
 private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
     return JSONObject()
         .put("client", "hermes-hub")
+        .put("client_surface", "android-app")
+        .put("profile", "Matteo")
+        .put(
+            "memory_policy",
+            JSONObject()
+                .put("scope", "shared-hermes-agent-memory")
+                .put("share_with_cli", true)
+                .put("use_server_memory_tools", true)
+                .put("do_not_create_app_only_memory", true)
+        )
         .put(
             "hub_sections",
             JSONObject()
+                .put("chat", "Conversazione principale Hermes Hub.")
                 .put("video", "Feed personale video: output resta sul PC/Hermes, app usa stream_url/download_url e feedback.")
                 .put("news", "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.")
+                .put("jobs", "Coda Hermes Jobs condivisa con CLI/server.")
+                .put("runs", "Runs operative Hermes.")
         )
         .put(
             "visual_blocks",
