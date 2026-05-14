@@ -22,7 +22,7 @@ public sealed partial class HomePage : Page
     private string? _conversationId;
     private string? _previousResponseId;
     private readonly List<ChatMessageRecord> _messageHistory = [];
-    private bool _isSending;
+    private volatile bool _isSending;
 
     private Popup? _slashPopup;
     private ListView? _slashList;
@@ -970,14 +970,22 @@ public sealed partial class HomePage : Page
         return panel;
     }
 
+    private static BitmapImage CreateBoundedBitmap(Uri uri, int decodePixelWidth)
+    {
+        var bitmap = new BitmapImage { DecodePixelWidth = decodePixelWidth };
+        bitmap.UriSource = uri;
+        return bitmap;
+    }
+
     private UIElement RenderDiagram(VisualBlockRecord block)
     {
         if (IsSafeMediaUrl(block.RenderedMediaUrl))
         {
             return new Image
             {
-                Source = new BitmapImage(ResolveMediaUri(block.RenderedMediaUrl!)),
+                Source = CreateBoundedBitmap(ResolveMediaUri(block.RenderedMediaUrl!), 720),
                 MaxHeight = 280,
+                MaxWidth = 720,
                 Stretch = Stretch.Uniform
             };
         }
@@ -1003,8 +1011,9 @@ public sealed partial class HomePage : Page
 
             panel.Children.Add(new Image
             {
-                Source = new BitmapImage(ResolveMediaUri(image.MediaUrl)),
+                Source = CreateBoundedBitmap(ResolveMediaUri(image.MediaUrl), 720),
                 MaxHeight = 220,
+                MaxWidth = 720,
                 Stretch = Stretch.Uniform
             });
             if (!string.IsNullOrWhiteSpace(image.Caption))

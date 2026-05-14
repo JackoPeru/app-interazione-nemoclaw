@@ -184,14 +184,37 @@ app.MapPost("/v1/files/write", async (FileWriteRequest request) =>
         return Results.BadRequest(new { status = "denied", message = $"Payload troppo grande. Limite {config.MaxWriteChars} caratteri." });
     }
 
-    var backupPath = File.Exists(path) ? $"{path}.{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.bak" : null;
-    if (backupPath is not null)
+    string? backupPath = null;
+    if (File.Exists(path))
     {
-        File.Copy(path, backupPath);
+        backupPath = $"{path}.{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.bak";
+        try
+        {
+            File.Copy(path, backupPath);
+        }
+        catch (IOException ex)
+        {
+            audit.Write("files.write", $"backup-failed:{ex.GetType().Name}");
+            return Results.Problem($"Backup non riuscito: {ex.Message}", statusCode: 503);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            audit.Write("files.write", $"backup-denied:{ex.GetType().Name}");
+            return Results.Problem($"Backup negato: {ex.Message}", statusCode: 503);
+        }
     }
 
-    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-    await File.WriteAllTextAsync(path, payload);
+    try
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, payload);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        audit.Write("files.write", $"failed:{ex.GetType().Name}");
+        return Results.Problem($"Scrittura fallita: {ex.Message}", statusCode: 500);
+    }
+
     audit.Write("files.write", path);
     return Results.Json(new { status = "ok", path, backupPath });
 });
@@ -332,15 +355,33 @@ sealed class BridgeConfig
 
 sealed class AuditLog(string path)
 {
+    private readonly object _lock = new();
+
     public void Write(string action, string detail)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.AppendAllText(path, JsonSerializer.Serialize(new
+        var line = JsonSerializer.Serialize(new
         {
             at = DateTimeOffset.UtcNow,
             action,
             detail
-        }) + Environment.NewLine);
+        }) + Environment.NewLine;
+
+        lock (_lock)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.AppendAllText(path, line, System.Text.Encoding.UTF8);
+            }
+            catch (IOException)
+            {
+                // audit failure non blocca request
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // idem
+            }
+        }
     }
 }
 
@@ -349,13 +390,19 @@ static class CommandRunner
     public static async Task<(int ExitCode, string Stdout, string Stderr)> RunAsync(string fileName, string arguments, int timeoutSeconds)
     {
         using var process = new Process();
-        process.StartInfo = new ProcessStartInfo(fileName, arguments)
+        var startInfo = new ProcessStartInfo
         {
+            FileName = fileName,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        foreach (var arg in SplitArguments(arguments))
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+        process.StartInfo = startInfo;
 
         process.Start();
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
@@ -373,5 +420,38 @@ static class CommandRunner
         }
 
         return (process.ExitCode, await stdoutTask, await stderrTask);
+    }
+
+    private static IEnumerable<string> SplitArguments(string arguments)
+    {
+        if (string.IsNullOrWhiteSpace(arguments))
+        {
+            yield break;
+        }
+
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+        foreach (var ch in arguments)
+        {
+            if (ch == '"')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if (!inQuotes && char.IsWhiteSpace(ch))
+            {
+                if (current.Length > 0)
+                {
+                    yield return current.ToString();
+                    current.Clear();
+                }
+                continue;
+            }
+            current.Append(ch);
+        }
+        if (current.Length > 0)
+        {
+            yield return current.ToString();
+        }
     }
 }

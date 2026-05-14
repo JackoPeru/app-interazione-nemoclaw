@@ -506,7 +506,11 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
     return out
 }
 
-private fun extractTextFromAnyJson(obj: JSONObject): String {
+private const val JSON_EXTRACT_MAX_DEPTH = 10
+
+private fun extractTextFromAnyJson(obj: JSONObject, depth: Int = 0): String {
+    if (depth >= JSON_EXTRACT_MAX_DEPTH) return ""
+
     val direct = listOf("output_text", "text", "message", "reply", "result", "summary")
         .firstNotNullOfOrNull { key ->
             val value = obj.opt(key)
@@ -530,7 +534,7 @@ private fun extractTextFromAnyJson(obj: JSONObject): String {
         val builder = StringBuilder()
         for (i in 0 until output.length()) {
             val item = output.optJSONObject(i) ?: continue
-            val nested = extractTextFromAnyJson(item)
+            val nested = extractTextFromAnyJson(item, depth + 1)
             if (nested.isNotBlank()) builder.append(nested)
         }
         if (builder.isNotEmpty()) return builder.toString()
@@ -538,13 +542,13 @@ private fun extractTextFromAnyJson(obj: JSONObject): String {
 
     val response = obj.optJSONObject("response")
     if (response != null) {
-        val nested = extractTextFromAnyJson(response)
+        val nested = extractTextFromAnyJson(response, depth + 1)
         if (nested.isNotBlank()) return nested
     }
 
     val item = obj.optJSONObject("item")
     if (item != null) {
-        val nested = extractTextFromAnyJson(item)
+        val nested = extractTextFromAnyJson(item, depth + 1)
         if (nested.isNotBlank()) return nested
     }
 

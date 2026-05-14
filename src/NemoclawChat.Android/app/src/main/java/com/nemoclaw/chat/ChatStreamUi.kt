@@ -461,24 +461,23 @@ internal fun MarkdownText(
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         blocks.forEach { block ->
             when (block) {
-                is MdBlock.Paragraph -> Text(
-                    text = renderInlineMarkdown(block.text, color),
-                    color = color,
-                    fontSize = fontSize
-                )
-                is MdBlock.Header -> Text(
-                    text = renderInlineMarkdown(block.text, color),
-                    color = color,
-                    fontSize = when (block.level) { 1 -> 20.sp; 2 -> 17.sp; else -> 15.sp },
-                    fontWeight = FontWeight.SemiBold
-                )
+                is MdBlock.Paragraph -> {
+                    val annotated = remember(block.text, color) { renderInlineMarkdown(block.text, color) }
+                    Text(text = annotated, color = color, fontSize = fontSize)
+                }
+                is MdBlock.Header -> {
+                    val annotated = remember(block.text, color) { renderInlineMarkdown(block.text, color) }
+                    Text(
+                        text = annotated,
+                        color = color,
+                        fontSize = when (block.level) { 1 -> 20.sp; 2 -> 17.sp; else -> 15.sp },
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 is MdBlock.Bullet -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("•", color = color, fontSize = fontSize)
-                    Text(
-                        text = renderInlineMarkdown(block.text, color),
-                        color = color,
-                        fontSize = fontSize
-                    )
+                    val annotated = remember(block.text, color) { renderInlineMarkdown(block.text, color) }
+                    Text(text = annotated, color = color, fontSize = fontSize)
                 }
                 is MdBlock.CodeBlock -> Surface(
                     color = AppColors.Composer,

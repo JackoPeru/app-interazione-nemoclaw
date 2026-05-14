@@ -34,7 +34,12 @@ public sealed record WorkspaceRunResult(string Result, string Source, string Sta
 
 public static class GatewayService
 {
-    private static readonly HttpClient HttpClient = new()
+    private static readonly HttpClientHandler HttpHandler = new()
+    {
+        AllowAutoRedirect = false
+    };
+
+    private static readonly HttpClient HttpClient = new(HttpHandler)
     {
         Timeout = TimeSpan.FromSeconds(20)
     };

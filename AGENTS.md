@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.21 Release Hermes Hub 0.6.21
+v0.6.22 Release Hermes Hub 0.6.22
 ```
 
 ## Regola Memoria
@@ -54,7 +54,36 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.21 (Windows + Android):
+Hermes Hub 0.6.22 (Windows + Android):
+
+Audit round 3 + hardening. Tutti i fix elencati in `docs/audit-0.6.22.md`.
+
+Critici:
+- Android `extractTextFromAnyJson` (ChatStream.kt) e `extractJsonText` (MainActivity.kt) ora hanno depth cap a 10. JSON profondo malevolo non causa piu' stack overflow.
+- Android `streamChatRequest` ora invia `messages.takeLast(CHAT_HISTORY_MAX_MESSAGES=30)` invece di full history. Convo lunghe non esplodono il prompt.
+- AdminBridge `/v1/files/write`: `File.Copy` backup in try-catch (IOException/UnauthorizedAccessException). 503 se backup fallisce, 500 su write fail.
+- Windows BitmapImage `RenderDiagram`/`RenderGallery` con `DecodePixelWidth = 720` + `MaxWidth = 720`. Immagini 10000x10000 non possono piu' OOM-are l'app.
+
+High:
+- AdminBridge `AuditLog.Write` ora con `lock` + try-catch su `File.AppendAllText`. Audit log non corrompe piu' su richieste concorrenti.
+- AdminBridge `CommandRunner.RunAsync` usa `ProcessStartInfo.ArgumentList` invece di string. `fileName` con spazi sicuro, no shell injection.
+- Android `MarkdownText`: `renderInlineMarkdown` ora memoizzato per `Paragraph`/`Header`/`Bullet` via `remember(block.text, color)`. Streaming bubble non ricostruisce AnnotatedString ad ogni frame.
+- Android `loadRemoteBitmap`: cap 10MB advertised + 10MB letti + scaling via `inSampleSize` per max 2048px lato + `finally { disconnect() }`. Immagini grandi non OOM-ano, no socket leak.
+- Android `SettingsField`/`SettingsPasswordField`: `take(SETTINGS_FIELD_MAX_LENGTH=2048)` su onValueChange. Paste 1MB non grippa UI.
+- Android prefs cache: `ConcurrentHashMap` su `getSharedPreferences` per nome + flag `migratedPrefs` per evitare migrate retry. Riduce I/O ripetuto.
+
+Med:
+- Android Composer `heightIn` ora scala con `LocalDensity.current.fontScale` (composer cresce con font scale 150%).
+- Windows `GatewayCredentialStore.LoadSecret` distingue `COMException` / `CryptographicException` / generic e logga via `Debug.WriteLine`.
+- Windows `GatewayService.HttpClient` ora con `HttpClientHandler.AllowAutoRedirect = false` esplicito. Niente piu' redirect verso host non validati.
+- Windows BitmapImage `MaxWidth = 720` accoppiato a `MaxHeight` (no tall narrow image OOM).
+
+Low:
+- Windows `_isSending` ora `volatile` (pattern memoria meno fragile).
+
+Note: `mergeTextDelta` audit segnalato come edge-case, ma la logica esistente gia' copre i casi standard SSE replay (`startsWith`, `endsWith`). Skip.
+
+## Release 0.6.21
 
 Audit round 2 + hardening. Tutti i fix elencati in `docs/audit-0.6.21.md`.
 
@@ -220,7 +249,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.21`.
+- Versione app: `0.6.22`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -256,7 +285,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.21`, versionCode `34`.
+- Versione app: `0.6.22`, versionCode `35`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

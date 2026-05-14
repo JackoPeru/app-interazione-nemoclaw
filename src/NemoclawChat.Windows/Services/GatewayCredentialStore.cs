@@ -23,8 +23,21 @@ public static class GatewayCredentialStore
             credential.RetrievePassword();
             return credential.Password ?? string.Empty;
         }
-        catch
+        catch (System.Runtime.InteropServices.COMException ex)
         {
+            // ERROR_NOT_FOUND (0x80070490) = credential non presente: fallback legacy.
+            // Altri COM error (Locker bloccato, profilo mancante): log + fallback.
+            System.Diagnostics.Debug.WriteLine($"[GatewayCredentialStore] vault.Retrieve COM error 0x{ex.HResult:X}: {ex.Message}");
+            return LoadLegacySecret();
+        }
+        catch (System.Security.Cryptography.CryptographicException ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GatewayCredentialStore] crypto error: {ex.Message}");
+            return LoadLegacySecret();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GatewayCredentialStore] unexpected error: {ex.GetType().Name}: {ex.Message}");
             return LoadLegacySecret();
         }
     }

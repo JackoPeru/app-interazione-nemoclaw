@@ -812,7 +812,7 @@ private fun ChatScreen(
                         val prevId = state.previousResponseId
                         var interrupted = false
                         try {
-                            streamChatRequest(settings, mode, text, state.messages.toList(), convId, prevId, loadGatewaySecret(context))
+                            streamChatRequest(settings, mode, text, state.messages.takeLast(CHAT_HISTORY_MAX_MESSAGES).toList(), convId, prevId, loadGatewaySecret(context))
                                 .collect { event ->
                                     localState = localState.applyEvent(event)
                                     state.streamingState = localState
@@ -1332,21 +1332,54 @@ private fun resolveMediaUrl(settings: AppSettings, value: String): String? {
     }
 }
 
+private const val REMOTE_BITMAP_MAX_BYTES = 10L * 1024 * 1024
+private const val REMOTE_BITMAP_MAX_DIMENSION = 2048
+
 private fun loadRemoteBitmap(url: String): Bitmap? {
+    var connection: HttpURLConnection? = null
     return try {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 10_000
             readTimeout = 20_000
+            instanceFollowRedirects = true
             setRequestProperty("Accept", "image/*")
             setRequestProperty("User-Agent", "HermesHub-Android")
         }
-        connection.use {
-            if (it.responseCode !in 200..299) return null
-            BitmapFactory.decodeStream(it.inputStream)
+        if (connection.responseCode !in 200..299) return null
+        val advertised = connection.contentLengthLong
+        if (advertised > REMOTE_BITMAP_MAX_BYTES) return null
+
+        val bytes = connection.inputStream.use { stream ->
+            val buffer = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(8 * 1024)
+            var total = 0L
+            while (true) {
+                val read = stream.read(chunk)
+                if (read <= 0) break
+                total += read
+                if (total > REMOTE_BITMAP_MAX_BYTES) return null
+                buffer.write(chunk, 0, read)
+            }
+            buffer.toByteArray()
         }
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sample = 1
+        while ((bounds.outWidth / sample) > REMOTE_BITMAP_MAX_DIMENSION ||
+               (bounds.outHeight / sample) > REMOTE_BITMAP_MAX_DIMENSION) {
+            sample *= 2
+        }
+
+        val decode = BitmapFactory.Options().apply { inSampleSize = sample }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decode)
     } catch (_: Exception) {
         null
+    } finally {
+        connection?.disconnect()
     }
 }
 
@@ -1538,10 +1571,11 @@ private fun Composer(
             }
         }
 
+        val fontScale = LocalDensity.current.fontScale.coerceIn(0.5f, 2.0f)
         Surface(
             modifier = Modifier
                 .weight(1f)
-                .heightIn(min = 54.dp, max = 156.dp),
+                .heightIn(min = (54 * fontScale).dp, max = (156 * fontScale).dp),
             color = AppColors.Composer,
             shape = RoundedCornerShape(28.dp)
         ) {
@@ -1554,7 +1588,7 @@ private fun Composer(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 38.dp, max = 138.dp)
+                        .heightIn(min = (38 * fontScale).dp, max = (138 * fontScale).dp)
                         .padding(vertical = 5.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
@@ -3012,7 +3046,7 @@ private fun SettingsField(label: String, value: String, onValueChange: (String) 
     TextField(
         modifier = Modifier.fillMaxWidth(),
         value = value,
-        onValueChange = onValueChange,
+        onValueChange = { v -> onValueChange(v.take(SETTINGS_FIELD_MAX_LENGTH)) },
         label = { Text(label, color = AppColors.Muted) },
         colors = TextFieldDefaults.colors(
             focusedContainerColor = AppColors.Composer,
@@ -3032,7 +3066,7 @@ private fun SettingsPasswordField(label: String, value: String, onValueChange: (
     TextField(
         modifier = Modifier.fillMaxWidth(),
         value = value,
-        onValueChange = onValueChange,
+        onValueChange = { v -> onValueChange(v.take(SETTINGS_FIELD_MAX_LENGTH)) },
         label = { Text(label, color = AppColors.Muted) },
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
@@ -3815,12 +3849,15 @@ internal fun extractAssistantText(body: String): String {
     }
 }
 
-private fun extractJsonText(value: Any?): String {
+private const val EXTRACT_JSON_TEXT_MAX_DEPTH = 10
+
+private fun extractJsonText(value: Any?, depth: Int = 0): String {
+    if (depth >= EXTRACT_JSON_TEXT_MAX_DEPTH) return ""
     return when (value) {
         is String -> value
         is JSONObject -> {
             listOf("output_text", "text", "content", "message", "reply").forEach { key ->
-                val text = extractJsonText(value.opt(key))
+                val text = extractJsonText(value.opt(key), depth + 1)
                 if (text.isNotBlank()) {
                     return text
                 }
@@ -3829,7 +3866,7 @@ private fun extractJsonText(value: Any?): String {
             val choices = value.optJSONArray("choices")
             if (choices != null) {
                 for (i in 0 until choices.length()) {
-                    val text = extractJsonText(choices.opt(i))
+                    val text = extractJsonText(choices.opt(i), depth + 1)
                     if (text.isNotBlank()) {
                         return text
                     }
@@ -3837,7 +3874,7 @@ private fun extractJsonText(value: Any?): String {
             }
 
             listOf("delta", "choice", "data").forEach { key ->
-                val text = extractJsonText(value.opt(key))
+                val text = extractJsonText(value.opt(key), depth + 1)
                 if (text.isNotBlank()) {
                     return text
                 }
@@ -3846,7 +3883,7 @@ private fun extractJsonText(value: Any?): String {
         }
         is JSONArray -> buildString {
             for (i in 0 until value.length()) {
-                append(extractJsonText(value.opt(i)))
+                append(extractJsonText(value.opt(i), depth + 1))
             }
         }
         else -> ""
@@ -5077,13 +5114,26 @@ private fun openAndroidIntent(context: Context, intent: Intent): Boolean {
     }
 }
 
+private val prefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
+private val migratedPrefs = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
 private fun migratePrefs(context: Context, currentName: String, legacyName: String): SharedPreferences {
-    val current = context.getSharedPreferences(currentName, Context.MODE_PRIVATE)
+    val current = prefsCache.getOrPut(currentName) {
+        context.applicationContext.getSharedPreferences(currentName, Context.MODE_PRIVATE)
+    }
+
+    if (migratedPrefs.contains(currentName)) {
+        return current
+    }
+    migratedPrefs.add(currentName)
+
     if (current.all.isNotEmpty()) {
         return current
     }
 
-    val legacy = context.getSharedPreferences(legacyName, Context.MODE_PRIVATE)
+    val legacy = prefsCache.getOrPut(legacyName) {
+        context.applicationContext.getSharedPreferences(legacyName, Context.MODE_PRIVATE)
+    }
     if (legacy.all.isNotEmpty()) {
         val editor = current.edit()
         legacy.all.forEach { (key, value) ->
@@ -5112,6 +5162,8 @@ private const val GATEWAY_SECRET_PREF_KEY = "gatewaySecretCiphertext"
 private const val GATEWAY_SECRET_KEY_ALIAS = "chatclaw_gateway_secret"
 private const val MIN_FONT_SCALE = 0.85f
 private const val MAX_FONT_SCALE = 1.25f
+private const val CHAT_HISTORY_MAX_MESSAGES = 30
+private const val SETTINGS_FIELD_MAX_LENGTH = 2048
 
 private object AppDefaults {
     const val gatewayUrl = "http://hermes.local:8642/v1"
