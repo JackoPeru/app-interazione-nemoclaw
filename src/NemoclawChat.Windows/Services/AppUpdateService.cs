@@ -12,7 +12,8 @@ public sealed record UpdateCheckResult(
     string Message,
     string ReleaseUrl,
     string? AssetUrl,
-    string? AssetName);
+    string? AssetName,
+    string ReleaseSummary);
 
 public sealed record UpdateDownloadProgress(double? Percent, string Status, string Detail);
 
@@ -47,7 +48,8 @@ public static class AppUpdateService
                     "Nessuna release GitHub trovata. Crea una release con tag vX.Y.Z e asset Windows/Android.",
                     ReleasesPage,
                     null,
-                    null);
+                    null,
+                    string.Empty);
             }
 
             using var stream = await response.Content.ReadAsStreamAsync();
@@ -56,6 +58,7 @@ public static class AppUpdateService
             var tag = root.GetProperty("tag_name").GetString() ?? string.Empty;
             var latest = NormalizeVersion(tag);
             var releaseUrl = root.GetProperty("html_url").GetString() ?? ReleasesPage;
+            var releaseSummary = SummarizeReleaseNotes(root.TryGetProperty("body", out var bodyElement) ? bodyElement.GetString() ?? string.Empty : string.Empty);
             var asset = FindAsset(root, [".msix", ".exe", ".zip"]);
 
             var hasUpdate = CompareVersions(latest, localVersion) > 0;
@@ -68,7 +71,7 @@ public static class AppUpdateService
                 message += " Release trovata, ma manca asset Windows (.msix/.exe/.zip).";
             }
 
-            return new UpdateCheckResult(hasUpdate, localVersion, latest, message, releaseUrl, asset?.Url, asset?.Name);
+            return new UpdateCheckResult(hasUpdate, localVersion, latest, message, releaseUrl, asset?.Url, asset?.Name, releaseSummary);
         }
         catch (Exception ex)
         {
@@ -79,8 +82,28 @@ public static class AppUpdateService
                 $"Controllo update non riuscito: {ex.Message}",
                 ReleasesPage,
                 null,
-                null);
+                null,
+                string.Empty);
         }
+    }
+
+    private static string SummarizeReleaseNotes(string body)
+    {
+        foreach (var rawLine in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim().TrimStart('-', '*', ' ');
+            if (string.IsNullOrWhiteSpace(line) ||
+                line.StartsWith("Hermes Hub", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Verific", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith('`'))
+            {
+                continue;
+            }
+
+            return line.Length <= 180 ? line : line[..180].TrimEnd() + "...";
+        }
+
+        return string.Empty;
     }
 
     public static FileInfo? FindDownloadedAsset(string version, string? assetName)

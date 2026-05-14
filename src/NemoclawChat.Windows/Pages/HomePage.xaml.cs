@@ -108,7 +108,14 @@ public sealed partial class HomePage : Page
             }
         }
 
-        if (e.Key == VirtualKey.Enter && !IsShiftPressed())
+        if (e.Key == VirtualKey.Enter && IsShiftPressed())
+        {
+            e.Handled = true;
+            InsertPromptNewLine();
+            return;
+        }
+
+        if (e.Key == VirtualKey.Enter)
         {
             e.Handled = true;
             await SendCurrentPromptAsync();
@@ -382,6 +389,15 @@ public sealed partial class HomePage : Page
     {
         return (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) &
                 Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+    }
+
+    private void InsertPromptNewLine()
+    {
+        var start = PromptBox.SelectionStart;
+        var selectedLength = PromptBox.SelectionLength;
+        var text = PromptBox.Text ?? string.Empty;
+        PromptBox.Text = text.Remove(start, selectedLength).Insert(start, Environment.NewLine);
+        PromptBox.SelectionStart = start + Environment.NewLine.Length;
     }
 
     private string AppendPrompt(string addition)

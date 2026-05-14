@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.13 Release Hermes Hub 0.6.13
+v0.6.14 Release Hermes Hub 0.6.14
 ```
 
 ## Regola Memoria
@@ -53,6 +53,16 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.14 (Windows + Android + Linux helper):
+
+- Update UX: Android e Windows leggono il body della GitHub Release e mostrano una stringa `Novita'` nel riquadro Aggiornamenti, vicino a scarica/installa update.
+- Windows chat: Enter invia sempre il messaggio; Shift+Enter inserisce newline manuale nel composer.
+- Linux server helper: aggiunti `scripts/hermes-hub-linux.sh`, `scripts/hermes-hub-linux.service` e `docs/hermes-hub-linux.md` per esporre Hermes API su Ubuntu/Linux (`0.0.0.0:8642`), rilevare modello LM Studio caricato e avviare `hermes gateway run --replace`.
+- Android Video/News: sezioni rese feed/aggregatori persistenti con Jobs Hermes, stream/download URL, feedback e riconoscimento automatico da chat primaria.
+- Android chat empty state: gradiente amber piu' evidente e lungo circa il doppio.
+
+## Release 0.6.13
 
 Hermes Hub 0.6.13 (Windows + Android):
 
@@ -119,7 +129,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.13`.
+- Versione app: `0.6.14`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -154,7 +164,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.13`, versionCode `26`.
+- Versione app: `0.6.14`, versionCode `27`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.
@@ -177,7 +187,7 @@ Android:
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test Hermes `/health`.
 - Android consente cleartext HTTP verso Hermes locale/Tailscale/LAN tramite `network_security_config`, necessario per `http://<ip-pc>:8642/v1`.
 - Android chat HTTP usa timeout lungo per richieste Hermes lente: connect 15s, write 60s, read/call 60 minuti. Serve per modelli LM Studio locali che continuano a generare oltre il timeout breve OkHttp default.
-- Setup locale Matteo: `%LOCALAPPDATA%\hermes\.env` contiene default Hermes API Server + LM Studio; comando PATH `hermes-hub.cmd` avvia `hermes-hub.ps1`, legge il modello LLM attualmente caricato da LM Studio via `/api/v1/models` (`loaded_instances`), aggiorna `model.default/provider/base_url` in `%LOCALAPPDATA%\hermes\config.yaml`, forza `terminal.cwd=C:/Users/Matteo`, disattiva Tirith se non installato (`TIRITH_ENABLED=false`/`security.tirith_enabled=false`), poi avvia `hermes gateway run --replace`. Serve perché Hermes dà precedenza al config model rispetto a `HERMES_INFERENCE_MODEL` e per ridurre warning Windows non fatali.
+- Setup locale Matteo: `%LOCALAPPDATA%\hermes\.env` contiene default Hermes API Server + LM Studio; comando PATH `hermes-hub.cmd` avvia `hermes-hub.ps1`, legge il modello LLM attualmente caricato da LM Studio via `/api/v1/models` (`loaded_instances`), aggiorna `model.default/provider/base_url` in `%LOCALAPPDATA%\hermes\config.yaml`, forza `terminal.cwd=C:/Users/Matteo`, disattiva Tirith se non installato (`TIRITH_ENABLED=false`/`security.tirith_enabled=false`), poi avvia `hermes gateway run --replace`. Su Ubuntu/Linux usare `scripts/hermes-hub-linux.sh` o il servizio user systemd `scripts/hermes-hub-linux.service` per esporre API su `0.0.0.0:8642` con modello LM Studio caricato. Serve perché Hermes dà precedenza al config model rispetto a `HERMES_INFERENCE_MODEL` e per ridurre warning Windows non fatali.
 - Settings salvate in `SharedPreferences` `chatclaw_settings` con migrazione automatica da `nemoclaw_settings`.
 - Conversazioni/progetti salvati in `SharedPreferences` `chatclaw_archive` con migrazione automatica da `nemoclaw_archive`.
 - Task salvati in `SharedPreferences` `chatclaw_tasks`.

@@ -449,8 +449,8 @@ internal data class SlashCommand(
 
 internal enum class SlashAction {
     ModeChat, ModeAgent, Clear, Help, Health,
-    OpenServer, OpenOperator, OpenArchive, OpenTasks, OpenSettings, OpenAbout,
-    PromptSetup, PromptVisual, PromptResearch, PromptWeb, PromptImage
+    OpenServer, OpenOperator, OpenArchive, OpenTasks, OpenVideo, OpenNews, OpenSettings, OpenAbout,
+    PromptSetup, PromptVisual, PromptResearch, PromptWeb, PromptImage, PromptVideo, PromptNews
 }
 
 internal fun slashCommands(): List<SlashCommand> = listOf(
@@ -464,6 +464,8 @@ internal fun slashCommands(): List<SlashCommand> = listOf(
     SlashCommand("/runs", "Apri Operator/Runs", "Probe API Hermes", SlashAction.OpenOperator),
     SlashCommand("/archive", "Apri Archivio", "Conversazioni salvate", SlashAction.OpenArchive),
     SlashCommand("/tasks", "Apri Task agente", "Coda jobs Hermes", SlashAction.OpenTasks),
+    SlashCommand("/video", "Video Hub", "Crea spunto o apri feed video", SlashAction.PromptVideo),
+    SlashCommand("/news", "News Hub", "Crea articolo o apri feed news", SlashAction.PromptNews),
     SlashCommand("/settings", "Impostazioni", "Pagina settings", SlashAction.OpenSettings),
     SlashCommand("/about", "Info app", "Versione, profilo", SlashAction.OpenAbout),
     SlashCommand("/setup", "Setup Hermes", "Prompt setup", SlashAction.PromptSetup),

@@ -33,10 +33,17 @@ public sealed partial class AboutPage : Page
         DownloadUpdateButton.IsEnabled = false;
         InstallUpdateButton.Visibility = Visibility.Collapsed;
         InstallUpdateButton.IsEnabled = false;
+        UpdateSummaryText.Visibility = Visibility.Collapsed;
+        UpdateSummaryText.Text = string.Empty;
         _downloadedAssetPath = null;
 
         _lastUpdateResult = await AppUpdateService.CheckAsync(CurrentVersion);
         UpdateStatusText.Text = _lastUpdateResult.Message;
+        if (!string.IsNullOrWhiteSpace(_lastUpdateResult.ReleaseSummary))
+        {
+            UpdateSummaryText.Text = $"Novita': {_lastUpdateResult.ReleaseSummary}";
+            UpdateSummaryText.Visibility = Visibility.Visible;
+        }
 
         if (!_lastUpdateResult.HasUpdate || string.IsNullOrWhiteSpace(_lastUpdateResult.AssetUrl))
         {

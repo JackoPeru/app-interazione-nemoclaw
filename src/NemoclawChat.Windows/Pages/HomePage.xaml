@@ -234,7 +234,7 @@
                             Grid.Column="1"
                             MinHeight="40"
                             MaxHeight="180"
-                            AcceptsReturn="True"
+                            AcceptsReturn="False"
                             Background="Transparent"
                             BorderThickness="0"
                             Foreground="White"

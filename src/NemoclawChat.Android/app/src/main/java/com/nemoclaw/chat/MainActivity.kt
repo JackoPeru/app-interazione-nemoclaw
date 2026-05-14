@@ -273,6 +273,10 @@ data class WorkspaceRequest(
     val result: String,
     val source: String,
     val status: String,
+    val remoteId: String? = null,
+    val streamUrl: String = "",
+    val downloadUrl: String = "",
+    val feedback: String = "",
     val updatedAt: Long = System.currentTimeMillis()
 )
 
@@ -281,7 +285,8 @@ private data class UpdateCheckResult(
     val latestVersion: String?,
     val message: String,
     val releaseUrl: String,
-    val assetUrl: String?
+    val assetUrl: String?,
+    val releaseSummary: String = ""
 )
 
 private data class UpdateDownloadState(
@@ -292,7 +297,8 @@ private data class UpdateDownloadState(
     val isDownloading: Boolean = false,
     val progress: Float? = null,
     val downloadLabel: String = "",
-    val downloadedApkPath: String? = null
+    val downloadedApkPath: String? = null,
+    val releaseSummary: String = ""
 )
 
 data class AppSettings(
@@ -352,7 +358,19 @@ private data class GatewayRpcCallResult(
 private data class WorkspaceRunResult(
     val result: String,
     val source: String,
-    val status: String
+    val status: String,
+    val remoteId: String? = null,
+    val title: String = "",
+    val streamUrl: String = "",
+    val downloadUrl: String = ""
+)
+
+private data class WorkspaceArtifact(
+    val title: String = "",
+    val result: String = "",
+    val status: String = "",
+    val streamUrl: String = "",
+    val downloadUrl: String = ""
 )
 
 private data class OperatorPreset(
@@ -431,8 +449,14 @@ private fun ChatApp() {
                     Tab.Tasks -> TasksScreen(context, settings)
                     Tab.Server -> ServerScreen(context, settings)
                     Tab.Operator -> OperatorScreen(context, settings)
-                    Tab.Video -> VideoScreen(context, settings)
-                    Tab.News -> NewsScreen(context, settings)
+                    Tab.Video -> VideoScreen(context, settings) { prompt ->
+                        pendingPrompt = prompt
+                        selectedTab = Tab.Chat
+                    }
+                    Tab.News -> NewsScreen(context, settings) { prompt ->
+                        pendingPrompt = prompt
+                        selectedTab = Tab.Chat
+                    }
                     Tab.Settings -> SettingsScreen(
                         settings = settings,
                         onSave = {
@@ -502,13 +526,14 @@ private fun ChatScreen(
                 if (isEmptyChat) {
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0x22F5A524),
-                            Color(0x14181510),
+                            Color(0x34F5A524),
+                            Color(0x241F1710),
+                            Color(0x12181510),
                             AppColors.Background,
                             AppColors.Background
                         ),
-                        startY = -180f,
-                        endY = 720f
+                        startY = -260f,
+                        endY = 1440f
                     )
                 } else {
                     Brush.verticalGradient(listOf(AppColors.Background, AppColors.Background))
@@ -613,6 +638,30 @@ private fun ChatScreen(
                             if (finalState.error != null && finalText.isEmpty()) {
                                 state.messages.add(ChatMessage("Stato", finalState.error, fromUser = false, isAction = true))
                             }
+                            val workspaceKind = if (!interrupted) detectWorkspaceIntent(text) else null
+                            if (workspaceKind != null) {
+                                val workspaceResult = sendWorkspaceRunRequest(settings, workspaceKind, text, loadGatewaySecret(context))
+                                saveWorkspaceRequest(
+                                    context = context,
+                                    kind = workspaceKind,
+                                    prompt = text,
+                                    result = workspaceResult.result.ifBlank { finalText },
+                                    source = workspaceResult.source,
+                                    status = workspaceResult.status,
+                                    remoteId = workspaceResult.remoteId,
+                                    title = workspaceResult.title.ifBlank { makeTitle(text) },
+                                    streamUrl = workspaceResult.streamUrl,
+                                    downloadUrl = workspaceResult.downloadUrl
+                                )
+                                state.messages.add(
+                                    ChatMessage(
+                                        "Hermes Hub",
+                                        "${workspaceKind}: aggiunto alla sezione dedicata. ${workspaceResult.status}",
+                                        fromUser = false,
+                                        isAction = true
+                                    )
+                                )
+                            }
                             if (partialText.isNotEmpty() || (!interrupted && finalText.isNotEmpty())) {
                                 val saved = saveConversationExchange(
                                     context,
@@ -669,11 +718,15 @@ private fun executeSlashCommand(
         SlashAction.PromptResearch -> setDraft("Esegui una ricerca approfondita citando fonti e chiedendo conferma prima di uscire dalla LAN/VPN.")
         SlashAction.PromptWeb -> setDraft("Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN.")
         SlashAction.PromptImage -> setDraft("Prepara una richiesta di generazione immagine, chiedendo conferma prima di usare tool esterni.")
+        SlashAction.PromptVideo -> setDraft("Crea un job video per la sezione Video di Hermes Hub: ")
+        SlashAction.PromptNews -> setDraft("Crea un articolo per la sezione News di Hermes Hub: ")
         SlashAction.Health -> setDraft("Controlla stato Hermes, modello disponibile e capabilities API.")
         SlashAction.OpenServer -> onSwitchTab(Tab.Server)
         SlashAction.OpenOperator -> onSwitchTab(Tab.Operator)
         SlashAction.OpenArchive -> onSwitchTab(Tab.Archive)
         SlashAction.OpenTasks -> onSwitchTab(Tab.Tasks)
+        SlashAction.OpenVideo -> onSwitchTab(Tab.Video)
+        SlashAction.OpenNews -> onSwitchTab(Tab.News)
         SlashAction.OpenSettings -> onSwitchTab(Tab.Settings)
         SlashAction.OpenAbout -> onSwitchTab(Tab.Profile)
     }
@@ -1933,7 +1986,18 @@ private fun OperatorActionButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun VideoScreen(context: Context, settings: AppSettings) {
+private fun VideoScreen(context: Context, settings: AppSettings, onOpenChatPrompt: (String) -> Unit) {
+    WorkspaceFeedScreen(
+        context = context,
+        settings = settings,
+        kind = "Video",
+        title = "Video",
+        description = "Feed personale di video generati da Hermes sul PC. L'app apre lo streaming; il download resta una scelta esplicita.",
+        empty = "Nessun video ancora. Crea lo spunto dalla chat primaria o programma un job Hermes.",
+        chatPrompt = "Crea un job video per la sezione Video di Hermes Hub: ",
+        onOpenChatPrompt = onOpenChatPrompt
+    )
+    return
     val scope = rememberCoroutineScope()
     var brief by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Pronto. Invia un brief: Hermes eseguira' un run reale o usera' fallback chat.") }
@@ -2024,7 +2088,18 @@ private fun VideoScreen(context: Context, settings: AppSettings) {
 }
 
 @Composable
-private fun NewsScreen(context: Context, settings: AppSettings) {
+private fun NewsScreen(context: Context, settings: AppSettings, onOpenChatPrompt: (String) -> Unit) {
+    WorkspaceFeedScreen(
+        context = context,
+        settings = settings,
+        kind = "News",
+        title = "News",
+        description = "Giornale personale: articoli e briefing prodotti da Hermes con fonti, priorita e feedback.",
+        empty = "Nessun articolo ancora. Crea lo spunto dalla chat primaria o programma un job Hermes.",
+        chatPrompt = "Crea un articolo per la sezione News di Hermes Hub: ",
+        onOpenChatPrompt = onOpenChatPrompt
+    )
+    return
     val scope = rememberCoroutineScope()
     var brief by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Pronto. Invia un brief: Hermes eseguira' un run reale o usera' fallback chat.") }
@@ -2114,6 +2189,117 @@ private fun NewsScreen(context: Context, settings: AppSettings) {
     }
 }
 
+@Composable
+private fun WorkspaceFeedScreen(
+    context: Context,
+    settings: AppSettings,
+    kind: String,
+    title: String,
+    description: String,
+    empty: String,
+    chatPrompt: String,
+    onOpenChatPrompt: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var refreshKey by remember { mutableStateOf(0) }
+    var status by remember { mutableStateOf("Feed sincronizzato localmente. I nuovi spunti arrivano dalla chat e dai Jobs Hermes.") }
+    val items = remember(refreshKey) { loadWorkspaceRequests(context, kind) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text(title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(description, color = AppColors.Muted)
+            Spacer(modifier = Modifier.height(12.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = { onOpenChatPrompt(chatPrompt) }) { Text("Nuovo spunto in chat") }
+                Button(onClick = {
+                    status = "Sincronizzo lista Jobs Hermes..."
+                    scope.launch {
+                        status = syncWorkspaceJobs(context, settings, kind, loadGatewaySecret(context))
+                        refreshKey++
+                    }
+                }) { Text("Sincronizza Hermes") }
+            }
+        }
+        item {
+            PremiumPanel {
+                Text(modifier = Modifier.padding(14.dp), text = status, color = AppColors.Muted)
+            }
+        }
+        if (items.isEmpty()) {
+            item {
+                PremiumPanel {
+                    Text(modifier = Modifier.padding(16.dp), text = empty, color = AppColors.Muted)
+                }
+            }
+        }
+        items.forEach { feedItem ->
+            item {
+                WorkspaceFeedItem(context, settings, feedItem) {
+                    refreshKey++
+                    status = it
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceFeedItem(
+    context: Context,
+    settings: AppSettings,
+    item: WorkspaceRequest,
+    onChanged: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var feedback by remember(item.id) { mutableStateOf("") }
+    PremiumPanel {
+        Column(modifier = Modifier.padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(item.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+            Text("${item.status} · ${item.source}", color = AppColors.Muted, fontSize = 12.sp)
+            if (item.result.isNotBlank()) {
+                MarkdownText(item.result.limitText(900), color = Color.White, fontSize = 14.sp)
+            }
+            item.remoteId?.let { Text("Job: $it", color = AppColors.Faint, fontSize = 12.sp) }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (item.streamUrl.isNotBlank()) {
+                    Button(onClick = { openAndroidIntent(context, Intent(Intent.ACTION_VIEW, Uri.parse(resolveWorkspaceUrl(settings, item.streamUrl)))) }) { Text("Streaming") }
+                }
+                if (item.downloadUrl.isNotBlank()) {
+                    Button(onClick = { openAndroidIntent(context, Intent(Intent.ACTION_VIEW, Uri.parse(resolveWorkspaceUrl(settings, item.downloadUrl)))) }) { Text("Scarica") }
+                }
+                if (item.remoteId != null) {
+                    Button(onClick = {
+                        scope.launch { onChanged(runWorkspaceJobAction(settings, item, "run", loadGatewaySecret(context))) }
+                    }) { Text("Aggiorna") }
+                }
+            }
+            SettingsField("Feedback per Hermes", feedback, { feedback = it })
+            Button(onClick = {
+                if (feedback.isBlank()) {
+                    onChanged("Scrivi un feedback prima di inviarlo.")
+                    return@Button
+                }
+                scope.launch {
+                    val result = sendWorkspaceFeedback(settings, item, feedback, loadGatewaySecret(context))
+                    saveWorkspaceFeedback(context, item.id, feedback, result)
+                    feedback = ""
+                    onChanged(result)
+                }
+            }) { Text("Invia feedback") }
+            if (item.feedback.isNotBlank()) {
+                Text("Ultimo feedback: ${item.feedback}", color = AppColors.Muted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
 private fun runOperatorRpc(
     context: Context,
     settings: AppSettings,
@@ -2191,6 +2377,13 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Aggiornamenti", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text(updateState.status, color = AppColors.Muted)
+                    if (updateState.releaseSummary.isNotBlank()) {
+                        Text(
+                            "Novita': ${updateState.releaseSummary}",
+                            color = Color.White,
+                            fontSize = 13.sp
+                        )
+                    }
                     if (updateState.progress != null) {
                         LinearProgressIndicator(
                             progress = { updateState.progress ?: 0f },
@@ -2214,7 +2407,8 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                                 progress = null,
                                 downloadLabel = "",
                                 downloadedApkPath = null,
-                                isDownloading = false
+                                isDownloading = false,
+                                releaseSummary = ""
                             )
                             scope.launch {
                                 val result = checkGithubUpdate(version)
@@ -2236,7 +2430,8 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
                                     hasUpdate = result.hasUpdate,
                                     progress = if (downloadedApk != null) 1f else null,
                                     downloadLabel = downloadedApk?.length()?.toReadableFileSize() ?: "",
-                                    downloadedApkPath = downloadedApk?.absolutePath
+                                    downloadedApkPath = downloadedApk?.absolutePath,
+                                    releaseSummary = result.releaseSummary
                                 )
                             }
                         }) {
@@ -2624,6 +2819,20 @@ private fun validateRequired(value: String, label: String): String? {
     return if (value.isBlank()) "$label obbligatorio." else null
 }
 
+internal fun hermesHubChatInstructions(): String {
+    return "Rispondi come assistente conversazionale Hermes. Hermes Hub ha sezioni Video e News: se l'utente chiede contenuti destinati a quelle sezioni, dichiara chiaramente destinazione, titolo e prossimi passi."
+}
+
+internal fun hermesHubAgentInstructions(): String {
+    return """
+        Agisci come Hermes Agent operativo. Usa strumenti, memoria, jobs e filesystem disponibili lato server e conserva un riepilogo chiaro delle azioni.
+        Hermes Hub espone due sezioni aggregate:
+        - Video: feed personale di video generati su PC/Hermes. Non inviare il file al telefono; genera/salva lato server e restituisci stream_url e download_url solo se disponibili. Accetta feedback utente per migliorare editing, ritmo, durata, voce, fonti e contenuto.
+        - News: feed personale di articoli/briefing con fonti. Cerca, valuta, sintetizza, cita fonti e accetta feedback per adattare interessi, tono e profondita.
+        Quando crei un output destinato a Video o News, produci anche un oggetto JSON compatto con: kind, title, summary, status, job_id, stream_url, download_url, sources.
+    """.trimIndent()
+}
+
 private suspend fun sendChatRequest(
     settings: AppSettings,
     mode: String,
@@ -2643,9 +2852,9 @@ private suspend fun sendChatRequest(
                 .put(
                     "instructions",
                     if (mode.equals("Agente", ignoreCase = true)) {
-                        "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni."
+                        hermesHubAgentInstructions()
                     } else {
-                        "Rispondi come assistente conversazionale Hermes."
+                        hermesHubChatInstructions()
                     }
                 )
                 .put("store", true)
@@ -2735,6 +2944,12 @@ private suspend fun sendChatRequest(
 private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
     return JSONObject()
         .put("client", "hermes-hub")
+        .put(
+            "hub_sections",
+            JSONObject()
+                .put("video", "Feed personale video: output resta sul PC/Hermes, app usa stream_url/download_url e feedback.")
+                .put("news", "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.")
+        )
         .put(
             "visual_blocks",
             JSONObject()
@@ -2935,10 +3150,44 @@ private suspend fun sendWorkspaceRunRequest(
     prompt: String,
     apiKey: String?
 ): WorkspaceRunResult = withContext(Dispatchers.IO) {
-    val runPrompt = if (kind.equals("Video", ignoreCase = true)) {
-        "Sezione Video Hermes Hub. Crea output operativo per produzione video: brief, script, storyboard, scene, asset, voce, musica, rischi, prossimi step.\n\nRichiesta utente:\n$prompt"
-    } else {
-        "Sezione News Hermes Hub. Crea output operativo per ricerca e aggiornamento: query, fonti da consultare, filtri, sintesi attesa, frequenza, formato briefing, rischi di affidabilita.\n\nRichiesta utente:\n$prompt"
+    val runPrompt = workspaceInstructions(kind, prompt)
+    val title = makeTitle(prompt)
+
+    val jobPayload = JSONObject()
+        .put("title", title)
+        .put("instructions", runPrompt)
+        .put("detail", runPrompt)
+        .put("mode", kind)
+        .put("requiresApproval", false)
+        .put(
+            "metadata",
+            JSONObject()
+                .put("client", "hermes-hub")
+                .put("workspace", kind.lowercase())
+                .put("destination", kind)
+                .put("output_contract", workspaceOutputContract(kind))
+        )
+
+    try {
+        val job = postJson("${hermesRoot(settings)}/api/jobs", jobPayload, apiKey)
+        if (job.first in 200..299) {
+            val remoteId = extractTaskId(job.second)
+            if (!remoteId.isNullOrBlank()) {
+                runCatching { postJson("${hermesRoot(settings)}/api/jobs/$remoteId/run", JSONObject(), apiKey) }
+            }
+            val artifact = parseWorkspaceArtifact(kind, job.second)
+            return@withContext WorkspaceRunResult(
+                result = artifact.result.ifBlank { job.second.ifBlank { "Job Hermes creato per la sezione $kind." } },
+                source = "Hermes Jobs",
+                status = artifact.status.ifBlank { "Job creato su Hermes." },
+                remoteId = remoteId,
+                title = artifact.title.ifBlank { title },
+                streamUrl = artifact.streamUrl,
+                downloadUrl = artifact.downloadUrl
+            )
+        }
+    } catch (_: Exception) {
+        // Fall through to runs/chat fallback.
     }
 
     val payload = JSONObject()
@@ -2955,10 +3204,15 @@ private suspend fun sendWorkspaceRunRequest(
     try {
         val run = postJson(resolveHermesUrl(settings, "/v1/runs"), payload, apiKey)
         if (run.first in 200..299) {
+            val artifact = parseWorkspaceArtifact(kind, run.second)
             return@withContext WorkspaceRunResult(
-                result = run.second.ifBlank { "Run creata su Hermes." },
+                result = artifact.result.ifBlank { run.second.ifBlank { "Run creata su Hermes." } },
                 source = "Hermes Runs",
-                status = "Run Hermes completata."
+                status = artifact.status.ifBlank { "Run Hermes completata." },
+                remoteId = extractTaskId(run.second),
+                title = artifact.title.ifBlank { title },
+                streamUrl = artifact.streamUrl,
+                downloadUrl = artifact.downloadUrl
             )
         }
     } catch (_: Exception) {
@@ -2974,7 +3228,122 @@ private suspend fun sendWorkspaceRunRequest(
         previousResponseId = null,
         apiKey = apiKey
     )
-    WorkspaceRunResult(chat.text, chat.source, chat.statusMessage)
+    val artifact = parseWorkspaceArtifact(kind, chat.text)
+    WorkspaceRunResult(
+        result = artifact.result.ifBlank { chat.text },
+        source = chat.source,
+        status = chat.statusMessage,
+        title = artifact.title.ifBlank { title },
+        streamUrl = artifact.streamUrl,
+        downloadUrl = artifact.downloadUrl
+    )
+}
+
+private fun workspaceInstructions(kind: String, prompt: String): String {
+    return if (kind.equals("Video", ignoreCase = true)) {
+        """
+            Destinazione: Hermes Hub / Video.
+            Obiettivo: crea o programma un video personale per Matteo. Il file resta sul PC/server Hermes; il telefono riceve solo metadati, stream_url e download_url opzionale.
+            Produzione: ricerca tema se necessario, crea script, storyboard, asset plan, eventuale Remotion project/render o pipeline IA se disponibile lato server.
+            Feedback: usa feedback precedenti per adattare durata, ritmo, editing, tono, fonti, voce, musica e livello tecnico.
+            Output JSON richiesto: {"kind":"Video","title":"...","summary":"...","status":"...","job_id":"...","stream_url":"...","download_url":"...","sources":[]}
+
+            Richiesta utente:
+            $prompt
+        """.trimIndent()
+    } else {
+        """
+            Destinazione: Hermes Hub / News.
+            Obiettivo: crea un articolo/briefing personale per Matteo con fonti verificabili e sintesi ragionata.
+            Produzione: cerca notizie rilevanti, filtra per interesse, cita fonti, separa fatti da inferenze e prepara testo leggibile come giornale personale.
+            Feedback: usa feedback precedenti per adattare argomenti, profondita, tono, fonti e frequenza.
+            Output JSON richiesto: {"kind":"News","title":"...","summary":"...","status":"...","job_id":"...","sources":[{"title":"...","url":"..."}]}
+
+            Richiesta utente:
+            $prompt
+        """.trimIndent()
+    }
+}
+
+private fun workspaceOutputContract(kind: String): JSONObject {
+    return JSONObject()
+        .put("kind", kind)
+        .put("title", "string")
+        .put("summary", "string")
+        .put("status", "queued|running|ready|needs_feedback|failed")
+        .put("job_id", "string")
+        .put("stream_url", if (kind.equals("Video", ignoreCase = true)) "URL streaming video da PC/Hermes" else "")
+        .put("download_url", if (kind.equals("Video", ignoreCase = true)) "URL download opzionale" else "")
+        .put("sources", "array")
+}
+
+private fun parseWorkspaceArtifact(kind: String, body: String): WorkspaceArtifact {
+    val json = findFirstJSONObject(body) ?: return WorkspaceArtifact(result = body.limitText(1600))
+    val title = json.extractString("title").orEmpty()
+    val status = json.extractString("status")
+        ?: json.extractNestedString("job", "status")
+        ?: json.extractNestedString("task", "status")
+        ?: ""
+    val streamUrl = json.extractString("stream_url")
+        ?: json.extractString("streamUrl")
+        ?: json.extractNestedString("media", "stream_url")
+        ?: ""
+    val downloadUrl = json.extractString("download_url")
+        ?: json.extractString("downloadUrl")
+        ?: json.extractNestedString("media", "download_url")
+        ?: ""
+    val summary = json.extractString("summary")
+        ?: json.extractString("article")
+        ?: json.extractString("body")
+        ?: json.extractString("result")
+        ?: body.limitText(1600)
+    val sources = json.optJSONArray("sources")?.let { array ->
+        buildString {
+            append("\n\nFonti:\n")
+            for (i in 0 until minOf(array.length(), 12)) {
+                val src = array.optJSONObject(i) ?: continue
+                append("- ")
+                append(src.optString("title", src.optString("url", "Fonte")))
+                src.optString("url").takeIf { it.isNotBlank() }?.let { append(" - ").append(it) }
+                append('\n')
+            }
+        }
+    }.orEmpty()
+    return WorkspaceArtifact(
+        title = title.ifBlank { makeTitle(summary.ifBlank { kind }) },
+        result = (summary + sources).trim(),
+        status = status,
+        streamUrl = streamUrl,
+        downloadUrl = downloadUrl
+    )
+}
+
+private fun findFirstJSONObject(body: String): JSONObject? {
+    val trimmed = body.trim()
+    if (trimmed.startsWith("{")) {
+        return runCatching { JSONObject(trimmed) }.getOrNull()
+    }
+    val start = trimmed.indexOf('{')
+    val end = trimmed.lastIndexOf('}')
+    if (start >= 0 && end > start) {
+        return runCatching { JSONObject(trimmed.substring(start, end + 1)) }.getOrNull()
+    }
+    return null
+}
+
+private fun detectWorkspaceIntent(prompt: String): String? {
+    val text = prompt.lowercase()
+    val asksProduction = listOf("crea", "genera", "fammi", "prepara", "programma", "cron", "job", "ogni mattina", "ogni giorno")
+        .any { text.contains(it) }
+    if (!asksProduction) return null
+    if (listOf("video", "remotion", "youtube", "montaggio", "storyboard").any { text.contains(it) }) return "Video"
+    if (listOf("news", "notizie", "articolo", "giornale", "fonti", "briefing").any { text.contains(it) }) return "News"
+    return null
+}
+
+private fun resolveWorkspaceUrl(settings: AppSettings, url: String): String {
+    if (url.startsWith("http://", true) || url.startsWith("https://", true)) return url
+    return "${hermesRoot(settings)}${if (url.startsWith('/')) url else "/$url"}"
 }
 
 private fun resolveHermesUrl(settings: AppSettings, path: String): String {
@@ -3505,7 +3874,8 @@ private suspend fun checkGithubUpdate(localVersion: String): UpdateCheckResult =
                     latestVersion = null,
                     message = "Nessuna release GitHub trovata. Crea una release con tag vX.Y.Z e asset APK.",
                     releaseUrl = AppDefaults.releasesPage,
-                    assetUrl = null
+                    assetUrl = null,
+                    releaseSummary = ""
                 )
             }
 
@@ -3513,6 +3883,7 @@ private suspend fun checkGithubUpdate(localVersion: String): UpdateCheckResult =
             val json = JSONObject(body)
             val latest = normalizeVersion(json.optString("tag_name"))
             val releaseUrl = json.optString("html_url", AppDefaults.releasesPage)
+            val releaseSummary = summarizeReleaseNotes(json.optString("body"))
             val assetUrl = findReleaseAsset(json.optJSONArray("assets") ?: JSONArray(), ".apk")
             val hasUpdate = compareVersions(latest, localVersion) > 0
             var message = if (hasUpdate) {
@@ -3529,7 +3900,8 @@ private suspend fun checkGithubUpdate(localVersion: String): UpdateCheckResult =
                 latestVersion = latest,
                 message = message,
                 releaseUrl = releaseUrl,
-                assetUrl = assetUrl
+                assetUrl = assetUrl,
+                releaseSummary = releaseSummary
             )
         }
     } catch (ex: Exception) {
@@ -3538,9 +3910,24 @@ private suspend fun checkGithubUpdate(localVersion: String): UpdateCheckResult =
             latestVersion = null,
             message = "Controllo update non riuscito: ${ex.message ?: ex.javaClass.simpleName}",
             releaseUrl = AppDefaults.releasesPage,
-            assetUrl = null
+            assetUrl = null,
+            releaseSummary = ""
         )
     }
+}
+
+private fun summarizeReleaseNotes(body: String): String {
+    return body
+        .lines()
+        .map { it.trim().trimStart('-', '*', ' ') }
+        .firstOrNull { line ->
+            line.isNotBlank() &&
+                !line.startsWith("Hermes Hub", ignoreCase = true) &&
+                !line.startsWith("Verific", ignoreCase = true) &&
+                !line.startsWith("`")
+        }
+        ?.limitText(180)
+        .orEmpty()
 }
 
 private inline fun <T : HttpURLConnection, R> T.use(block: (T) -> R): R {
@@ -3845,6 +4232,10 @@ private fun loadWorkspaceRequests(context: Context, kind: String): List<Workspac
                         result = obj.optString("result"),
                         source = obj.optString("source"),
                         status = obj.optString("status"),
+                        remoteId = obj.optString("remoteId").ifBlank { null },
+                        streamUrl = obj.optString("streamUrl"),
+                        downloadUrl = obj.optString("downloadUrl"),
+                        feedback = obj.optString("feedback"),
                         updatedAt = obj.optLong("updatedAt")
                     )
                 )
@@ -3852,13 +4243,25 @@ private fun loadWorkspaceRequests(context: Context, kind: String): List<Workspac
         }
             .filter { it.kind.equals(kind, ignoreCase = true) }
             .sortedByDescending { it.updatedAt }
-            .take(8)
+            .take(80)
     } catch (_: Exception) {
         emptyList()
     }
 }
 
-private fun saveWorkspaceRequest(context: Context, kind: String, prompt: String, result: String, source: String, status: String) {
+private fun saveWorkspaceRequest(
+    context: Context,
+    kind: String,
+    prompt: String,
+    result: String,
+    source: String,
+    status: String,
+    remoteId: String? = null,
+    title: String = makeTitle(prompt),
+    streamUrl: String = "",
+    downloadUrl: String = "",
+    feedback: String = ""
+) {
     val prefs = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE)
     val existingRaw = prefs.getString("items", "[]") ?: "[]"
     val existing = try {
@@ -3872,11 +4275,15 @@ private fun saveWorkspaceRequest(context: Context, kind: String, prompt: String,
         JSONObject()
             .put("id", "workspace_$now")
             .put("kind", kind)
-            .put("title", makeTitle(prompt))
+            .put("title", title)
             .put("prompt", prompt)
             .put("result", result)
             .put("source", source)
             .put("status", status)
+            .put("remoteId", remoteId ?: JSONObject.NULL)
+            .put("streamUrl", streamUrl)
+            .put("downloadUrl", downloadUrl)
+            .put("feedback", feedback)
             .put("updatedAt", now)
     )
     for (i in 0 until existing.length()) {
@@ -3885,6 +4292,103 @@ private fun saveWorkspaceRequest(context: Context, kind: String, prompt: String,
     val array = JSONArray()
     all.sortedByDescending { it.optLong("updatedAt") }.take(200).forEach { array.put(it) }
     prefs.edit().putString("items", array.toString()).apply()
+}
+
+private fun saveWorkspaceFeedback(context: Context, id: String, feedback: String, status: String) {
+    val prefs = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE)
+    val existing = try {
+        JSONArray(prefs.getString("items", "[]") ?: "[]")
+    } catch (_: Exception) {
+        JSONArray()
+    }
+    val array = JSONArray()
+    for (i in 0 until existing.length()) {
+        val obj = existing.optJSONObject(i) ?: continue
+        if (obj.optString("id") == id) {
+            obj.put("feedback", feedback)
+            obj.put("status", status)
+            obj.put("updatedAt", System.currentTimeMillis())
+        }
+        array.put(obj)
+    }
+    prefs.edit().putString("items", array.toString()).apply()
+}
+
+private suspend fun syncWorkspaceJobs(context: Context, settings: AppSettings, kind: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+    try {
+        val body = httpGet("${hermesRoot(settings)}/api/jobs", apiKey)
+        val array = findWorkspaceJobsArray(body)
+        var imported = 0
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            val text = obj.toString()
+            if (!text.contains(kind, ignoreCase = true) && !text.contains("\"workspace\":\"${kind.lowercase()}\"", ignoreCase = true)) continue
+            val artifact = parseWorkspaceArtifact(kind, text)
+            saveWorkspaceRequest(
+                context = context,
+                kind = kind,
+                prompt = obj.optString("instructions", obj.optString("detail", artifact.result)),
+                result = artifact.result.ifBlank { obj.optString("summary", text.limitText(900)) },
+                source = "Hermes Jobs",
+                status = artifact.status.ifBlank { obj.optString("status", "Sincronizzato da Hermes.") },
+                remoteId = extractTaskId(text),
+                title = artifact.title.ifBlank { obj.optString("title", "$kind Hermes") },
+                streamUrl = artifact.streamUrl,
+                downloadUrl = artifact.downloadUrl
+            )
+            imported++
+        }
+        "Sincronizzazione completata: $imported elementi $kind importati/aggiornati."
+    } catch (ex: Exception) {
+        "Sincronizzazione fallita: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private suspend fun sendWorkspaceFeedback(settings: AppSettings, item: WorkspaceRequest, feedback: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+    val instructions = """
+        Feedback utente per ${item.kind} '${item.title}':
+        $feedback
+
+        Aggiorna il contenuto rispettando preferenze utente. Se e' Video, migliora editing/contenuto e mantieni output sul PC con stream_url/download_url. Se e' News, aggiorna articolo e fonti.
+        Job originale: ${item.remoteId ?: "non disponibile"}
+    """.trimIndent()
+    try {
+        if (item.remoteId != null) {
+            val response = postJson(
+                "${hermesRoot(settings)}/api/jobs/${item.remoteId}",
+                JSONObject().put("feedback", feedback).put("instructions", instructions),
+                apiKey,
+                "PATCH"
+            )
+            if (response.first in 200..299) {
+                return@withContext "Feedback inviato a Hermes Jobs."
+            }
+        }
+        val result = sendWorkspaceRunRequest(settings, item.kind, instructions, apiKey)
+        "Feedback inviato a Hermes: ${result.status}"
+    } catch (ex: Exception) {
+        "Feedback salvato localmente; invio Hermes fallito: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private suspend fun runWorkspaceJobAction(settings: AppSettings, item: WorkspaceRequest, action: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+    val id = item.remoteId ?: return@withContext "Nessun job Hermes collegato."
+    return@withContext try {
+        val response = postJson("${hermesRoot(settings)}/api/jobs/$id/$action", JSONObject(), apiKey)
+        if (response.first in 200..299) "Job Hermes aggiornato." else "Hermes HTTP ${response.first}: ${extractHumanError(response.second)}"
+    } catch (ex: Exception) {
+        "Azione job fallita: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private fun findWorkspaceJobsArray(body: String): JSONArray {
+    val trimmed = body.trim()
+    if (trimmed.startsWith("[")) return JSONArray(trimmed)
+    val root = JSONObject(trimmed)
+    return root.optJSONArray("jobs")
+        ?: root.optJSONArray("items")
+        ?: root.optJSONArray("data")
+        ?: JSONArray().put(root)
 }
 
 private fun saveConversationExchange(

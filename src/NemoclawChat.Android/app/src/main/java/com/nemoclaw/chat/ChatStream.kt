@@ -174,9 +174,9 @@ fun streamChatRequest(
             .put(
                 "instructions",
                 if (mode.equals("Agente", ignoreCase = true))
-                    "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni."
+                    hermesHubAgentInstructions()
                 else
-                    "Rispondi come assistente conversazionale Hermes."
+                    hermesHubChatInstructions()
             )
             .put("store", true)
             .put("stream", true)
@@ -477,6 +477,12 @@ private fun JSONObject.optIntOrNull(key: String): Int? {
 private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
     return JSONObject()
         .put("client", "hermes-hub")
+        .put(
+            "hub_sections",
+            JSONObject()
+                .put("video", "Feed personale video: output resta sul PC/Hermes, app usa stream_url/download_url e feedback.")
+                .put("news", "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.")
+        )
         .put(
             "visual_blocks",
             JSONObject()

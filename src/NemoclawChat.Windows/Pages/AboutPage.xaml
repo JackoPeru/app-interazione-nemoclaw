@@ -96,6 +96,12 @@
                             Foreground="{StaticResource MutedTextBrush}"
                             Text="Controlla GitHub Releases per nuove versioni."
                             TextWrapping="Wrap" />
+                        <TextBlock
+                            x:Name="UpdateSummaryText"
+                            Foreground="White"
+                            FontSize="13"
+                            TextWrapping="Wrap"
+                            Visibility="Collapsed" />
                         <ProgressBar
                             x:Name="UpdateProgressBar"
                             Height="8"

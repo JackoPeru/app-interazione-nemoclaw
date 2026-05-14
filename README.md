@@ -7,7 +7,7 @@ Client Windows + Android per parlare con Hermes Agent su home-server.
 - Windows: `src/NemoclawChat.Windows`
 - Android: `src/NemoclawChat.Android`
 - Admin Bridge legacy/dev opzionale: `src/ChatClaw.AdminBridge`
-- Guide: `docs/windows-desktop-guide.md`, `docs/android-app-guide.md`, `docs/hermes-hub-conversion.md`
+- Guide: `docs/windows-desktop-guide.md`, `docs/android-app-guide.md`, `docs/hermes-hub-conversion.md`, `docs/hermes-hub-linux.md`
 - Preset: `config/hermes-defaults.json`
 
 ## Stato attuale
@@ -61,7 +61,7 @@ src/NemoclawChat.Android/app/build/outputs/apk/debug/app-debug.apk
 Versione corrente:
 
 ```text
-v0.6.13
+v0.6.14
 ```
 
 Asset attesi dagli updater:
