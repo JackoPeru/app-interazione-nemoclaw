@@ -5,6 +5,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -38,6 +40,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -98,6 +101,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -109,6 +113,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -1069,17 +1074,71 @@ private fun DiagramBlock(block: VisualBlock) {
 
 @Composable
 private fun GalleryBlock(block: VisualBlock) {
+    val context = LocalContext.current
+    val settings = remember { loadSettings(context) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         block.images.take(12).forEach { image ->
-            Text(
-                text = if (isSafeMediaUrl(image.mediaUrl)) "${image.alt}: media proxy pronto." else "${image.alt}: media non proxy rifiutato.",
-                color = AppColors.Muted,
-                fontSize = 13.sp
-            )
+            RemoteGalleryImage(settings, image)
             if (image.caption.isNotBlank()) {
                 Text(image.caption, color = AppColors.Muted, fontSize = 12.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun RemoteGalleryImage(settings: AppSettings, image: VisualGalleryImage) {
+    val resolved = remember(settings.gatewayUrl, image.mediaUrl) { resolveMediaUrl(settings, image.mediaUrl) }
+    if (resolved == null) {
+        Text("${image.alt}: media non proxy rifiutato.", color = AppColors.Muted, fontSize = 13.sp)
+        return
+    }
+
+    val bitmap by produceState<Bitmap?>(initialValue = null, resolved) {
+        value = withContext(Dispatchers.IO) { loadRemoteBitmap(resolved) }
+    }
+    val loaded = bitmap
+    if (loaded == null) {
+        Text("${image.alt}: caricamento immagine...", color = AppColors.Muted, fontSize = 13.sp)
+        return
+    }
+
+    val ratio = (loaded.width.toFloat() / loaded.height.toFloat()).coerceIn(0.7f, 1.9f)
+    Image(
+        bitmap = loaded.asImageBitmap(),
+        contentDescription = image.alt,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(ratio)
+            .clip(RoundedCornerShape(8.dp))
+    )
+}
+
+private fun resolveMediaUrl(settings: AppSettings, value: String): String? {
+    if (!isSafeMediaUrl(value)) return null
+    return if (value.startsWith("http://", true) || value.startsWith("https://", true)) {
+        value
+    } else {
+        "${hermesRoot(settings).trimEnd('/')}${if (value.startsWith('/')) value else "/$value"}"
+    }
+}
+
+private fun loadRemoteBitmap(url: String): Bitmap? {
+    return try {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 10_000
+            readTimeout = 20_000
+            setRequestProperty("Accept", "image/*")
+            setRequestProperty("User-Agent", "HermesHub-Android")
+        }
+        connection.use {
+            if (it.responseCode !in 200..299) return null
+            BitmapFactory.decodeStream(it.inputStream)
+        }
+    } catch (_: Exception) {
+        null
     }
 }
 
@@ -2820,7 +2879,7 @@ private fun validateRequired(value: String, label: String): String? {
 }
 
 internal fun hermesHubChatInstructions(): String {
-    return "Rispondi come assistente conversazionale Hermes. Hermes Hub ha sezioni Video e News: se l'utente chiede contenuti destinati a quelle sezioni, dichiara chiaramente destinazione, titolo e prossimi passi."
+    return "Rispondi come assistente conversazionale Hermes. Hermes Hub supporta immagini in chat tramite visual_blocks image_gallery: usa solo media_url da proxy Hermes /v1/media/... con alt e caption, mai file://, data: o URL esterni diretti. Hermes Hub ha sezioni Video e News: se l'utente chiede contenuti destinati a quelle sezioni, dichiara chiaramente destinazione, titolo e prossimi passi."
 }
 
 internal fun hermesHubAgentInstructions(): String {
@@ -2829,6 +2888,7 @@ internal fun hermesHubAgentInstructions(): String {
         Hermes Hub espone due sezioni aggregate:
         - Video: feed personale di video generati su PC/Hermes. Non inviare il file al telefono; genera/salva lato server e restituisci stream_url e download_url solo se disponibili. Accetta feedback utente per migliorare editing, ritmo, durata, voce, fonti e contenuto.
         - News: feed personale di articoli/briefing con fonti. Cerca, valuta, sintetizza, cita fonti e accetta feedback per adattare interessi, tono e profondita.
+        - Immagini in chat: se generi o recuperi immagini, inviale come visual_blocks image_gallery con media_url servito dal proxy Hermes /v1/media/..., alt descrittivo e caption. Non usare file://, data: o URL esterni diretti nel client.
         Quando crei un output destinato a Video o News, produci anche un oggetto JSON compatto con: kind, title, summary, status, job_id, stream_url, download_url, sources.
     """.trimIndent()
 }
@@ -2956,6 +3016,7 @@ private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
                 .put("min_supported_version", VISUAL_BLOCKS_VERSION)
                 .put("max_supported_version", VISUAL_BLOCKS_VERSION)
                 .put("mode", settings.visualBlocksMode)
+                .put("image_gallery", "supported via /v1/media proxy URLs only")
         )
 }
 
@@ -3672,6 +3733,10 @@ private fun shouldAttachVisualBlocks(settings: AppSettings, prompt: String): Boo
     if (settings.visualBlocksMode == "never") return false
     if (settings.visualBlocksMode == "always") return true
     return prompt.contains("visual", ignoreCase = true) ||
+        prompt.contains("immagine", ignoreCase = true) ||
+        prompt.contains("immagini", ignoreCase = true) ||
+        prompt.contains("image", ignoreCase = true) ||
+        prompt.contains("foto", ignoreCase = true) ||
         prompt.contains("diagram", ignoreCase = true) ||
         prompt.contains("grafico", ignoreCase = true) ||
         prompt.contains("tabella", ignoreCase = true) ||

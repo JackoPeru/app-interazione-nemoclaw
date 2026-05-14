@@ -62,8 +62,8 @@ public static class ChatStreamClient
                 model = settings.Model,
                 input = prompt,
                 instructions = mode.Equals("Agente", StringComparison.OrdinalIgnoreCase)
-                    ? "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni."
-                    : "Rispondi come assistente conversazionale Hermes.",
+                    ? "Agisci come Hermes Agent operativo. Usa strumenti e memoria disponibili lato server e conserva un riepilogo chiaro delle azioni. Se generi immagini per la chat, restituiscile come visual_blocks image_gallery usando solo media_url del proxy Hermes /v1/media/... con alt e caption."
+                    : "Rispondi come assistente conversazionale Hermes. Se invii immagini, usa visual_blocks image_gallery con media_url del proxy Hermes /v1/media/..., alt e caption.",
                 store = true,
                 stream = true,
                 conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
@@ -75,7 +75,8 @@ public static class ChatStreamClient
                     {
                         min_supported_version = VisualBlocksContract.Version,
                         max_supported_version = VisualBlocksContract.Version,
-                        mode = settings.VisualBlocksMode
+                        mode = settings.VisualBlocksMode,
+                        image_gallery = "supported via /v1/media proxy URLs only"
                     }
                 }
             });
@@ -138,7 +139,8 @@ public static class ChatStreamClient
                     {
                         min_supported_version = VisualBlocksContract.Version,
                         max_supported_version = VisualBlocksContract.Version,
-                        mode = settings.VisualBlocksMode
+                        mode = settings.VisualBlocksMode,
+                        image_gallery = "supported via /v1/media proxy URLs only"
                     }
                 },
                 messages = history.Select(m => new
