@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.18 Release Hermes Hub 0.6.18
+v0.6.19 Release Hermes Hub 0.6.19
 ```
 
 ## Regola Memoria
@@ -53,6 +53,13 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.19 (Windows + Android):
+
+- Android composer: rimosso gap residuo tra textbox e tastiera (padding bottom del Row composer passato da 6.dp a 0.dp), input flush sopra IME.
+- Android streaming activity: rimossa percentuale fittizia animata (`activityProgressPercent`, basata solo su una fase 0→1 su 90s, mostrava 42% appena partita e non riflette il vero prompt processing di LM Studio). Sostituita con indicatore reale derivato dallo stato stream: `prompt…` shimmer in attesa del primo token, `reasoning N tok` durante reasoning, `N tok` durante generazione, `tool…` per tool pending, `Completato` a fine. Etichetta `Fase` non mostra piu' la percentuale.
+
+## Release 0.6.18
 
 Hermes Hub 0.6.18 (Windows + Android):
 
@@ -158,7 +165,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.18`.
+- Versione app: `0.6.19`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -194,7 +201,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.18`, versionCode `31`.
+- Versione app: `0.6.19`, versionCode `32`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

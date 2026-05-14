@@ -1360,7 +1360,7 @@ private fun Composer(
         modifier = Modifier
             .fillMaxWidth()
             .imePadding()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 0.dp)
             .widthIn(max = 1040.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Bottom

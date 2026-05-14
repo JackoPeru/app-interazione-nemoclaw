@@ -95,16 +95,6 @@ internal fun StreamingBubbleView(state: StreamingState) {
 @Composable
 internal fun HermesActivityExpander(state: StreamingState) {
     var expanded by remember { mutableStateOf(false) }
-    val transition = rememberInfiniteTransition(label = "activity-progress")
-    val progressPhase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 90000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "progress-phase"
-    )
     val pendingTool = state.toolCalls.lastOrNull { inferToolOutcome(it) == ToolOutcome.Pending }
     val active = !state.isDone
     val title = when {
@@ -118,8 +108,8 @@ internal fun HermesActivityExpander(state: StreamingState) {
         state.toolCalls.isNotEmpty() -> "Tool usati"
         else -> "Attivita Hermes"
     }
-    val progress = activityProgressPercent(state, progressPhase)
     val stage = activityStageLabel(state)
+    val indicator = activityIndicator(state)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -141,12 +131,18 @@ internal fun HermesActivityExpander(state: StreamingState) {
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = "$progress%",
-                color = AppColors.Muted,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            if (indicator.isNotEmpty()) {
+                if (active && state.text.isEmpty() && !state.hasThinking && pendingTool == null) {
+                    ShimmerText(indicator)
+                } else {
+                    Text(
+                        text = indicator,
+                        color = AppColors.Muted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
         if (expanded) {
             Column(
@@ -155,7 +151,7 @@ internal fun HermesActivityExpander(state: StreamingState) {
                     .padding(start = 2.dp, end = 4.dp, bottom = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
-                ActivityLine("Fase", "$stage  $progress%")
+                ActivityLine("Fase", stage)
                 if (state.hasThinking || !state.isDone) {
                     HorizontalDivider(color = AppColors.Border)
                     ActivityLine(
@@ -176,16 +172,19 @@ internal fun HermesActivityExpander(state: StreamingState) {
     }
 }
 
-internal fun activityProgressPercent(state: StreamingState, phase: Float): Int {
-    if (state.isDone) return 100
+internal fun activityIndicator(state: StreamingState): String {
+    if (state.isDone) return "Completato"
     val pendingTool = state.toolCalls.any { inferToolOutcome(it) == ToolOutcome.Pending }
-    val value = when {
-        pendingTool -> 45f + phase * 50f
-        state.text.isNotBlank() -> 58f + phase * 38f
-        state.hasThinking -> 24f + phase * 54f
-        else -> 6f + phase * 36f
+    if (pendingTool) return "tool…"
+    if (state.text.isNotEmpty()) {
+        val toks = state.text.length / 4
+        return if (toks > 0) "$toks tok" else "…"
     }
-    return value.coerceIn(1f, 97f).toInt()
+    if (state.hasThinking) {
+        val toks = state.thinking.length / 4
+        return if (toks > 0) "reasoning $toks tok" else "reasoning…"
+    }
+    return "prompt…"
 }
 
 internal fun activityStageLabel(state: StreamingState): String {

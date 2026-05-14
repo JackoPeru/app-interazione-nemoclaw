@@ -253,32 +253,6 @@ fun streamChatRequest(
     emit(ChatStreamEvent.Done(ChatStreamStats(ttftMs, totalMs, tokensOut, tps, promptTokens)))
 }.flowOn(Dispatchers.IO)
 
-private suspend fun streamSupportsResponses(settings: AppSettings, apiKey: String?): Boolean {
-    return try {
-        val client = OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS)
-            .build()
-        val builder = Request.Builder()
-            .url("${settings.gatewayUrl.trimEnd('/')}/capabilities")
-            .header("Accept", "application/json")
-            .header("User-Agent", "HermesHub-Android")
-        if (!apiKey.isNullOrBlank()) {
-            builder.header("Authorization", "Bearer ${apiKey.trim()}")
-        }
-        client.newCall(builder.get().build()).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful || body.isBlank()) {
-                true
-            } else {
-                body.contains("responses", ignoreCase = true)
-            }
-        }
-    } catch (_: Exception) {
-        true
-    }
-}
-
 private suspend inline fun openSseStream(
     url: String,
     payload: JSONObject,
