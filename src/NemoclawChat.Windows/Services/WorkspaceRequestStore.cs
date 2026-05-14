@@ -32,16 +32,17 @@ public static class WorkspaceRequestStore
 
     public static List<WorkspaceRequestRecord> Load()
     {
-        if (!File.Exists(StorePath))
+        var content = AtomicJsonFile.Read(StorePath);
+        if (string.IsNullOrEmpty(content))
         {
             return [];
         }
 
         try
         {
-            return JsonSerializer.Deserialize<List<WorkspaceRequestRecord>>(File.ReadAllText(StorePath)) ?? [];
+            return JsonSerializer.Deserialize<List<WorkspaceRequestRecord>>(content) ?? [];
         }
-        catch
+        catch (JsonException)
         {
             return [];
         }
@@ -70,7 +71,7 @@ public static class WorkspaceRequestStore
             UpdatedAt = DateTimeOffset.Now
         };
         items.Insert(0, record);
-        File.WriteAllText(StorePath, JsonSerializer.Serialize(items.Take(200).ToList(), JsonOptions));
+        AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(items.Take(200).ToList(), JsonOptions));
         return record;
     }
 

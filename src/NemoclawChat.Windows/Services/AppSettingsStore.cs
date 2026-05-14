@@ -44,16 +44,17 @@ public static class AppSettingsStore
 
     public static AppSettings Load()
     {
-        if (!File.Exists(SettingsPath))
+        var content = AtomicJsonFile.Read(SettingsPath);
+        if (string.IsNullOrEmpty(content))
         {
             return new AppSettings();
         }
 
         try
         {
-            return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new AppSettings();
+            return JsonSerializer.Deserialize<AppSettings>(content) ?? new AppSettings();
         }
-        catch
+        catch (JsonException)
         {
             return new AppSettings();
         }
@@ -61,7 +62,7 @@ public static class AppSettingsStore
 
     public static void Save(AppSettings settings)
     {
-        File.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, JsonOptions));
+        AtomicJsonFile.Write(SettingsPath, JsonSerializer.Serialize(settings, JsonOptions));
     }
 
     public static void Reset()

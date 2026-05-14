@@ -66,16 +66,17 @@ public static class ChatArchiveStore
 
     public static List<ConversationRecord> Load()
     {
-        if (!File.Exists(StorePath))
+        var content = AtomicJsonFile.Read(StorePath);
+        if (string.IsNullOrEmpty(content))
         {
             return [];
         }
 
         try
         {
-            return JsonSerializer.Deserialize<List<ConversationRecord>>(File.ReadAllText(StorePath)) ?? [];
+            return JsonSerializer.Deserialize<List<ConversationRecord>>(content) ?? [];
         }
-        catch
+        catch (JsonException)
         {
             return [];
         }
@@ -185,7 +186,7 @@ public static class ChatArchiveStore
             .OrderByDescending(item => item.UpdatedAt)
             .Take(200)
             .ToList();
-        File.WriteAllText(StorePath, JsonSerializer.Serialize(ordered, JsonOptions));
+        AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(ordered, JsonOptions));
         Changed?.Invoke();
     }
 

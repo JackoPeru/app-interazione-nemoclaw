@@ -340,8 +340,9 @@ public static class ChatStreamClient
         {
             document = JsonDocument.Parse(data);
         }
-        catch
+        catch (JsonException ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[ChatStream] JSON parse fallito ({eventName ?? "<no-event>"}): {ex.Message}. Payload: {data[..Math.Min(120, data.Length)]}");
             document = null;
         }
 

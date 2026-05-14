@@ -478,14 +478,17 @@ private fun ChatApp() {
                     }
                     Tab.Settings -> SettingsScreen(
                         settings = settings,
-                        onSave = {
-                            settings = it
-                            saveSettings(context, it)
+                        onSave = { newSettings ->
+                            settings = newSettings
+                            chatScope.launch(Dispatchers.IO) { saveSettings(context, newSettings) }
                         },
                         onReset = {
-                            settings = AppSettings()
-                            saveSettings(context, settings)
-                            deleteGatewaySecret(context)
+                            val reset = AppSettings()
+                            settings = reset
+                            chatScope.launch(Dispatchers.IO) {
+                                saveSettings(context, reset)
+                                deleteGatewaySecret(context)
+                            }
                         }
                     )
                     Tab.Profile -> ProfileScreen(context, settings)
@@ -681,7 +684,7 @@ private fun ChatScreen(
 
     LaunchedEffect(conversationId, initialPrompt) {
         if (!conversationId.isNullOrBlank()) {
-            val saved = loadConversation(context, conversationId)
+            val saved = withContext(Dispatchers.IO) { loadConversation(context, conversationId) }
             if (saved != null) {
                 state.activeConversationId = saved.id
                 state.previousResponseId = saved.previousResponseId
@@ -796,10 +799,10 @@ private fun ChatScreen(
             onModeChange = { state.mode = it },
             onSend = {
                 val text = state.draft.trim()
-                if (text.isNotEmpty() && !state.sending) {
+                if (text.isNotEmpty() && !state.sending && state.activeStreamJob == null) {
+                    state.sending = true
                     state.messages.add(ChatMessage("Tu", text, true))
                     state.draft = ""
-                    state.sending = true
                     state.streamingState = StreamingState()
 
                     val job = scope.launch {
@@ -842,18 +845,20 @@ private fun ChatScreen(
                             val workspaceKind = if (!interrupted) detectWorkspaceIntent(text) else null
                             if (workspaceKind != null) {
                                 val workspaceResult = sendWorkspaceRunRequest(settings, workspaceKind, text, loadGatewaySecret(context))
-                                saveWorkspaceRequest(
-                                    context = context,
-                                    kind = workspaceKind,
-                                    prompt = text,
-                                    result = workspaceResult.result.ifBlank { finalText },
-                                    source = workspaceResult.source,
-                                    status = workspaceResult.status,
-                                    remoteId = workspaceResult.remoteId,
-                                    title = workspaceResult.title.ifBlank { makeTitle(text) },
-                                    streamUrl = workspaceResult.streamUrl,
-                                    downloadUrl = workspaceResult.downloadUrl
-                                )
+                                withContext(Dispatchers.IO) {
+                                    saveWorkspaceRequest(
+                                        context = context,
+                                        kind = workspaceKind,
+                                        prompt = text,
+                                        result = workspaceResult.result.ifBlank { finalText },
+                                        source = workspaceResult.source,
+                                        status = workspaceResult.status,
+                                        remoteId = workspaceResult.remoteId,
+                                        title = workspaceResult.title.ifBlank { makeTitle(text) },
+                                        streamUrl = workspaceResult.streamUrl,
+                                        downloadUrl = workspaceResult.downloadUrl
+                                    )
+                                }
                                 state.messages.add(
                                     ChatMessage(
                                         "Hermes Hub",
@@ -864,17 +869,19 @@ private fun ChatScreen(
                                 )
                             }
                             if (partialText.isNotEmpty() || (!interrupted && finalText.isNotEmpty())) {
-                                val saved = saveConversationExchange(
-                                    context,
-                                    state.activeConversationId,
-                                    mode,
-                                    text,
-                                    finalText,
-                                    if (interrupted) "Hermes interrotto" else if (finalState.error != null) "Errore Hermes" else "Hermes",
-                                    finalState.responseId,
-                                    finalState.visualBlocks,
-                                    finalState.visualBlocksVersion
-                                )
+                                val saved = withContext(Dispatchers.IO) {
+                                    saveConversationExchange(
+                                        context,
+                                        state.activeConversationId,
+                                        mode,
+                                        text,
+                                        finalText,
+                                        if (interrupted) "Hermes interrotto" else if (finalState.error != null) "Errore Hermes" else "Hermes",
+                                        finalState.responseId,
+                                        finalState.visualBlocks,
+                                        finalState.visualBlocksVersion
+                                    )
+                                }
                                 state.activeConversationId = saved.id
                                 state.previousResponseId = saved.previousResponseId
                             }
@@ -4459,18 +4466,20 @@ private fun loadSettings(context: Context): AppSettings {
     )
 }
 
+private fun normalizeUrl(value: String): String = value.trim().trimEnd('/')
+
 private fun saveSettings(context: Context, settings: AppSettings) {
     context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
         .edit()
-        .putString("gatewayUrl", settings.gatewayUrl)
-        .putString("gatewayWsUrl", settings.gatewayWsUrl)
-        .putString("adminBridgeUrl", settings.adminBridgeUrl)
-        .putString("provider", settings.provider)
-        .putString("inferenceEndpoint", settings.inferenceEndpoint)
-        .putString("preferredApi", settings.preferredApi)
-        .putString("model", settings.model)
-        .putString("accessMode", settings.accessMode)
-        .putString("visualBlocksMode", settings.visualBlocksMode)
+        .putString("gatewayUrl", normalizeUrl(settings.gatewayUrl))
+        .putString("gatewayWsUrl", normalizeUrl(settings.gatewayWsUrl))
+        .putString("adminBridgeUrl", normalizeUrl(settings.adminBridgeUrl))
+        .putString("provider", settings.provider.trim())
+        .putString("inferenceEndpoint", normalizeUrl(settings.inferenceEndpoint))
+        .putString("preferredApi", settings.preferredApi.trim())
+        .putString("model", settings.model.trim())
+        .putString("accessMode", settings.accessMode.trim())
+        .putString("visualBlocksMode", settings.visualBlocksMode.trim())
         .putFloat("fontScale", settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE))
         .putBoolean("demoMode", settings.demoMode)
         .apply()
@@ -4518,22 +4527,26 @@ private fun deleteGatewaySecret(context: Context) {
         .apply()
 }
 
-private fun getOrCreateGatewaySecretKey(): SecretKey {
-    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    (keyStore.getEntry(GATEWAY_SECRET_KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey?.let {
-        return it
-    }
+private val gatewaySecretKeyLock = Any()
 
-    val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-    val spec = KeyGenParameterSpec.Builder(
-        GATEWAY_SECRET_KEY_ALIAS,
-        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-    )
-        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-        .build()
-    keyGenerator.init(spec)
-    return keyGenerator.generateKey()
+private fun getOrCreateGatewaySecretKey(): SecretKey {
+    synchronized(gatewaySecretKeyLock) {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (keyStore.getEntry(GATEWAY_SECRET_KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey?.let {
+            return it
+        }
+
+        val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        val spec = KeyGenParameterSpec.Builder(
+            GATEWAY_SECRET_KEY_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .build()
+        keyGenerator.init(spec)
+        return keyGenerator.generateKey()
+    }
 }
 
 private fun loadArchiveItems(context: Context): List<ArchiveItem> {

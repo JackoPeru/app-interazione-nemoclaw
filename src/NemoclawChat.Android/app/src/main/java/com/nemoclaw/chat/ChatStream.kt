@@ -18,12 +18,43 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
+private const val STREAM_ACCUM_MAX_CHARS = 2_000_000
+
 private val streamHttpClient: OkHttpClient = OkHttpClient.Builder()
     .connectTimeout(15, TimeUnit.SECONDS)
     .readTimeout(60, TimeUnit.MINUTES)
     .writeTimeout(60, TimeUnit.SECONDS)
     .callTimeout(60, TimeUnit.MINUTES)
+    .apply { debugHttpLoggingInterceptor()?.let { addInterceptor(it) } }
     .build()
+
+private fun debugHttpLoggingInterceptor(): okhttp3.Interceptor? {
+    if (!com.nemoclaw.chat.BuildConfig.DEBUG) return null
+    return try {
+        val clazz = Class.forName("okhttp3.logging.HttpLoggingInterceptor")
+        val instance = clazz.getDeclaredConstructor().newInstance()
+        val levelClass = Class.forName("okhttp3.logging.HttpLoggingInterceptor\$Level")
+        val headersLevel = levelClass.enumConstants?.firstOrNull { (it as Enum<*>).name == "HEADERS" }
+        if (headersLevel != null) {
+            clazz.getMethod("setLevel", levelClass).invoke(instance, headersLevel)
+        }
+        instance as okhttp3.Interceptor
+    } catch (_: Throwable) {
+        null
+    }
+}
+
+private fun StringBuilder.appendBounded(text: String): Boolean {
+    if (length >= STREAM_ACCUM_MAX_CHARS) return false
+    val remaining = STREAM_ACCUM_MAX_CHARS - length
+    if (text.length <= remaining) {
+        append(text)
+    } else {
+        append(text, 0, remaining)
+        append("\n\n[…troncato: limite ${STREAM_ACCUM_MAX_CHARS} caratteri raggiunto.]")
+    }
+    return true
+}
 
 data class ChatStreamStats(
     val ttftMs: Double? = null,
@@ -173,14 +204,14 @@ fun streamChatRequest(
                     ttftMs = (System.nanoTime() - start) / 1_000_000.0
                     sawDelta = true
                 }
-                accumText.append(ev.delta)
+                accumText.appendBounded(ev.delta)
             }
             is ChatStreamEvent.ThinkingDelta -> {
                 if (!sawDelta) {
                     ttftMs = (System.nanoTime() - start) / 1_000_000.0
                     sawDelta = true
                 }
-                accumThink.append(ev.delta)
+                accumThink.appendBounded(ev.delta)
             }
             is ChatStreamEvent.Usage -> {
                 promptTokens = ev.promptTokens ?: promptTokens

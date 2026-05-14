@@ -556,42 +556,52 @@ internal fun parseMarkdownBlocks(markdown: String): List<MdBlock> {
     return blocks
 }
 
+private const val MARKDOWN_MAX_INPUT_CHARS = 200_000
+private const val MARKDOWN_MAX_INLINE_STYLES = 500
+
 internal fun renderInlineMarkdown(text: String, baseColor: Color): androidx.compose.ui.text.AnnotatedString {
+    val safe = if (text.length > MARKDOWN_MAX_INPUT_CHARS) text.substring(0, MARKDOWN_MAX_INPUT_CHARS) else text
     val builder = androidx.compose.ui.text.AnnotatedString.Builder()
     var i = 0
-    while (i < text.length) {
-        val ch = text[i]
-        if (ch == '*' && i + 1 < text.length && text[i + 1] == '*') {
-            val end = text.indexOf("**", i + 2)
-            if (end > i + 2) {
-                builder.pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold))
-                builder.append(text.substring(i + 2, end))
-                builder.pop()
-                i = end + 2
-                continue
+    var styleCount = 0
+    while (i < safe.length) {
+        val ch = safe[i]
+        if (styleCount < MARKDOWN_MAX_INLINE_STYLES) {
+            if (ch == '*' && i + 1 < safe.length && safe[i + 1] == '*') {
+                val end = safe.indexOf("**", i + 2)
+                if (end > i + 2) {
+                    builder.pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold))
+                    builder.append(safe.substring(i + 2, end))
+                    builder.pop()
+                    styleCount++
+                    i = end + 2
+                    continue
+                }
             }
-        }
-        if ((ch == '*' || ch == '_') && i + 1 < text.length && text[i + 1] != ch) {
-            val end = text.indexOf(ch, i + 1)
-            if (end > i + 1) {
-                builder.pushStyle(androidx.compose.ui.text.SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic))
-                builder.append(text.substring(i + 1, end))
-                builder.pop()
-                i = end + 1
-                continue
+            if ((ch == '*' || ch == '_') && i + 1 < safe.length && safe[i + 1] != ch) {
+                val end = safe.indexOf(ch, i + 1)
+                if (end > i + 1) {
+                    builder.pushStyle(androidx.compose.ui.text.SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic))
+                    builder.append(safe.substring(i + 1, end))
+                    builder.pop()
+                    styleCount++
+                    i = end + 1
+                    continue
+                }
             }
-        }
-        if (ch == '`') {
-            val end = text.indexOf('`', i + 1)
-            if (end > i + 1) {
-                builder.pushStyle(androidx.compose.ui.text.SpanStyle(
-                    fontFamily = FontFamily.Monospace,
-                    background = Color(0x33A2ADBF)
-                ))
-                builder.append(text.substring(i + 1, end))
-                builder.pop()
-                i = end + 1
-                continue
+            if (ch == '`') {
+                val end = safe.indexOf('`', i + 1)
+                if (end > i + 1) {
+                    builder.pushStyle(androidx.compose.ui.text.SpanStyle(
+                        fontFamily = FontFamily.Monospace,
+                        background = Color(0x33A2ADBF)
+                    ))
+                    builder.append(safe.substring(i + 1, end))
+                    builder.pop()
+                    styleCount++
+                    i = end + 1
+                    continue
+                }
             }
         }
         builder.append(ch)

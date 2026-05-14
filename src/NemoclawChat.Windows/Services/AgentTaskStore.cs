@@ -31,16 +31,17 @@ public static class AgentTaskStore
 
     public static List<AgentTaskRecord> Load()
     {
-        if (!File.Exists(StorePath))
+        var content = AtomicJsonFile.Read(StorePath);
+        if (string.IsNullOrEmpty(content))
         {
             return [];
         }
 
         try
         {
-            return JsonSerializer.Deserialize<List<AgentTaskRecord>>(File.ReadAllText(StorePath)) ?? [];
+            return JsonSerializer.Deserialize<List<AgentTaskRecord>>(content) ?? [];
         }
-        catch
+        catch (JsonException)
         {
             return [];
         }
@@ -52,6 +53,6 @@ public static class AgentTaskStore
             .OrderByDescending(task => task.UpdatedAt)
             .Take(200)
             .ToList();
-        File.WriteAllText(StorePath, JsonSerializer.Serialize(ordered, JsonOptions));
+        AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(ordered, JsonOptions));
     }
 }

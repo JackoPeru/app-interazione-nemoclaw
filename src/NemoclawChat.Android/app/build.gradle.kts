@@ -11,8 +11,8 @@ android {
         applicationId = "com.nemoclaw.chat"
         minSdk = 26
         targetSdk = 36
-        versionCode = 33
-        versionName = "0.6.20"
+        versionCode = 34
+        versionName = "0.6.21"
     }
 
     buildTypes {
@@ -30,6 +30,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -43,4 +44,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("com.squareup.okhttp3:logging-interceptor:5.3.2")
 }

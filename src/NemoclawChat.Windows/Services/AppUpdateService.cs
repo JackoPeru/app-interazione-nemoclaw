@@ -22,10 +22,19 @@ public static class AppUpdateService
     public const string RepositoryOwner = "JackoPeru";
     public const string RepositoryName = "app-interazione-nemoclaw";
     public const string ReleasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases";
+    private const long MaxAssetBytes = 500L * 1024 * 1024;
+    private const string TrustedAssetHost = "objects.githubusercontent.com";
+    private const string TrustedReleaseHost = "github.com";
 
-    private static readonly HttpClient HttpClient = new()
+    private static readonly HttpClientHandler HttpHandler = new()
     {
-        Timeout = TimeSpan.FromSeconds(10)
+        AllowAutoRedirect = true,
+        MaxAutomaticRedirections = 5
+    };
+
+    private static readonly HttpClient HttpClient = new(HttpHandler)
+    {
+        Timeout = TimeSpan.FromMinutes(5)
     };
 
     public static async Task<UpdateCheckResult> CheckAsync(string localVersion)
@@ -141,13 +150,33 @@ public static class AppUpdateService
         string? assetName,
         IProgress<UpdateDownloadProgress>? progress)
     {
+        if (!IsTrustedAssetUrl(assetUrl))
+        {
+            progress?.Report(new UpdateDownloadProgress(null, "Download annullato.", "URL asset non fidato (atteso github.com)."));
+            return null;
+        }
+
         var updatesDirectory = GetUpdatesDirectoryPath();
         Directory.CreateDirectory(updatesDirectory);
 
-        var fileName = !string.IsNullOrWhiteSpace(assetName)
+        var requestedFileName = !string.IsNullOrWhiteSpace(assetName)
             ? assetName
             : $"ChatClaw-{NormalizeVersion(version)}{GuessExtension(assetUrl)}";
-        var destinationPath = Path.Combine(updatesDirectory, fileName);
+        var sanitizedFileName = SanitizeFileName(requestedFileName);
+        if (sanitizedFileName is null)
+        {
+            progress?.Report(new UpdateDownloadProgress(null, "Download annullato.", "Nome asset non valido."));
+            return null;
+        }
+        var destinationPath = Path.Combine(updatesDirectory, sanitizedFileName);
+        var canonicalUpdates = Path.GetFullPath(updatesDirectory);
+        var canonicalDest = Path.GetFullPath(destinationPath);
+        if (!canonicalDest.StartsWith(canonicalUpdates + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+            !canonicalDest.Equals(canonicalUpdates, StringComparison.OrdinalIgnoreCase))
+        {
+            progress?.Report(new UpdateDownloadProgress(null, "Download annullato.", "Path asset fuori dalla directory updates."));
+            return null;
+        }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, assetUrl);
         request.Headers.UserAgent.ParseAdd("HermesHub-Windows");
@@ -162,6 +191,12 @@ public static class AppUpdateService
             }
 
             var total = response.Content.Headers.ContentLength;
+            if (total is long advertised && advertised > MaxAssetBytes)
+            {
+                progress?.Report(new UpdateDownloadProgress(null, "Download annullato.", $"Asset troppo grande ({ToReadableSize(advertised)})."));
+                return null;
+            }
+
             await using var input = await response.Content.ReadAsStreamAsync();
             await using var output = File.Create(destinationPath);
             var buffer = new byte[81920];
@@ -177,6 +212,16 @@ public static class AppUpdateService
 
                 await output.WriteAsync(buffer.AsMemory(0, read));
                 readTotal += read;
+                if (readTotal > MaxAssetBytes)
+                {
+                    progress?.Report(new UpdateDownloadProgress(null, "Download annullato.", $"Asset oltre {ToReadableSize(MaxAssetBytes)}, interrotto."));
+                    output.Close();
+                    if (File.Exists(destinationPath))
+                    {
+                        File.Delete(destinationPath);
+                    }
+                    return null;
+                }
 
                 if (total is > 0)
                 {
@@ -204,6 +249,44 @@ public static class AppUpdateService
 
             return null;
         }
+    }
+
+    private static bool IsTrustedAssetUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+        if (uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+        return uri.Host.Equals(TrustedAssetHost, StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.Equals(TrustedReleaseHost, StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? SanitizeFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+        var bare = Path.GetFileName(name);
+        if (string.IsNullOrWhiteSpace(bare) || !string.Equals(bare, name, StringComparison.Ordinal))
+        {
+            return null;
+        }
+        if (bare.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return null;
+        }
+        if (bare.Contains("..", StringComparison.Ordinal))
+        {
+            return null;
+        }
+        return bare;
     }
 
     public static async Task<bool> LaunchDownloadedAssetAsync(string path)

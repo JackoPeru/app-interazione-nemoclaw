@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.20 Release Hermes Hub 0.6.20
+v0.6.21 Release Hermes Hub 0.6.21
 ```
 
 ## Regola Memoria
@@ -54,7 +54,30 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.20 (Windows + Android):
+Hermes Hub 0.6.21 (Windows + Android):
+
+Audit round 2 + hardening. Tutti i fix elencati in `docs/audit-0.6.21.md`.
+
+Critici:
+- Windows `AppUpdateService`: hardening download. Whitelist host (`github.com`/`githubusercontent.com`), cap dimensione asset 500MB (sia da `Content-Length` sia da bytes letti), sanitize asset name (rifiuta path separators / `..`), max redirect 5, timeout 5 min, check destination dentro updates directory.
+- Windows JSON store: scrittura atomica via `AtomicJsonFile` (temp + `File.Replace` con backup `.bak`). Crash mid-write non corrompe piu' `settings.json`/`conversations.json`/`tasks.json`/`workspace.json`.
+
+High:
+- Android: I/O off main thread su path caldo. `saveConversationExchange` + `saveWorkspaceRequest` + load conversazione in `LaunchedEffect` ora dentro `withContext(Dispatchers.IO)`. SaveSettings/Reset usa `chatScope.launch(Dispatchers.IO)`.
+- Android: `getOrCreateGatewaySecretKey` ora `synchronized(gatewaySecretKeyLock)`, evita race che generava chiavi duplicate.
+- AdminBridge: `ResolveSafePath` canonicalizza con `DirectoryInfo.ResolveLinkTarget`/`FileInfo.ResolveLinkTarget`, rifiuta `FileAttributes.ReparsePoint`. Symlink/junction non possono piu' uscire dalle root.
+- AdminBridge: token Bearer ora con length guard prima di `[7..]`, evita IndexOutOfRange e timing leak su Authorization header malformato.
+
+Med:
+- Android stream: `accumText`/`accumThink` cap 2_000_000 char con truncate marker. Niente piu' OOM su risposta gigante.
+- Android send button: pre-guard `state.activeStreamJob == null` + flag `sending` settato prima di append/state mutation, riduce finestra double-send.
+- Android markdown inline parser: cap 200KB input + max 500 stili inline per blocco, blocca pattern adversarial O(n²).
+- Android OkHttp: `HttpLoggingInterceptor` (HEADERS) attivo solo in build debug via reflection (no dep release).
+- Android settings: gateway/admin/inference URL ora trimmati e senza trailing slash su save (`normalizeUrl`).
+- Windows ChatStream: `catch (JsonException)` ora logga in `Debug.WriteLine` invece di swallow silenzioso.
+- AdminBridge: `ReadAllLinesAsync` con `Encoding.UTF8` esplicito.
+
+## Release 0.6.20
 
 Audit + hardening post-0.6.19. Tutti i fix elencati in `docs/audit-0.6.20.md`.
 
@@ -197,7 +220,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.20`.
+- Versione app: `0.6.21`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -233,7 +256,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.20`, versionCode `33`.
+- Versione app: `0.6.21`, versionCode `34`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

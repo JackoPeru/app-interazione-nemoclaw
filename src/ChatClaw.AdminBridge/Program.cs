@@ -34,8 +34,11 @@ app.Use(async (context, next) =>
 
     var token = context.Request.Headers.Authorization.ToString();
     var expected = config.Token;
-    if (!token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||
-        !CryptographicEquals(token["Bearer ".Length..].Trim(), expected))
+    const string prefix = "Bearer ";
+    var presented = token.Length > prefix.Length && token.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+        ? token[prefix.Length..].Trim()
+        : string.Empty;
+    if (presented.Length == 0 || !CryptographicEquals(presented, expected))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         await context.Response.WriteAsJsonAsync(new { status = "unauthorized", message = "Bearer token obbligatorio." });
@@ -114,7 +117,7 @@ app.MapPost("/v1/logs/tail", async (TailRequest request) =>
     }
 
     audit.Write("logs.tail", path);
-    var lines = await File.ReadAllLinesAsync(path);
+    var lines = await File.ReadAllLinesAsync(path, System.Text.Encoding.UTF8);
     return Results.Json(new
     {
         status = "ok",
@@ -268,10 +271,54 @@ sealed class BridgeConfig
             requested = Roots.FirstOrDefault() ?? ".";
         }
 
-        var full = Path.GetFullPath(requested);
-        return Roots.Any(root => full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            ? full
-            : null;
+        string canonical;
+        try
+        {
+            canonical = Path.GetFullPath(requested);
+            // Resolve symlinks / junctions so attacker non puo' creare un junction
+            // dentro una root che punta fuori (e.g. C:\Windows\System32).
+            if (Directory.Exists(canonical))
+            {
+                var info = new DirectoryInfo(canonical);
+                if (info.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    return null;
+                }
+                var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
+                if (resolved is DirectoryInfo dirResolved)
+                {
+                    canonical = dirResolved.FullName;
+                }
+            }
+            else if (File.Exists(canonical))
+            {
+                var info = new FileInfo(canonical);
+                if (info.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    return null;
+                }
+                var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
+                if (resolved is FileInfo fileResolved)
+                {
+                    canonical = fileResolved.FullName;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        foreach (var root in Roots)
+        {
+            var normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (canonical.Equals(root, StringComparison.OrdinalIgnoreCase) ||
+                canonical.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return canonical;
+            }
+        }
+        return null;
     }
 
     private static (string FileName, string Arguments) SplitCommand(string command)
