@@ -53,14 +53,17 @@ data class StreamingState(
     val startedAtNs: Long = System.nanoTime()
 ) {
     fun applyEvent(event: ChatStreamEvent): StreamingState = when (event) {
-        is ChatStreamEvent.TextDelta -> copy(
-            text = text + event.delta,
-            status = if (toolCalls.any { inferToolPendingStatus(it) }) status else "Hermes sta scrivendo la risposta...",
-            thinkingFrozen = thinkingFrozen || hasThinking,
-            thinkingElapsedSec = if (!thinkingFrozen && hasThinking) {
-                (System.nanoTime() - startedAtNs) / 1_000_000_000.0
-            } else thinkingElapsedSec
-        )
+        is ChatStreamEvent.TextDelta -> {
+            val merged = mergeTextDelta(text, event.delta)
+            copy(
+                text = merged,
+                status = if (toolCalls.any { inferToolPendingStatus(it) }) status else "Hermes sta scrivendo la risposta...",
+                thinkingFrozen = thinkingFrozen || hasThinking,
+                thinkingElapsedSec = if (!thinkingFrozen && hasThinking) {
+                    (System.nanoTime() - startedAtNs) / 1_000_000_000.0
+                } else thinkingElapsedSec
+            )
+        }
         is ChatStreamEvent.ThinkingDelta -> copy(
             thinking = thinking + event.delta,
             hasThinking = true,
@@ -107,6 +110,15 @@ data class StreamingState(
         is ChatStreamEvent.Error -> copy(error = event.message, status = "Errore Hermes.", isDone = true)
         is ChatStreamEvent.Usage -> this
     }
+}
+
+private fun mergeTextDelta(current: String, delta: String): String {
+    if (delta.isEmpty()) return current
+    if (current.isEmpty()) return delta
+    if (delta == current) return current
+    if (delta.startsWith(current)) return delta
+    if (current.endsWith(delta)) return current
+    return current + delta
 }
 
 private fun inferToolPendingStatus(tool: ToolCallState): Boolean {
@@ -394,8 +406,16 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
         }
         t.contains("output_item.done") || t.contains("function_call.completed") -> {
             val item = obj.optJSONObject("item")
-            val id = item?.optString("id") ?: "tool"
-            out += ChatStreamEvent.ToolCallEnd(id)
+            if (item != null) {
+                val itemType = item.optString("type", "")
+                if (itemType.contains("function", ignoreCase = true) || itemType.contains("tool", ignoreCase = true)) {
+                    val id = item.optString("id", "tool")
+                    out += ChatStreamEvent.ToolCallEnd(id)
+                } else {
+                    val text = extractTextFromAnyJson(item)
+                    if (text.isNotBlank()) out += ChatStreamEvent.TextDelta(text)
+                }
+            }
             return out
         }
         t.contains("response.created") || t.contains("response.started") -> {
@@ -418,6 +438,8 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
                         usage.optIntOrNull("output_tokens") ?: usage.optIntOrNull("completion_tokens")
                     )
                 }
+                val text = extractTextFromAnyJson(resp)
+                if (text.isNotBlank()) out += ChatStreamEvent.TextDelta(text)
                 val blocks = extractVisualBlocksFromJson(resp.toString())
                 if (blocks.isNotEmpty()) {
                     out += ChatStreamEvent.VisualBlocks(blocks, VISUAL_BLOCKS_VERSION)
@@ -465,9 +487,59 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
         if (blocks.isNotEmpty()) {
             out += ChatStreamEvent.VisualBlocks(blocks, VISUAL_BLOCKS_VERSION)
         }
+    } else {
+        val text = extractTextFromAnyJson(obj)
+        if (text.isNotBlank()) {
+            out += ChatStreamEvent.TextDelta(text)
+        }
     }
 
     return out
+}
+
+private fun extractTextFromAnyJson(obj: JSONObject): String {
+    val direct = listOf("output_text", "text", "message", "reply", "result", "summary")
+        .firstNotNullOfOrNull { key ->
+            val value = obj.opt(key)
+            if (value is String && value.isNotBlank()) value else null
+        }
+    if (!direct.isNullOrBlank()) return direct
+
+    val content = obj.optJSONArray("content")
+    if (content != null) {
+        val builder = StringBuilder()
+        for (i in 0 until content.length()) {
+            val part = content.optJSONObject(i) ?: continue
+            val partText = part.optString("text", part.optString("output_text", ""))
+            if (partText.isNotBlank()) builder.append(partText)
+        }
+        if (builder.isNotEmpty()) return builder.toString()
+    }
+
+    val output = obj.optJSONArray("output")
+    if (output != null) {
+        val builder = StringBuilder()
+        for (i in 0 until output.length()) {
+            val item = output.optJSONObject(i) ?: continue
+            val nested = extractTextFromAnyJson(item)
+            if (nested.isNotBlank()) builder.append(nested)
+        }
+        if (builder.isNotEmpty()) return builder.toString()
+    }
+
+    val response = obj.optJSONObject("response")
+    if (response != null) {
+        val nested = extractTextFromAnyJson(response)
+        if (nested.isNotBlank()) return nested
+    }
+
+    val item = obj.optJSONObject("item")
+    if (item != null) {
+        val nested = extractTextFromAnyJson(item)
+        if (nested.isNotBlank()) return nested
+    }
+
+    return ""
 }
 
 private fun parseFullBody(body: String): List<ChatStreamEvent> {

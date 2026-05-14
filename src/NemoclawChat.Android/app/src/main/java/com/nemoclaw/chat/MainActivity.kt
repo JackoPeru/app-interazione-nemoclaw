@@ -392,6 +392,7 @@ private fun ChatApp() {
     var settings by remember { mutableStateOf(loadSettings(context)) }
     var pendingPrompt by remember { mutableStateOf("") }
     var pendingConversationId by remember { mutableStateOf<String?>(null) }
+    var sidebarOpen by remember { mutableStateOf(false) }
     val chatState = remember { ChatStateHolder() }
     val chatScope = rememberCoroutineScope()
     val baseDensity = LocalDensity.current
@@ -405,7 +406,7 @@ private fun ChatApp() {
             containerColor = AppColors.Background,
             bottomBar = {
                 NavigationBar(containerColor = AppColors.Sidebar) {
-                    Tab.entries.forEach { tab ->
+                    Tab.entries.filterNot { it == Tab.Archive || it == Tab.Tasks }.forEach { tab ->
                         NavigationBarItem(
                             selected = selectedTab == tab,
                             onClick = { selectedTab = tab },
@@ -441,6 +442,7 @@ private fun ChatApp() {
                             pendingPrompt = ""
                             pendingConversationId = null
                         },
+                        onOpenSidebar = { sidebarOpen = true },
                         onSwitchTab = { tab -> selectedTab = tab }
                     )
                     Tab.Archive -> ArchiveScreen(
@@ -476,7 +478,177 @@ private fun ChatApp() {
                     )
                     Tab.Profile -> ProfileScreen(context, settings)
                 }
+                if (sidebarOpen) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0x99000000))
+                            .clickable { sidebarOpen = false }
+                    ) {
+                        HermesSidebar(
+                            context = context,
+                            onClose = { sidebarOpen = false },
+                            onNewChat = {
+                                chatState.resetForNewChat()
+                                selectedTab = Tab.Chat
+                                sidebarOpen = false
+                            },
+                            onOpenConversation = { id ->
+                                pendingConversationId = id
+                                pendingPrompt = ""
+                                selectedTab = Tab.Chat
+                                sidebarOpen = false
+                            },
+                            onOpenArchive = {
+                                selectedTab = Tab.Archive
+                                sidebarOpen = false
+                            },
+                            onOpenJobs = {
+                                selectedTab = Tab.Tasks
+                                sidebarOpen = false
+                            }
+                        )
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun HermesSidebar(
+    context: Context,
+    onClose: () -> Unit,
+    onNewChat: () -> Unit,
+    onOpenConversation: (String) -> Unit,
+    onOpenArchive: () -> Unit,
+    onOpenJobs: () -> Unit
+) {
+    val conversations = remember { loadConversations(context).sortedByDescending { it.updatedAt } }
+    Surface(
+        modifier = Modifier
+            .width(292.dp)
+            .fillMaxSize()
+            .clickable { },
+        color = Color(0xFF080A0E)
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.chatclaw_logo),
+                        contentDescription = "Hermes Hub",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                    )
+                    Text(
+                        "Hermes Hub",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "Chiudi",
+                        color = AppColors.Muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable(onClick = onClose)
+                    )
+                }
+            }
+            item {
+                SidebarRow(
+                    icon = Icons.Rounded.Edit,
+                    title = "Nuova chat",
+                    subtitle = "Pulisci contesto corrente",
+                    onClick = onNewChat
+                )
+            }
+            item {
+                SidebarRow(
+                    icon = Icons.Rounded.FolderOpen,
+                    title = "Archivio",
+                    subtitle = "Conversazioni e progetti salvati",
+                    onClick = onOpenArchive
+                )
+            }
+            item {
+                SidebarRow(
+                    icon = Icons.Rounded.TaskAlt,
+                    title = "Jobs",
+                    subtitle = "Coda lavori Hermes",
+                    onClick = onOpenJobs
+                )
+            }
+            item {
+                HorizontalDivider(color = AppColors.Border, modifier = Modifier.padding(vertical = 8.dp))
+                Text("Recenti", color = AppColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (conversations.isEmpty()) {
+                item {
+                    Text(
+                        "Nessuna chat salvata.",
+                        color = AppColors.Muted,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 10.dp)
+                    )
+                }
+            } else {
+                items(conversations.take(40), key = { it.id }) { conversation ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenConversation(conversation.id) }
+                            .padding(horizontal = 4.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            conversation.title,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            conversation.description.ifBlank { conversation.prompt },
+                            color = AppColors.Muted,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SidebarRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(18.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = AppColors.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -490,6 +662,7 @@ private fun ChatScreen(
     conversationId: String? = null,
     initialPrompt: String = "",
     onInitialPromptConsumed: () -> Unit = {},
+    onOpenSidebar: () -> Unit = {},
     onSwitchTab: (Tab) -> Unit = {}
 ) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -550,7 +723,8 @@ private fun ChatScreen(
             onModeToggle = {
                 state.mode = if (state.mode == "Agente") "Chat" else "Agente"
             },
-            onNewChat = { state.resetForNewChat() }
+            onNewChat = { state.resetForNewChat() },
+            onOpenSidebar = onOpenSidebar
         )
         Box(modifier = Modifier.weight(1f)) {
             if (isEmptyChat) {
@@ -742,7 +916,7 @@ private fun executeSlashCommand(
 }
 
 @Composable
-private fun TopBar(mode: String, onModeToggle: () -> Unit, onNewChat: () -> Unit = {}) {
+private fun TopBar(mode: String, onModeToggle: () -> Unit, onNewChat: () -> Unit = {}, onOpenSidebar: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -758,6 +932,7 @@ private fun TopBar(mode: String, onModeToggle: () -> Unit, onNewChat: () -> Unit
             modifier = Modifier
                 .size(52.dp)
                 .clip(RoundedCornerShape(16.dp))
+                .clickable(onClick = onOpenSidebar)
         )
         Column(modifier = Modifier.padding(start = 12.dp)) {
             Text(
