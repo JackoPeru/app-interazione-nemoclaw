@@ -22,6 +22,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -114,6 +117,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -791,14 +796,9 @@ private fun PremiumPanel(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Surface(
-        modifier = modifier.border(BorderStroke(1.dp, AppColors.Border), RoundedCornerShape(8.dp)),
-        color = AppColors.Panel,
-        shape = RoundedCornerShape(8.dp),
-        shadowElevation = 0.dp,
-        tonalElevation = 0.dp
-    ) {
+    Column(modifier = modifier.fillMaxWidth()) {
         Column(content = content)
+        HorizontalDivider(color = AppColors.Border.copy(alpha = 0.78f), thickness = 1.dp)
     }
 }
 
@@ -1062,7 +1062,8 @@ private fun Composer(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .imePadding()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
             .widthIn(max = 1040.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Bottom
@@ -2376,7 +2377,7 @@ private fun SettingsScreen(
                 }
             }
             item {
-                Surface(color = AppColors.Surface, shape = RoundedCornerShape(16.dp)) {
+                PremiumPanel {
                     Text(
                         modifier = Modifier.padding(14.dp),
                         text = status,
@@ -2464,17 +2465,64 @@ private fun FontScaleControl(
     value: Float,
     onValueChange: (Float) -> Unit
 ) {
+    var editingPercent by remember { mutableStateOf(false) }
+    var percentText by remember { mutableStateOf("${(value * 100).toInt()}") }
+
+    fun commitPercent(raw: String) {
+        val parsed = raw
+            .filter { it.isDigit() || it == ',' || it == '.' }
+            .replace(',', '.')
+            .toFloatOrNull()
+        val next = ((parsed ?: (value * 100f)) / 100f).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)
+        editingPercent = false
+        percentText = "${(next * 100).toInt()}"
+        onValueChange(next)
+    }
+
+    LaunchedEffect(value, editingPercent) {
+        if (!editingPercent) percentText = "${(value * 100).toInt()}"
+    }
+
     PremiumPanel {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Dimensione caratteri", color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text("${(value * 100).toInt()}%", color = AppColors.Accent, fontWeight = FontWeight.SemiBold)
+                if (editingPercent) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BasicTextField(
+                            value = percentText,
+                            onValueChange = { next ->
+                                if (next.contains('\n') || next.contains('\r')) {
+                                    commitPercent(next)
+                                } else {
+                                    percentText = next.filter { it.isDigit() || it == ',' || it == '.' }.take(5)
+                                }
+                            },
+                            singleLine = true,
+                            textStyle = TextStyle(color = AppColors.Accent, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, textAlign = TextAlign.End),
+                            cursorBrush = SolidColor(AppColors.Accent),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { commitPercent(percentText) }),
+                            modifier = Modifier.width(54.dp)
+                        )
+                        Text("%", color = AppColors.Accent, fontWeight = FontWeight.SemiBold)
+                    }
+                } else {
+                    Text(
+                        "${(value * 100).toInt()}%",
+                        color = AppColors.Accent,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable {
+                            percentText = "${(value * 100).toInt()}"
+                            editingPercent = true
+                        }
+                    )
+                }
             }
             Slider(
                 value = value,
                 onValueChange = onValueChange,
-                valueRange = MIN_FONT_SCALE..MAX_FONT_SCALE,
-                steps = 7
+                valueRange = MIN_FONT_SCALE..MAX_FONT_SCALE
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Anteprima testo conversazione", color = Color.White, fontSize = 16.sp)
