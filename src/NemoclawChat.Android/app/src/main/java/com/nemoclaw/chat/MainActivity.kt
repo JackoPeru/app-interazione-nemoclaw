@@ -15,6 +15,7 @@ import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,8 +35,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -70,7 +70,6 @@ import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -84,12 +83,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -109,6 +110,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -116,6 +118,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -296,6 +300,7 @@ data class AppSettings(
     val model: String = AppDefaults.model,
     val accessMode: String = AppDefaults.accessMode,
     val visualBlocksMode: String = AppDefaults.visualBlocksMode,
+    val fontScale: Float = AppDefaults.fontScale,
     val demoMode: Boolean = true
 )
 
@@ -361,75 +366,82 @@ private fun ChatApp() {
     var pendingConversationId by remember { mutableStateOf<String?>(null) }
     val chatState = remember { ChatStateHolder() }
     val chatScope = rememberCoroutineScope()
+    val baseDensity = LocalDensity.current
+    val appDensity = Density(
+        density = baseDensity.density,
+        fontScale = settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)
+    )
 
-    Scaffold(
-        containerColor = AppColors.Background,
-        bottomBar = {
-            NavigationBar(containerColor = AppColors.Sidebar) {
-                Tab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.White,
-                            selectedTextColor = Color.White,
-                            indicatorColor = AppColors.NavIndicator,
-                            unselectedIconColor = AppColors.Muted,
-                            unselectedTextColor = AppColors.Muted
-                        ),
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    )
+    CompositionLocalProvider(LocalDensity provides appDensity) {
+        Scaffold(
+            containerColor = AppColors.Background,
+            bottomBar = {
+                NavigationBar(containerColor = AppColors.Sidebar) {
+                    Tab.entries.forEach { tab ->
+                        NavigationBarItem(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Color.White,
+                                indicatorColor = AppColors.NavIndicator,
+                                unselectedIconColor = AppColors.Muted,
+                                unselectedTextColor = AppColors.Muted
+                            ),
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
+                    }
                 }
             }
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(AppColors.Background)
-        ) {
-            when (selectedTab) {
-                Tab.Chat -> ChatScreen(
-                    context = context,
-                    settings = settings,
-                    state = chatState,
-                    scope = chatScope,
-                    conversationId = pendingConversationId,
-                    initialPrompt = pendingPrompt,
-                    onInitialPromptConsumed = {
-                        pendingPrompt = ""
-                        pendingConversationId = null
-                    },
-                    onSwitchTab = { tab -> selectedTab = tab }
-                )
-                Tab.Archive -> ArchiveScreen(
-                    context = context,
-                    onOpenConversation = { id, prompt ->
-                        pendingConversationId = id
-                        pendingPrompt = prompt
-                        selectedTab = Tab.Chat
-                    }
-                )
-                Tab.Tasks -> TasksScreen(context, settings)
-                Tab.Server -> ServerScreen(context, settings)
-                Tab.Operator -> OperatorScreen(context, settings)
-                Tab.Video -> VideoScreen(context, settings)
-                Tab.News -> NewsScreen(context, settings)
-                Tab.Settings -> SettingsScreen(
-                    settings = settings,
-                    onSave = {
-                        settings = it
-                        saveSettings(context, it)
-                    },
-                    onReset = {
-                        settings = AppSettings()
-                        saveSettings(context, settings)
-                        deleteGatewaySecret(context)
-                    }
-                )
-                Tab.Profile -> ProfileScreen(context, settings)
+        ) { padding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(AppColors.Background)
+            ) {
+                when (selectedTab) {
+                    Tab.Chat -> ChatScreen(
+                        context = context,
+                        settings = settings,
+                        state = chatState,
+                        scope = chatScope,
+                        conversationId = pendingConversationId,
+                        initialPrompt = pendingPrompt,
+                        onInitialPromptConsumed = {
+                            pendingPrompt = ""
+                            pendingConversationId = null
+                        },
+                        onSwitchTab = { tab -> selectedTab = tab }
+                    )
+                    Tab.Archive -> ArchiveScreen(
+                        context = context,
+                        onOpenConversation = { id, prompt ->
+                            pendingConversationId = id
+                            pendingPrompt = prompt
+                            selectedTab = Tab.Chat
+                        }
+                    )
+                    Tab.Tasks -> TasksScreen(context, settings)
+                    Tab.Server -> ServerScreen(context, settings)
+                    Tab.Operator -> OperatorScreen(context, settings)
+                    Tab.Video -> VideoScreen(context, settings)
+                    Tab.News -> NewsScreen(context, settings)
+                    Tab.Settings -> SettingsScreen(
+                        settings = settings,
+                        onSave = {
+                            settings = it
+                            saveSettings(context, it)
+                        },
+                        onReset = {
+                            settings = AppSettings()
+                            saveSettings(context, settings)
+                            deleteGatewaySecret(context)
+                        }
+                    )
+                    Tab.Profile -> ProfileScreen(context, settings)
+                }
             }
         }
     }
@@ -477,9 +489,7 @@ private fun ChatScreen(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
+        modifier = Modifier.fillMaxSize()
     ) {
         TopBar(
             mode = state.mode,
@@ -777,6 +787,32 @@ private fun SuggestionButton(text: String, onClick: () -> Unit) {
 }
 
 @Composable
+private fun PremiumPanel(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier.border(BorderStroke(1.dp, AppColors.Border), RoundedCornerShape(8.dp)),
+        color = AppColors.Panel,
+        shape = RoundedCornerShape(8.dp),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp
+    ) {
+        Column(content = content)
+    }
+}
+
+@Composable
+private fun Card(
+    modifier: Modifier = Modifier,
+    colors: Any? = null,
+    shape: Shape = RoundedCornerShape(8.dp),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    PremiumPanel(modifier = modifier, content = content)
+}
+
+@Composable
 private fun MessageBubble(message: ChatMessage) {
     if (!message.fromUser && !message.isAction) {
         Column(
@@ -801,16 +837,13 @@ private fun MessageBubble(message: ChatMessage) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start
     ) {
-        Card(
+        Surface(
             modifier = Modifier.fillMaxWidth(if (message.fromUser) 0.86f else 0.92f),
-            colors = CardDefaults.cardColors(
-                containerColor = when {
-                    message.isAction -> AppColors.Surface
-                    message.fromUser -> AppColors.UserBubble
-                    else -> AppColors.AssistantBubble
-                }
-            ),
-            shape = RoundedCornerShape(20.dp)
+            color = if (message.fromUser) AppColors.UserBubble else AppColors.Panel,
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AppColors.Border),
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
@@ -2271,18 +2304,35 @@ private fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var gatewayUrl by remember(settings) { mutableStateOf(settings.gatewayUrl) }
-    var gatewayWsUrl by remember(settings) { mutableStateOf(settings.gatewayWsUrl) }
-    var adminBridgeUrl by remember(settings) { mutableStateOf(settings.adminBridgeUrl) }
-    var gatewaySecret by remember(settings) { mutableStateOf("") }
-    var provider by remember(settings) { mutableStateOf(settings.provider) }
-    var inferenceEndpoint by remember(settings) { mutableStateOf(settings.inferenceEndpoint) }
-    var preferredApi by remember(settings) { mutableStateOf(settings.preferredApi) }
-    var model by remember(settings) { mutableStateOf(settings.model) }
-    var accessMode by remember(settings) { mutableStateOf(settings.accessMode) }
-    var visualBlocksMode by remember(settings) { mutableStateOf(settings.visualBlocksMode) }
-    var demoMode by remember(settings) { mutableStateOf(settings.demoMode) }
-    var status by remember(settings) { mutableStateOf("Pronto.") }
+    var gatewayUrl by remember(settings.gatewayUrl) { mutableStateOf(settings.gatewayUrl) }
+    var gatewayWsUrl by remember(settings.gatewayWsUrl) { mutableStateOf(settings.gatewayWsUrl) }
+    var adminBridgeUrl by remember(settings.adminBridgeUrl) { mutableStateOf(settings.adminBridgeUrl) }
+    var gatewaySecret by remember { mutableStateOf("") }
+    var provider by remember(settings.provider) { mutableStateOf(settings.provider) }
+    var inferenceEndpoint by remember(settings.inferenceEndpoint) { mutableStateOf(settings.inferenceEndpoint) }
+    var preferredApi by remember(settings.preferredApi) { mutableStateOf(settings.preferredApi) }
+    var model by remember(settings.model) { mutableStateOf(settings.model) }
+    var accessMode by remember(settings.accessMode) { mutableStateOf(settings.accessMode) }
+    var visualBlocksMode by remember(settings.visualBlocksMode) { mutableStateOf(settings.visualBlocksMode) }
+    var fontScale by remember(settings.fontScale) { mutableStateOf(settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)) }
+    var demoMode by remember(settings.demoMode) { mutableStateOf(settings.demoMode) }
+    var status by remember { mutableStateOf("Pronto.") }
+
+    fun currentSettings(scale: Float = fontScale): AppSettings {
+        return AppSettings(
+            gatewayUrl = gatewayUrl.trim(),
+            gatewayWsUrl = "",
+            adminBridgeUrl = hermesRoot(AppSettings(gatewayUrl = gatewayUrl.trim())),
+            provider = provider.trim(),
+            inferenceEndpoint = inferenceEndpoint.trim(),
+            preferredApi = preferredApi.trim(),
+            model = model.trim(),
+            accessMode = accessMode.trim(),
+            visualBlocksMode = visualBlocksMode.trim(),
+            fontScale = scale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
+            demoMode = demoMode
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -2295,6 +2345,16 @@ private fun SettingsScreen(
         Text("Impostazioni salvate sul dispositivo. Hermes API key cifrata con Android Keystore.", color = AppColors.Muted)
         Spacer(modifier = Modifier.height(18.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                FontScaleControl(
+                    value = fontScale,
+                    onValueChange = { scale ->
+                        fontScale = scale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)
+                        onSave(currentSettings(fontScale))
+                        status = "Dimensione caratteri: ${(fontScale * 100).toInt()}%."
+                    }
+                )
+            }
             item { SettingsField("Hermes API URL", gatewayUrl, { gatewayUrl = it }) }
             item {
                 SettingsPasswordField(
@@ -2331,18 +2391,7 @@ private fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(onClick = {
-                            val candidate = AppSettings(
-                                gatewayUrl = gatewayUrl.trim(),
-                                gatewayWsUrl = "",
-                                adminBridgeUrl = hermesRoot(AppSettings(gatewayUrl = gatewayUrl.trim())),
-                                provider = provider.trim(),
-                                inferenceEndpoint = inferenceEndpoint.trim(),
-                                preferredApi = preferredApi.trim(),
-                                model = model.trim(),
-                                accessMode = accessMode.trim(),
-                                visualBlocksMode = visualBlocksMode.trim(),
-                                demoMode = demoMode
-                            )
+                            val candidate = currentSettings()
                             val error = validateSettings(candidate)
                             if (error == null) {
                                 onSave(candidate)
@@ -2362,18 +2411,7 @@ private fun SettingsScreen(
                             Text("Salva")
                         }
                         Button(onClick = {
-                            val candidate = AppSettings(
-                                gatewayUrl = gatewayUrl.trim(),
-                                gatewayWsUrl = "",
-                                adminBridgeUrl = hermesRoot(AppSettings(gatewayUrl = gatewayUrl.trim())),
-                                provider = provider.trim(),
-                                inferenceEndpoint = inferenceEndpoint.trim(),
-                                preferredApi = preferredApi.trim(),
-                                model = model.trim(),
-                                accessMode = accessMode.trim(),
-                                visualBlocksMode = visualBlocksMode.trim(),
-                                demoMode = demoMode
-                            )
+                            val candidate = currentSettings()
                             val error = validateHttpUrl(candidate.gatewayUrl, "Hermes API URL")
                             if (error != null) {
                                 status = error
@@ -2416,6 +2454,31 @@ private fun SettingsScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FontScaleControl(
+    value: Float,
+    onValueChange: (Float) -> Unit
+) {
+    PremiumPanel {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Dimensione caratteri", color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text("${(value * 100).toInt()}%", color = AppColors.Accent, fontWeight = FontWeight.SemiBold)
+            }
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = MIN_FONT_SCALE..MAX_FONT_SCALE,
+                steps = 7
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Anteprima testo conversazione", color = Color.White, fontSize = 16.sp)
+                Text("Questo e' il modo in cui leggerai chat, sezioni e impostazioni.", color = AppColors.Muted, fontSize = 13.sp)
             }
         }
     }
@@ -3614,6 +3677,7 @@ private fun loadSettings(context: Context): AppSettings {
         model = prefs.getString("model", AppDefaults.model) ?: AppDefaults.model,
         accessMode = prefs.getString("accessMode", AppDefaults.accessMode) ?: AppDefaults.accessMode,
         visualBlocksMode = prefs.getString("visualBlocksMode", AppDefaults.visualBlocksMode) ?: AppDefaults.visualBlocksMode,
+        fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
         demoMode = prefs.getBoolean("demoMode", true)
     )
 }
@@ -3630,6 +3694,7 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .putString("model", settings.model)
         .putString("accessMode", settings.accessMode)
         .putString("visualBlocksMode", settings.visualBlocksMode)
+        .putFloat("fontScale", settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE))
         .putBoolean("demoMode", settings.demoMode)
         .apply()
 }
@@ -4137,6 +4202,8 @@ private const val LEGACY_TASKS_PREFS = "nemoclaw_tasks"
 private const val CURRENT_WORKSPACE_PREFS = "chatclaw_workspace_requests"
 private const val GATEWAY_SECRET_PREF_KEY = "gatewaySecretCiphertext"
 private const val GATEWAY_SECRET_KEY_ALIAS = "chatclaw_gateway_secret"
+private const val MIN_FONT_SCALE = 0.85f
+private const val MAX_FONT_SCALE = 1.25f
 
 private object AppDefaults {
     const val gatewayUrl = "http://hermes.local:8642/v1"
@@ -4148,6 +4215,7 @@ private object AppDefaults {
     const val model = "hermes-agent"
     const val accessMode = "Tailscale/LAN"
     const val visualBlocksMode = "auto"
+    const val fontScale = 1.0f
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"
     const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"
 }
@@ -4157,6 +4225,7 @@ internal object AppColors {
     val Sidebar = Color(0xFF14171D)
     val Composer = Color(0xFF1A1E26)
     val Surface = Color(0xFF1A1E26)
+    val Panel = Color(0xFF151922)
     val Elevated = Color(0xFF232831)
     val AssistantBubble = Color(0xFF1F242E)
     val UserBubble = Color(0xFF7A3E00)
