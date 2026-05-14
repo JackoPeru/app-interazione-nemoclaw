@@ -9,8 +9,19 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
-var app = builder.Build();
 var config = BridgeConfig.Load();
+if (string.IsNullOrWhiteSpace(config.Token))
+{
+    Console.Error.WriteLine("[admin-bridge] FATAL: variabile CHATCLAW_ADMIN_TOKEN non impostata. Impossibile avviare senza auth.");
+    return 1;
+}
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = config.MaxRequestBytes;
+});
+
+var app = builder.Build();
 var audit = new AuditLog(config.AuditPath);
 
 app.Use(async (context, next) =>
@@ -23,8 +34,7 @@ app.Use(async (context, next) =>
 
     var token = context.Request.Headers.Authorization.ToString();
     var expected = config.Token;
-    if (string.IsNullOrWhiteSpace(expected) ||
-        !token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||
+    if (!token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||
         !CryptographicEquals(token["Bearer ".Length..].Trim(), expected))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -96,6 +106,13 @@ app.MapPost("/v1/logs/tail", async (TailRequest request) =>
         return Results.BadRequest(new { status = "denied", message = "Log non trovato o fuori dalle root consentite." });
     }
 
+    var logInfo = new FileInfo(path);
+    if (logInfo.Length > config.MaxReadBytes)
+    {
+        audit.Write("logs.tail", "denied:size");
+        return Results.BadRequest(new { status = "denied", message = $"Log troppo grande. Limite {config.MaxReadBytes} bytes." });
+    }
+
     audit.Write("logs.tail", path);
     var lines = await File.ReadAllLinesAsync(path);
     return Results.Json(new
@@ -157,6 +174,13 @@ app.MapPost("/v1/files/write", async (FileWriteRequest request) =>
         return Results.BadRequest(new { status = "denied", message = "Path fuori dalle root consentite." });
     }
 
+    var payload = request.Text ?? string.Empty;
+    if (payload.Length > config.MaxWriteChars)
+    {
+        audit.Write("files.write", "denied:size");
+        return Results.BadRequest(new { status = "denied", message = $"Payload troppo grande. Limite {config.MaxWriteChars} caratteri." });
+    }
+
     var backupPath = File.Exists(path) ? $"{path}.{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.bak" : null;
     if (backupPath is not null)
     {
@@ -164,12 +188,13 @@ app.MapPost("/v1/files/write", async (FileWriteRequest request) =>
     }
 
     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-    await File.WriteAllTextAsync(path, request.Text ?? string.Empty);
+    await File.WriteAllTextAsync(path, payload);
     audit.Write("files.write", path);
     return Results.Json(new { status = "ok", path, backupPath });
 });
 
-app.Run();
+await app.RunAsync();
+return 0;
 
 static bool CryptographicEquals(string left, string right)
 {
@@ -190,6 +215,8 @@ sealed class BridgeConfig
     public required string AuditPath { get; init; }
     public required int CommandTimeoutSeconds { get; init; }
     public required long MaxReadBytes { get; init; }
+    public required long MaxRequestBytes { get; init; }
+    public required int MaxWriteChars { get; init; }
     public required Dictionary<string, (string FileName, string Arguments)> Actions { get; init; }
 
     public static BridgeConfig Load()
@@ -223,6 +250,8 @@ sealed class BridgeConfig
             AuditPath = Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_AUDIT") ?? Path.Combine(data, "audit.log"),
             CommandTimeoutSeconds = int.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_TIMEOUT"), out var timeout) ? timeout : 120,
             MaxReadBytes = long.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_READ_BYTES"), out var maxRead) ? maxRead : 1_000_000,
+            MaxRequestBytes = long.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_REQUEST_BYTES"), out var maxReq) ? maxReq : 4_000_000,
+            MaxWriteChars = int.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_WRITE_CHARS"), out var maxWrite) ? maxWrite : 2_000_000,
             Actions = actions
         };
     }

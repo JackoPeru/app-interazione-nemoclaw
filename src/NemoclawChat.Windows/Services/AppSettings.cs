@@ -11,5 +11,5 @@ public sealed class AppSettings
     public string Model { get; set; } = "hermes-agent";
     public string AccessMode { get; set; } = "Tailscale/LAN";
     public string VisualBlocksMode { get; set; } = "auto";
-    public bool DemoMode { get; set; } = true;
+    public bool DemoMode { get; set; } = false;
 }

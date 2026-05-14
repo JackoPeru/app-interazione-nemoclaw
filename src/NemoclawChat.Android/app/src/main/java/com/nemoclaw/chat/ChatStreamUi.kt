@@ -64,7 +64,10 @@ internal fun StreamingBubbleView(state: StreamingState) {
                     MarkdownText(state.text, color = Color.White, fontSize = 15.sp)
                 }
 
-                state.visualBlocks.filter { it.isValidVisualBlock() }.forEach { block ->
+                val validBlocks = remember(state.visualBlocks) {
+                    state.visualBlocks.filter { it.isValidVisualBlock() }
+                }
+                validBlocks.forEach { block ->
                     VisualBlockView(block)
                 }
 
@@ -322,8 +325,8 @@ internal fun ToolActivityRow(tool: ToolCallState) {
         }
         if (expanded) {
             ActivityLine("Argomenti", if (tool.args.isBlank()) "-" else prettifyJson(tool.args), monospaced = true)
-            if (!tool.result.isNullOrBlank()) {
-                ActivityLine("Risultato", prettifyJson(tool.result!!), monospaced = true)
+            tool.result?.takeIf { it.isNotBlank() }?.let { result ->
+                ActivityLine("Risultato", prettifyJson(result), monospaced = true)
             }
         }
     }
@@ -391,14 +394,14 @@ internal fun ToolCallCard(tool: ToolCallState) {
                             fontSize = 11.sp
                         )
                     }
-                    if (!tool.result.isNullOrEmpty()) {
+                    tool.result?.takeIf { it.isNotEmpty() }?.let { result ->
                         Text(text = "Risultato", color = AppColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Surface(color = AppColors.Composer, shape = RoundedCornerShape(8.dp)) {
                             Text(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(10.dp),
-                                text = prettifyJson(tool.result!!),
+                                text = prettifyJson(result),
                                 color = Color.White,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp
@@ -656,7 +659,13 @@ internal fun SlashCommandList(
         color = AppColors.Elevated,
         shape = RoundedCornerShape(14.dp)
     ) {
-        Column(modifier = Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(
+            modifier = Modifier
+                .heightIn(max = 260.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
             commands.forEach { cmd ->
                 Row(
                     modifier = Modifier

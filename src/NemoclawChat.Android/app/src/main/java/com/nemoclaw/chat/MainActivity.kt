@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,6 +75,8 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -104,6 +107,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
@@ -123,8 +127,12 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -388,11 +396,15 @@ private data class OperatorPreset(
 @Composable
 private fun ChatApp() {
     val context = LocalContext.current
-    var selectedTab by remember { mutableStateOf(Tab.Chat) }
+    var selectedTabName by rememberSaveable { mutableStateOf(Tab.Chat.name) }
+    val selectedTab = remember(selectedTabName) {
+        runCatching { Tab.valueOf(selectedTabName) }.getOrDefault(Tab.Chat)
+    }
+    val setSelectedTab: (Tab) -> Unit = { selectedTabName = it.name }
     var settings by remember { mutableStateOf(loadSettings(context)) }
-    var pendingPrompt by remember { mutableStateOf("") }
-    var pendingConversationId by remember { mutableStateOf<String?>(null) }
-    var sidebarOpen by remember { mutableStateOf(false) }
+    var pendingPrompt by rememberSaveable { mutableStateOf("") }
+    var pendingConversationId by rememberSaveable { mutableStateOf<String?>(null) }
+    var sidebarOpen by rememberSaveable { mutableStateOf(false) }
     val chatState = remember { ChatStateHolder() }
     val chatScope = rememberCoroutineScope()
     val baseDensity = LocalDensity.current
@@ -409,7 +421,7 @@ private fun ChatApp() {
                     Tab.entries.filterNot { it == Tab.Archive || it == Tab.Tasks }.forEach { tab ->
                         NavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
+                            onClick = { setSelectedTab(tab) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = Color.White,
                                 selectedTextColor = Color.White,
@@ -443,14 +455,14 @@ private fun ChatApp() {
                             pendingConversationId = null
                         },
                         onOpenSidebar = { sidebarOpen = true },
-                        onSwitchTab = { tab -> selectedTab = tab }
+                        onSwitchTab = { tab -> setSelectedTab(tab) }
                     )
                     Tab.Archive -> ArchiveScreen(
                         context = context,
                         onOpenConversation = { id, prompt ->
                             pendingConversationId = id
                             pendingPrompt = prompt
-                            selectedTab = Tab.Chat
+                            setSelectedTab(Tab.Chat)
                         }
                     )
                     Tab.Tasks -> TasksScreen(context, settings)
@@ -458,11 +470,11 @@ private fun ChatApp() {
                     Tab.Operator -> OperatorScreen(context, settings)
                     Tab.Video -> VideoScreen(context, settings) { prompt ->
                         pendingPrompt = prompt
-                        selectedTab = Tab.Chat
+                        setSelectedTab(Tab.Chat)
                     }
                     Tab.News -> NewsScreen(context, settings) { prompt ->
                         pendingPrompt = prompt
-                        selectedTab = Tab.Chat
+                        setSelectedTab(Tab.Chat)
                     }
                     Tab.Settings -> SettingsScreen(
                         settings = settings,
@@ -490,21 +502,21 @@ private fun ChatApp() {
                             onClose = { sidebarOpen = false },
                             onNewChat = {
                                 chatState.resetForNewChat()
-                                selectedTab = Tab.Chat
+                                setSelectedTab(Tab.Chat)
                                 sidebarOpen = false
                             },
                             onOpenConversation = { id ->
                                 pendingConversationId = id
                                 pendingPrompt = ""
-                                selectedTab = Tab.Chat
+                                setSelectedTab(Tab.Chat)
                                 sidebarOpen = false
                             },
                             onOpenArchive = {
-                                selectedTab = Tab.Archive
+                                setSelectedTab(Tab.Archive)
                                 sidebarOpen = false
                             },
                             onOpenJobs = {
-                                selectedTab = Tab.Tasks
+                                setSelectedTab(Tab.Tasks)
                                 sidebarOpen = false
                             }
                         )
@@ -687,6 +699,13 @@ private fun ChatScreen(
         }
     }
 
+    val haptics = LocalHapticFeedback.current
+    val isStreaming = state.streamingState != null
+    LaunchedEffect(isStreaming) {
+        if (!isStreaming && state.messages.isNotEmpty()) {
+            runCatching { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+        }
+    }
     val streamingTextLen = state.streamingState?.text?.length ?: 0
     LaunchedEffect(state.messages.size, streamingTextLen, state.streamingState != null) {
         val totalItems = state.messages.size + if (state.streamingState != null) 1 else 0
@@ -696,27 +715,27 @@ private fun ChatScreen(
     }
 
     val isEmptyChat = state.messages.isEmpty() && state.streamingState == null
+    val emptyChatBrush = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0x34F5A524),
+                Color(0x241F1710),
+                Color(0x12181510),
+                AppColors.Background,
+                AppColors.Background
+            ),
+            startY = -260f,
+            endY = 1440f
+        )
+    }
+    val solidBrush = remember {
+        Brush.verticalGradient(listOf(AppColors.Background, AppColors.Background))
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                if (isEmptyChat) {
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0x34F5A524),
-                            Color(0x241F1710),
-                            Color(0x12181510),
-                            AppColors.Background,
-                            AppColors.Background
-                        ),
-                        startY = -260f,
-                        endY = 1440f
-                    )
-                } else {
-                    Brush.verticalGradient(listOf(AppColors.Background, AppColors.Background))
-                }
-            )
+            .background(if (isEmptyChat) emptyChatBrush else solidBrush)
     ) {
         TopBar(
             mode = state.mode,
@@ -737,11 +756,14 @@ private fun ChatScreen(
                 contentPadding = PaddingValues(18.dp, 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                items(state.messages) { message ->
+                itemsIndexed(
+                    state.messages,
+                    key = { index, message -> "msg-$index-${message.hashCode()}" }
+                ) { _, message ->
                     MessageBubble(message)
                 }
                 state.streamingState?.let { streaming ->
-                    item { StreamingBubbleView(streaming) }
+                    item(key = "streaming") { StreamingBubbleView(streaming) }
                 }
             }
         }
@@ -1540,6 +1562,12 @@ private fun Composer(
                             lineHeight = 25.sp
                         ),
                         cursorBrush = SolidColor(AppColors.Accent),
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            autoCorrectEnabled = true,
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Default
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (value.isEmpty()) {
@@ -2993,12 +3021,22 @@ private fun SettingsField(label: String, value: String, onValueChange: (String) 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsPasswordField(label: String, value: String, onValueChange: (String) -> Unit) {
+    var visible by remember { mutableStateOf(false) }
     TextField(
         modifier = Modifier.fillMaxWidth(),
         value = value,
         onValueChange = onValueChange,
         label = { Text(label, color = AppColors.Muted) },
-        visualTransformation = PasswordVisualTransformation(),
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    imageVector = if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                    contentDescription = if (visible) "Nascondi chiave" else "Mostra chiave",
+                    tint = AppColors.Muted
+                )
+            }
+        },
         colors = TextFieldDefaults.colors(
             focusedContainerColor = AppColors.Composer,
             unfocusedContainerColor = AppColors.Composer,

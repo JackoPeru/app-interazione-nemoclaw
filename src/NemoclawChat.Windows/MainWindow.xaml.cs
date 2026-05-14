@@ -24,7 +24,14 @@ public sealed partial class MainWindow : Window
         AppWindow.SetIcon("Assets/AppIcon.ico");
         ContentFrame.Navigate(typeof(HomePage));
         ChatArchiveStore.Changed += RefreshRecentChats;
+        Closed += MainWindow_Closed;
         RefreshRecentChats();
+    }
+
+    private void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        ChatArchiveStore.Changed -= RefreshRecentChats;
+        Closed -= MainWindow_Closed;
     }
 
     private void CollapseSidebar_Click(object sender, RoutedEventArgs e)

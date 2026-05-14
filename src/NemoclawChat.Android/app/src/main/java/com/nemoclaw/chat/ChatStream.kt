@@ -18,6 +18,13 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
+private val streamHttpClient: OkHttpClient = OkHttpClient.Builder()
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(60, TimeUnit.MINUTES)
+    .writeTimeout(60, TimeUnit.SECONDS)
+    .callTimeout(60, TimeUnit.MINUTES)
+    .build()
+
 data class ChatStreamStats(
     val ttftMs: Double? = null,
     val totalMs: Double? = null,
@@ -248,7 +255,8 @@ fun streamChatRequest(
     }
 
     val tokensOut = completionTokens ?: max(1, accumText.length / 4)
-    val sinceFirst = if (ttftMs != null) max(1.0, totalMs - ttftMs!!) else totalMs
+    val ttftSnapshot = ttftMs
+    val sinceFirst = if (ttftSnapshot != null) max(1.0, totalMs - ttftSnapshot) else totalMs
     val tps = if (tokensOut > 0 && sinceFirst > 0) tokensOut / (sinceFirst / 1000.0) else null
     emit(ChatStreamEvent.Done(ChatStreamStats(ttftMs, totalMs, tokensOut, tps, promptTokens)))
 }.flowOn(Dispatchers.IO)
@@ -267,12 +275,6 @@ private suspend inline fun openSseStream(
         }
     }
     return try {
-        val client = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.MINUTES)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.MINUTES)
-            .build()
         val builder = Request.Builder()
             .url(url)
             .header("Accept", "text/event-stream, application/json")
@@ -282,21 +284,23 @@ private suspend inline fun openSseStream(
         }
         val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request = builder.post(body).build()
-        call = client.newCall(request)
-        call!!.execute().use { response ->
+        val activeCall = streamHttpClient.newCall(request)
+        call = activeCall
+        activeCall.execute().use { response ->
+            val responseBody = response.body
             if (!response.isSuccessful) {
-                val text = response.body?.string().orEmpty().take(240)
+                val text = responseBody.string().take(240)
                 onEvent(ChatStreamEvent.Error("$label HTTP ${response.code}: $text"))
                 return@use true
             }
             onEvent(ChatStreamEvent.Status("$label connesso. Attendo eventi..."))
-            val ct = response.body?.contentType()?.toString().orEmpty()
+            val ct = responseBody.contentType()?.toString().orEmpty()
             if (!ct.contains("event-stream", ignoreCase = true)) {
-                val full = response.body?.string().orEmpty()
+                val full = responseBody.string()
                 parseFullBody(full).forEach { onEvent(it) }
                 return@use false
             }
-            val source = response.body?.source() ?: return@use false
+            val source = responseBody.source()
             val dataBuf = StringBuilder()
             var eventName: String? = null
             while (true) {

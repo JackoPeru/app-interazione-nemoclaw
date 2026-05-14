@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.19 Release Hermes Hub 0.6.19
+v0.6.20 Release Hermes Hub 0.6.20
 ```
 
 ## Regola Memoria
@@ -53,6 +53,38 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.20 (Windows + Android):
+
+Audit + hardening post-0.6.19. Tutti i fix elencati in `docs/audit-0.6.20.md`.
+
+Critici risolti:
+- Android `OkHttpClient` ora singleton modulo (era new per request → fd waste + zero connection pool).
+- Android `LazyColumn` messaggi con `key=` stabile via `itemsIndexed` (no recomposition mismatch su append).
+- Android UI state rotation/process-death safe: `selectedTab`, `pendingPrompt`, `pendingConversationId`, `sidebarOpen` via `rememberSaveable`.
+- AdminBridge: limite body request Kestrel (`CHATCLAW_ADMIN_MAX_REQUEST_BYTES`, default 4MB) + check `MaxWriteChars` su `/v1/files/write` + check size su `/v1/logs/tail` + fail-fast se `CHATCLAW_ADMIN_TOKEN` non set.
+
+Importanti:
+- Android: cleanup warning compilatore `!!`/`?.` ridondanti, `KeyboardOptions.autoCorrectEnabled`.
+- Android: `Brush.verticalGradient` memoizzato in `ChatScreen`.
+- Android: lista `validBlocks` memoizzata per recompose stream.
+- Android: `network_security_config.xml` con `base-config` esplicito + commento doc strategia (cleartext LAN per design).
+- Windows: `MainWindow` unsubscribe `ChatArchiveStore.Changed` su `Closed`.
+- Windows: `DemoMode` default `false` (era `true`, mascherava errori reali).
+
+UX:
+- Android composer: autocorrect + capitalizzazione frasi attivi (`KeyboardCapitalization.Sentences`).
+- Android settings: API key con toggle visibilita' (icona occhio).
+- Android: haptic feedback `LongPress` a fine generazione stream.
+- Android: `SlashCommandList` scrollabile con `heightIn(max=260.dp) + verticalScroll`.
+
+Esclusi (richiedono input/refactor pervasivo):
+- Signing keystore release dedicato (necessita keystore vero non in repo).
+- ProGuard/R8 minify (rischio rottura senza test su device).
+- Refactor MainActivity.kt 5000+ righe → moduli.
+- Migrazione AppColors → `MaterialTheme.colorScheme`.
+
+## Release 0.6.19
 
 Hermes Hub 0.6.19 (Windows + Android):
 
@@ -165,7 +197,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.19`.
+- Versione app: `0.6.20`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -201,7 +233,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.19`, versionCode `32`.
+- Versione app: `0.6.20`, versionCode `33`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.
