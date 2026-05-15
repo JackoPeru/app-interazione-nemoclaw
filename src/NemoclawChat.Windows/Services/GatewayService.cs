@@ -39,9 +39,11 @@ public static class GatewayService
         AllowAutoRedirect = false
     };
 
+    // Timeout default 5 min: chat non-streaming su modelli grandi puo' impiegare minuti.
+    // I 20s precedenti abortivano le risposte lunghe a meta'.
     private static readonly HttpClient HttpClient = new(HttpHandler)
     {
-        Timeout = TimeSpan.FromSeconds(20)
+        Timeout = TimeSpan.FromMinutes(5)
     };
 
     public static async Task<GatewayChatResult> SendChatAsync(

@@ -117,12 +117,13 @@ app.MapPost("/v1/logs/tail", async (TailRequest request) =>
     }
 
     audit.Write("logs.tail", path);
-    var lines = await File.ReadAllLinesAsync(path, System.Text.Encoding.UTF8);
+    var requested = Math.Clamp(request.Lines <= 0 ? 200 : request.Lines, 1, 2000);
+    var lines = await ReadLastLinesAsync(path, requested);
     return Results.Json(new
     {
         status = "ok",
         path,
-        lines = lines.TakeLast(Math.Clamp(request.Lines <= 0 ? 200 : request.Lines, 1, 2000))
+        lines
     });
 });
 
@@ -222,6 +223,53 @@ app.MapPost("/v1/files/write", async (FileWriteRequest request) =>
 await app.RunAsync();
 return 0;
 
+static async Task<IReadOnlyList<string>> ReadLastLinesAsync(string path, int count)
+{
+    const int chunkSize = 8192;
+    using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+    var length = stream.Length;
+    var buffer = new byte[chunkSize];
+    var collected = new List<string>(count + 1);
+    var tail = new System.Text.StringBuilder();
+    long position = length;
+    while (position > 0 && collected.Count <= count)
+    {
+        var read = (int)Math.Min(chunkSize, position);
+        position -= read;
+        stream.Seek(position, SeekOrigin.Begin);
+        var got = await stream.ReadAsync(buffer.AsMemory(0, read));
+        if (got <= 0) break;
+        var chunk = System.Text.Encoding.UTF8.GetString(buffer, 0, got);
+        tail.Insert(0, chunk);
+        var text = tail.ToString();
+        var nl = text.LastIndexOf('\n');
+        while (nl >= 0 && collected.Count <= count)
+        {
+            var line = text[(nl + 1)..];
+            if (line.EndsWith('\r')) line = line[..^1];
+            if (line.Length > 0 || collected.Count > 0)
+            {
+                collected.Insert(0, line);
+            }
+            text = text[..nl];
+            nl = text.LastIndexOf('\n');
+        }
+        tail.Clear();
+        tail.Append(text);
+    }
+    if (tail.Length > 0 && collected.Count <= count)
+    {
+        var line = tail.ToString();
+        if (line.EndsWith('\r')) line = line[..^1];
+        if (line.Length > 0) collected.Insert(0, line);
+    }
+    if (collected.Count > count)
+    {
+        collected.RemoveRange(0, collected.Count - count);
+    }
+    return collected;
+}
+
 static bool CryptographicEquals(string left, string right)
 {
     var leftBytes = System.Text.Encoding.UTF8.GetBytes(left);
@@ -274,10 +322,10 @@ sealed class BridgeConfig
             Token = Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_TOKEN") ?? string.Empty,
             Roots = roots,
             AuditPath = Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_AUDIT") ?? Path.Combine(data, "audit.log"),
-            CommandTimeoutSeconds = int.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_TIMEOUT"), out var timeout) ? timeout : 120,
-            MaxReadBytes = long.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_READ_BYTES"), out var maxRead) ? maxRead : 1_000_000,
-            MaxRequestBytes = long.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_REQUEST_BYTES"), out var maxReq) ? maxReq : 4_000_000,
-            MaxWriteChars = int.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_WRITE_CHARS"), out var maxWrite) ? maxWrite : 2_000_000,
+            CommandTimeoutSeconds = Math.Max(1, int.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_TIMEOUT"), out var timeout) ? timeout : 120),
+            MaxReadBytes = Math.Max(1024, long.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_READ_BYTES"), out var maxRead) ? maxRead : 1_000_000),
+            MaxRequestBytes = Math.Max(1024, long.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_REQUEST_BYTES"), out var maxReq) ? maxReq : 4_000_000),
+            MaxWriteChars = Math.Max(1, int.TryParse(Environment.GetEnvironmentVariable("CHATCLAW_ADMIN_MAX_WRITE_CHARS"), out var maxWrite) ? maxWrite : 2_000_000),
             Actions = actions
         };
     }
@@ -415,11 +463,32 @@ static class CommandRunner
         }
         catch (OperationCanceledException)
         {
-            process.Kill(true);
-            return (-1, await stdoutTask, "Timeout: processo terminato.");
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // Process gia' uscito: ignora.
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                // Access denied / handle non valido: ignora.
+            }
+            string stdoutOnTimeout;
+            try { stdoutOnTimeout = await stdoutTask; }
+            catch { stdoutOnTimeout = string.Empty; }
+            return (-1, stdoutOnTimeout, "Timeout: processo terminato.");
         }
 
-        return (process.ExitCode, await stdoutTask, await stderrTask);
+        string stdoutFinal;
+        string stderrFinal;
+        try { stdoutFinal = await stdoutTask; } catch { stdoutFinal = string.Empty; }
+        try { stderrFinal = await stderrTask; } catch { stderrFinal = string.Empty; }
+        return (process.ExitCode, stdoutFinal, stderrFinal);
     }
 
     private static IEnumerable<string> SplitArguments(string arguments)

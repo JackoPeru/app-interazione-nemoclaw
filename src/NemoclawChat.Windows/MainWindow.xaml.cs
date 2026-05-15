@@ -12,6 +12,7 @@ namespace NemoclawChat_Windows;
 public sealed partial class MainWindow : Window
 {
     private bool _sidebarCollapsed;
+    private bool _closing;
 
     public MainWindow()
     {
@@ -30,8 +31,17 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
-        ChatArchiveStore.Changed -= RefreshRecentChats;
-        Closed -= MainWindow_Closed;
+        if (_closing) return;
+        _closing = true;
+        try
+        {
+            ChatArchiveStore.Changed -= RefreshRecentChats;
+            Closed -= MainWindow_Closed;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MainWindow] cleanup error: {ex.Message}");
+        }
     }
 
     private void CollapseSidebar_Click(object sender, RoutedEventArgs e)

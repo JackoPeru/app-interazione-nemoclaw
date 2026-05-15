@@ -263,8 +263,10 @@ public static class ChatStreamClient
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var reader = new StreamReader(stream, Encoding.UTF8);
 
+            const int SSE_EVENT_MAX_CHARS = 10 * 1024 * 1024;
             var dataBuilder = new StringBuilder();
             string? eventName = null;
+            bool eventOverflow = false;
 
             while (!reader.EndOfStream)
             {
@@ -277,6 +279,14 @@ public static class ChatStreamClient
 
                 if (line.Length == 0)
                 {
+                    if (eventOverflow)
+                    {
+                        dataBuilder.Clear();
+                        eventOverflow = false;
+                        eventName = null;
+                        yield return new StreamError("SSE event > 10MB, scartato.");
+                        continue;
+                    }
                     if (dataBuilder.Length > 0)
                     {
                         var data = dataBuilder.ToString();
@@ -304,7 +314,13 @@ public static class ChatStreamClient
 
                 if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (eventOverflow) continue;
                     var part = line[5..].TrimStart();
+                    if (dataBuilder.Length + part.Length + 1 > SSE_EVENT_MAX_CHARS)
+                    {
+                        eventOverflow = true;
+                        continue;
+                    }
                     if (dataBuilder.Length > 0)
                     {
                         dataBuilder.Append('\n');

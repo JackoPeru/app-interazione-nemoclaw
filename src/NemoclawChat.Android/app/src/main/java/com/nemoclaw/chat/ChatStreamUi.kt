@@ -38,6 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.geometry.Offset
@@ -52,7 +55,10 @@ internal fun StreamingBubbleView(state: StreamingState) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 2.dp, vertical = 2.dp),
+            .padding(horizontal = 2.dp, vertical = 2.dp)
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+            },
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
                 val showActivity = !state.isDone || state.hasThinking || state.toolCalls.isNotEmpty()

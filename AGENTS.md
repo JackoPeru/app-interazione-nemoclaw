@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.22 Release Hermes Hub 0.6.22
+v0.6.23 Release Hermes Hub 0.6.23
 ```
 
 ## Regola Memoria
@@ -54,7 +54,37 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.22 (Windows + Android):
+Hermes Hub 0.6.23 (Windows + Android):
+
+Audit round 4. Tutti i fix in `docs/audit-0.6.23.md`.
+
+Critici:
+- Android `extractAssistantText` con depth cap 10. Stop overflow su SSE nidificato malevolo.
+- AdminBridge `CHATCLAW_ADMIN_TIMEOUT`/`MAX_READ_BYTES`/`MAX_REQUEST_BYTES`/`MAX_WRITE_CHARS` clampati con `Math.Max`. Niente piu' `ArgumentOutOfRangeException` su env var negativo.
+- AdminBridge `Process.Kill(true)` in try-catch (`InvalidOperationException`, `Win32Exception`). stdin/stdout read fault-tolerant via try-catch su `await stdoutTask`/`await stderrTask`.
+- Windows ChatStream SSE `dataBuilder` cap 10MB per evento. Server malevolo non puo' piu' OOM stream loop.
+- Windows `GatewayService.HttpClient.Timeout` 20s → 5min. Chat non-streaming su modelli grandi non si abortisce piu' a meta'.
+
+High:
+- Android `chatState.draft` persistito via `rememberSaveable savedDraft` + `LaunchedEffect` sync. Process death non perde piu' draft.
+- Android `ChatMessage` ora ha `id: String` UUID stabile + LazyColumn `items(messages, key=id)`. Niente piu' collision hashCode su messaggi identici. JSON `readMessages`/`writeMessages` round-trip id.
+- Android `TasksScreen.loadTasks` ora dentro `LaunchedEffect` + `withContext(Dispatchers.IO)`. Niente piu' I/O sync su Composition thread.
+- Android: rimosso dead code 90+90 righe in `VideoScreen`/`NewsScreen` (codice post-return mai eseguito).
+- Windows `GatewayCredentialStore.PasswordVault` cached come `Lazy` singleton invece di `new` per call.
+- Windows `MainWindow_Closed` guarda con flag `_closing` + try-catch per re-entrancy safety.
+
+Med:
+- Android AlertDialog delete `DialogProperties(dismissOnClickOutside=false)`. Tap fuori non chiude piu' modale di conferma.
+- Android `fontScale` `isFinite()` check con fallback 1f. NaN/Infinity da settings corrotti non rompe `coerceIn`.
+- Android `StreamingBubbleView` `semantics { liveRegion = Polite }` per TalkBack live updates.
+- AdminBridge `/v1/logs/tail` ora usa `ReadLastLinesAsync` che fa seek-from-end + read backward in chunk 8KB. Niente piu' allocazione di tutto il file.
+
+Low:
+- Android `makeTitle` sanitize char non-stampabili + collapse whitespace + filter caratteri pericolosi.
+
+Note: C4 (DispatcherQueue Windows) verificato come falso positivo. `await foreach` preserva sync context UI in WinUI 3.
+
+## Release 0.6.22
 
 Audit round 3 + hardening. Tutti i fix elencati in `docs/audit-0.6.22.md`.
 
@@ -249,7 +279,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.22`.
+- Versione app: `0.6.23`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -285,7 +315,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.22`, versionCode `35`.
+- Versione app: `0.6.23`, versionCode `36`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

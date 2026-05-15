@@ -48,7 +48,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -193,7 +192,8 @@ data class ChatMessage(
     val fromUser: Boolean,
     val isAction: Boolean = false,
     val visualBlocksVersion: Int? = null,
-    val visualBlocks: List<VisualBlock> = emptyList()
+    val visualBlocks: List<VisualBlock> = emptyList(),
+    val id: String = java.util.UUID.randomUUID().toString()
 )
 
 data class VisualBlock(
@@ -405,12 +405,24 @@ private fun ChatApp() {
     var pendingPrompt by rememberSaveable { mutableStateOf("") }
     var pendingConversationId by rememberSaveable { mutableStateOf<String?>(null) }
     var sidebarOpen by rememberSaveable { mutableStateOf(false) }
-    val chatState = remember { ChatStateHolder() }
+    var savedDraft by rememberSaveable { mutableStateOf("") }
+    val chatState = remember { ChatStateHolder().apply { draft = savedDraft } }
+    LaunchedEffect(chatState.draft) {
+        if (chatState.draft != savedDraft) {
+            savedDraft = chatState.draft
+        }
+    }
     val chatScope = rememberCoroutineScope()
     val baseDensity = LocalDensity.current
+    val rawFontScale = settings.fontScale
+    val safeFontScale = if (rawFontScale.isFinite()) {
+        rawFontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)
+    } else {
+        1f
+    }
     val appDensity = Density(
         density = baseDensity.density,
-        fontScale = settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)
+        fontScale = safeFontScale
     )
 
     CompositionLocalProvider(LocalDensity provides appDensity) {
@@ -759,10 +771,10 @@ private fun ChatScreen(
                 contentPadding = PaddingValues(18.dp, 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                itemsIndexed(
+                items(
                     state.messages,
-                    key = { index, message -> "msg-$index-${message.hashCode()}" }
-                ) { _, message ->
+                    key = { message -> message.id }
+                ) { message ->
                     MessageBubble(message)
                 }
                 state.streamingState?.let { streaming ->
@@ -1772,6 +1784,10 @@ private fun ArchiveScreen(
     pendingDelete?.let { item ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
+            properties = androidx.compose.ui.window.DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false
+            ),
             containerColor = AppColors.Surface,
             title = {
                 Text("Conferma eliminazione", color = Color.White, fontWeight = FontWeight.SemiBold)
@@ -1865,10 +1881,11 @@ private fun ArchiveCard(
 @Composable
 private fun TasksScreen(context: Context, settings: AppSettings) {
     val scope = rememberCoroutineScope()
-    val tasks = remember {
-        mutableStateListOf<AgentTask>().apply {
-            addAll(loadTasks(context))
-        }
+    val tasks = remember { mutableStateListOf<AgentTask>() }
+    LaunchedEffect(Unit) {
+        val loaded = withContext(Dispatchers.IO) { loadTasks(context) }
+        tasks.clear()
+        tasks.addAll(loaded)
     }
     var title by remember { mutableStateOf("") }
     var detail by remember { mutableStateOf("") }
@@ -2304,94 +2321,6 @@ private fun VideoScreen(context: Context, settings: AppSettings, onOpenChatPromp
         chatPrompt = "Crea un job video per la sezione Video di Hermes Hub: ",
         onOpenChatPrompt = onOpenChatPrompt
     )
-    return
-    val scope = rememberCoroutineScope()
-    var brief by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("Pronto. Invia un brief: Hermes eseguira' un run reale o usera' fallback chat.") }
-    var resultText by remember { mutableStateOf("") }
-    var recentKey by remember { mutableStateOf(0) }
-    val recent = remember(recentKey) { loadWorkspaceRequests(context, "Video") }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Text("Video", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Workspace separato per chiedere a Hermes idee, script, storyboard e future generazioni video.", color = AppColors.Muted)
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Nuovo progetto video", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Prepara brief, tono, durata, formato e lista asset necessari.", color = AppColors.Muted)
-                    SettingsField("Brief video", brief, { brief = it })
-                    Button(onClick = {
-                        if (brief.isBlank()) {
-                            status = "Scrivi un brief video prima di inviare a Hermes."
-                            return@Button
-                        }
-                        status = "Invio a Hermes Video..."
-                        resultText = ""
-                        scope.launch {
-                            val result = sendWorkspaceRunRequest(settings, "Video", brief, loadGatewaySecret(context))
-                            status = result.status
-                            resultText = result.result
-                            saveWorkspaceRequest(context, "Video", brief, result.result, result.source, result.status)
-                            recentKey++
-                        }
-                    }) {
-                        Text("Invia a Hermes")
-                    }
-                }
-            }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Pipeline futura", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("1. Brief e obiettivo", color = AppColors.Muted)
-                    Text("2. Script e storyboard", color = AppColors.Muted)
-                    Text("3. Asset, voce, musica", color = AppColors.Muted)
-                    Text("4. Generazione video tramite Hermes quando il backend sara' pronto", color = AppColors.Muted)
-                }
-            }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Text(modifier = Modifier.padding(16.dp), text = status, color = AppColors.Muted)
-            }
-        }
-        if (resultText.isNotBlank()) {
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                    Text(modifier = Modifier.padding(16.dp), text = resultText, color = Color.White, fontSize = 13.sp)
-                }
-            }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Recenti video", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    if (recent.isEmpty()) {
-                        Text("Nessun progetto video ancora.", color = AppColors.Muted)
-                    }
-                    recent.forEach { item ->
-                        Button(onClick = {
-                            brief = item.prompt
-                            resultText = item.result
-                            status = item.status
-                        }) {
-                            Text("${item.title} · ${item.source}", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -2406,94 +2335,6 @@ private fun NewsScreen(context: Context, settings: AppSettings, onOpenChatPrompt
         chatPrompt = "Crea un articolo per la sezione News di Hermes Hub: ",
         onOpenChatPrompt = onOpenChatPrompt
     )
-    return
-    val scope = rememberCoroutineScope()
-    var brief by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("Pronto. Invia un brief: Hermes eseguira' un run reale o usera' fallback chat.") }
-    var resultText by remember { mutableStateOf("") }
-    var recentKey by remember { mutableStateOf(0) }
-    val recent = remember(recentKey) { loadWorkspaceRequests(context, "News") }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Text("News", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Area separata per ricerche, briefing e aggiornamenti periodici preparati da Hermes.", color = AppColors.Muted)
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Nuovo briefing news", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Definisci argomento, fonti desiderate, frequenza e formato del report.", color = AppColors.Muted)
-                    SettingsField("Brief news", brief, { brief = it })
-                    Button(onClick = {
-                        if (brief.isBlank()) {
-                            status = "Scrivi un brief news prima di inviare a Hermes."
-                            return@Button
-                        }
-                        status = "Invio a Hermes News..."
-                        resultText = ""
-                        scope.launch {
-                            val result = sendWorkspaceRunRequest(settings, "News", brief, loadGatewaySecret(context))
-                            status = result.status
-                            resultText = result.result
-                            saveWorkspaceRequest(context, "News", brief, result.result, result.source, result.status)
-                            recentKey++
-                        }
-                    }) {
-                        Text("Invia a Hermes")
-                    }
-                }
-            }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Pipeline futura", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("1. Argomenti e priorita", color = AppColors.Muted)
-                    Text("2. Fonti e filtri", color = AppColors.Muted)
-                    Text("3. Sintesi con citazioni", color = AppColors.Muted)
-                    Text("4. Automazioni e notifiche quando Hermes supportera' schedulazione news", color = AppColors.Muted)
-                }
-            }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Text(modifier = Modifier.padding(16.dp), text = status, color = AppColors.Muted)
-            }
-        }
-        if (resultText.isNotBlank()) {
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                    Text(modifier = Modifier.padding(16.dp), text = resultText, color = Color.White, fontSize = 13.sp)
-                }
-            }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Recenti news", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    if (recent.isEmpty()) {
-                        Text("Nessun briefing news ancora.", color = AppColors.Muted)
-                    }
-                    recent.forEach { item ->
-                        Button(onClick = {
-                            brief = item.prompt
-                            resultText = item.result
-                            status = item.status
-                        }) {
-                            Text("${item.title} · ${item.source}", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -3811,7 +3652,10 @@ private fun String.jsonEscaped(): String {
         .replace("\n", "\\n")
 }
 
-internal fun extractAssistantText(body: String): String {
+private const val EXTRACT_ASSISTANT_TEXT_MAX_DEPTH = 10
+
+internal fun extractAssistantText(body: String, depth: Int = 0): String {
+    if (depth >= EXTRACT_ASSISTANT_TEXT_MAX_DEPTH) return ""
     val trimmed = body.trim()
     if (trimmed.isBlank()) {
         return ""
@@ -3824,7 +3668,7 @@ internal fun extractAssistantText(body: String): String {
             if (!line.startsWith("data:", ignoreCase = true)) return@forEach
             val payload = line.removePrefix("data:").trim()
             if (payload.isBlank() || payload == "[DONE]") return@forEach
-            builder.append(extractAssistantText(payload))
+            builder.append(extractAssistantText(payload, depth + 1))
         }
         return builder.toString().trim()
     }
@@ -5008,6 +4852,7 @@ private fun readMessages(array: JSONArray): List<ChatMessage> {
     return buildList {
         for (i in 0 until array.length()) {
             val obj = array.getJSONObject(i)
+            val storedId = obj.optString("id").takeIf { it.isNotBlank() }
             add(
                 ChatMessage(
                     author = obj.optString("author"),
@@ -5015,7 +4860,8 @@ private fun readMessages(array: JSONArray): List<ChatMessage> {
                     fromUser = obj.optBoolean("fromUser"),
                     isAction = false,
                     visualBlocksVersion = obj.optInt("visualBlocksVersion").takeIf { obj.has("visualBlocksVersion") },
-                    visualBlocks = readVisualBlocks(obj.optJSONArray("visualBlocks") ?: JSONArray())
+                    visualBlocks = readVisualBlocks(obj.optJSONArray("visualBlocks") ?: JSONArray()),
+                    id = storedId ?: java.util.UUID.randomUUID().toString()
                 )
             )
         }
@@ -5028,6 +4874,7 @@ private fun writeMessages(messages: List<ChatMessage>): JSONArray {
         if (!message.isAction) {
             array.put(
                 JSONObject()
+                    .put("id", message.id)
                     .put("author", message.author)
                     .put("text", message.text)
                     .put("fromUser", message.fromUser)
@@ -5071,8 +4918,14 @@ private fun writeVisualBlocks(blocks: List<VisualBlock>): JSONArray {
 }
 
 private fun makeTitle(prompt: String): String {
-    val oneLine = prompt.lines().joinToString(" ").trim()
-    return if (oneLine.length <= 46) oneLine else oneLine.take(46).trimEnd() + "..."
+    val cleaned = prompt
+        .replace(' ', ' ')
+        .lines()
+        .joinToString(" ") { it.trim() }
+        .filter { ch -> ch.isLetterOrDigit() || ch.isWhitespace() || ch in "_-.,:;?!()[]\"'/\\@#%&*+=" }
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    return if (cleaned.length <= 46) cleaned else cleaned.take(46).trimEnd() + "..."
 }
 
 internal const val VISUAL_BLOCKS_VERSION = 1

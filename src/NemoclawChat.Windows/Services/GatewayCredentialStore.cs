@@ -9,6 +9,9 @@ public static class GatewayCredentialStore
     private const string UserName = "hermes";
     private const string LegacyUserName = "operator";
 
+    // PasswordVault e' wrapper COM thread-safe: cachiamo singleton invece di allocare per call.
+    private static readonly Lazy<PasswordVault> SharedVault = new(() => new PasswordVault());
+
     public static bool HasSecret()
     {
         return !string.IsNullOrWhiteSpace(LoadSecret());
@@ -18,7 +21,7 @@ public static class GatewayCredentialStore
     {
         try
         {
-            var vault = new PasswordVault();
+            var vault = SharedVault.Value;
             var credential = vault.Retrieve(Resource, UserName);
             credential.RetrievePassword();
             return credential.Password ?? string.Empty;
@@ -58,7 +61,7 @@ public static class GatewayCredentialStore
     {
         try
         {
-            var vault = new PasswordVault();
+            var vault = SharedVault.Value;
             vault.Remove(vault.Retrieve(Resource, UserName));
         }
         catch
@@ -71,7 +74,7 @@ public static class GatewayCredentialStore
     {
         try
         {
-            var vault = new PasswordVault();
+            var vault = SharedVault.Value;
             var credential = vault.Retrieve(LegacyResource, LegacyUserName);
             credential.RetrievePassword();
             return credential.Password ?? string.Empty;
