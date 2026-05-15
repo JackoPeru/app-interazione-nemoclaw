@@ -1,5 +1,6 @@
 package com.nemoclaw.chat
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -56,6 +58,7 @@ internal fun StreamingBubbleView(state: StreamingState) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 2.dp, vertical = 2.dp)
+            .animateContentSize()
             .semantics {
                 liveRegion = LiveRegionMode.Polite
             },
@@ -95,7 +98,12 @@ internal fun StreamingBubbleView(state: StreamingState) {
 
                 state.error?.let { err ->
                     if (state.text.isEmpty()) {
-                        Text(text = err, color = AppColors.Muted, fontSize = 12.sp)
+                        Text(
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+                            text = err,
+                            color = AppColors.Muted,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }
@@ -124,6 +132,7 @@ internal fun HermesActivityExpander(state: StreamingState) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -137,7 +146,7 @@ internal fun HermesActivityExpander(state: StreamingState) {
                 imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                 contentDescription = if (expanded) "Chiudi attivita" else "Mostra attivita",
                 tint = AppColors.Muted,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.weight(1f))
             if (indicator.isNotEmpty()) {
@@ -214,6 +223,7 @@ internal fun ThinkingExpander(thinking: String, active: Boolean, elapsedSec: Dou
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -315,11 +325,12 @@ internal fun ToolActivityRow(tool: ToolCallState) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(statusIcon, contentDescription = null, tint = statusColor, modifier = Modifier.size(14.dp))
+            Icon(statusIcon, contentDescription = null, tint = statusColor, modifier = Modifier.size(18.dp))
             Text(tool.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Text(outcome.label, color = statusColor, fontSize = 11.sp)
             Icon(
@@ -498,7 +509,9 @@ internal fun MarkdownText(
                             block.code,
                             color = color,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            softWrap = false,
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
                         )
                     }
                 }

@@ -142,6 +142,8 @@ public sealed partial class MainWindow : Window
                     TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis
                 }
             };
+            Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(button, conversation.Title);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Apri chat: {conversation.Title}");
             button.Click += OpenChat_Click;
             RecentChatsPanel.Children.Add(button);
         }

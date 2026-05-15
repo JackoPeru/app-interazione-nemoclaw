@@ -23,6 +23,7 @@ public sealed partial class HomePage : Page
     private string? _previousResponseId;
     private readonly List<ChatMessageRecord> _messageHistory = [];
     private volatile bool _isSending;
+    private StreamingBubble? _currentStreamingBubble;
 
     private Popup? _slashPopup;
     private ListView? _slashList;
@@ -34,6 +35,24 @@ public sealed partial class HomePage : Page
         _slashCommands = BuildSlashCommands();
         PromptBox.TextChanged += PromptBox_TextChanged;
         Loaded += HomePage_Loaded;
+        Unloaded += HomePage_Unloaded;
+    }
+
+    private void HomePage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _currentStreamingBubble?.StopShimmer();
+            _currentStreamingBubble = null;
+            PromptBox.TextChanged -= PromptBox_TextChanged;
+            Loaded -= HomePage_Loaded;
+            Unloaded -= HomePage_Unloaded;
+            if (_slashPopup is not null) _slashPopup.IsOpen = false;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HomePage] Unload error: {ex.Message}");
+        }
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -281,6 +300,7 @@ public sealed partial class HomePage : Page
 
             var settings = AppSettingsStore.Load();
             bubble = CreateStreamingAssistantBubble();
+            _currentStreamingBubble = bubble;
 
             IReadOnlyList<VisualBlockRecord>? finalBlocks = null;
             int? finalBlocksVersion = null;
@@ -380,6 +400,10 @@ public sealed partial class HomePage : Page
         finally
         {
             bubble?.StopShimmer();
+            if (ReferenceEquals(_currentStreamingBubble, bubble))
+            {
+                _currentStreamingBubble = null;
+            }
             _isSending = false;
             SendButton.IsEnabled = true;
         }

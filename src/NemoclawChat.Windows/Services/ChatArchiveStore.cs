@@ -26,9 +26,17 @@ public sealed record HomeNavigationRequest(string? ConversationId = null, string
 public static class ChatArchiveStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    public static event Action? Changed;
+    private static event Action? _changed;
+    public static event Action? Changed
+    {
+        add { _changed += value; }
+        remove { _changed -= value; }
+    }
     private const string CurrentDirectoryName = "ChatClaw";
     private const string LegacyDirectoryName = "NemoclawChat";
+
+    private static readonly object _cacheLock = new();
+    private static List<ConversationRecord>? _cache;
 
     private static string DataDirectoryPath
     {
@@ -66,19 +74,38 @@ public static class ChatArchiveStore
 
     public static List<ConversationRecord> Load()
     {
-        var content = AtomicJsonFile.Read(StorePath);
-        if (string.IsNullOrEmpty(content))
+        lock (_cacheLock)
         {
-            return [];
-        }
+            if (_cache is not null)
+            {
+                // copia difensiva: caller puo' mutare la lista senza corrompere la cache.
+                return new List<ConversationRecord>(_cache);
+            }
 
-        try
-        {
-            return JsonSerializer.Deserialize<List<ConversationRecord>>(content) ?? [];
+            var content = AtomicJsonFile.Read(StorePath);
+            if (string.IsNullOrEmpty(content))
+            {
+                _cache = [];
+                return [];
+            }
+
+            try
+            {
+                _cache = JsonSerializer.Deserialize<List<ConversationRecord>>(content) ?? [];
+            }
+            catch (JsonException)
+            {
+                _cache = [];
+            }
+            return new List<ConversationRecord>(_cache);
         }
-        catch (JsonException)
+    }
+
+    private static void InvalidateCache()
+    {
+        lock (_cacheLock)
         {
-            return [];
+            _cache = null;
         }
     }
 
@@ -187,7 +214,11 @@ public static class ChatArchiveStore
             .Take(200)
             .ToList();
         AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(ordered, JsonOptions));
-        Changed?.Invoke();
+        lock (_cacheLock)
+        {
+            _cache = ordered;
+        }
+        _changed?.Invoke();
     }
 
     private static string MakeTitle(string prompt)

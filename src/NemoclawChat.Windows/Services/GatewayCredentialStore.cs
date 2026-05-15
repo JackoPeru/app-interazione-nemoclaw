@@ -53,8 +53,14 @@ public static class GatewayCredentialStore
         }
 
         DeleteSecret();
-        var vault = new PasswordVault();
-        vault.Add(new PasswordCredential(Resource, UserName, secret.Trim()));
+        try
+        {
+            SharedVault.Value.Add(new PasswordCredential(Resource, UserName, secret.Trim()));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GatewayCredentialStore] SaveSecret error: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     public static void DeleteSecret()
@@ -64,9 +70,9 @@ public static class GatewayCredentialStore
             var vault = SharedVault.Value;
             vault.Remove(vault.Retrieve(Resource, UserName));
         }
-        catch
+        catch (Exception ex)
         {
-            // Nothing to delete or credential locker unavailable.
+            System.Diagnostics.Debug.WriteLine($"[GatewayCredentialStore] DeleteSecret: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

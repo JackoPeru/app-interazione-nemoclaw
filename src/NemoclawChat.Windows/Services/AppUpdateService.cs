@@ -32,9 +32,10 @@ public static class AppUpdateService
         MaxAutomaticRedirections = 5
     };
 
+    // Timeout 30 min: asset > 100MB su conn lenta puo' richiedere tempo.
     private static readonly HttpClient HttpClient = new(HttpHandler)
     {
-        Timeout = TimeSpan.FromMinutes(5)
+        Timeout = TimeSpan.FromMinutes(30)
     };
 
     public static async Task<UpdateCheckResult> CheckAsync(string localVersion)

@@ -40,10 +40,11 @@ public static class GatewayService
     };
 
     // Timeout default 5 min: chat non-streaming su modelli grandi puo' impiegare minuti.
-    // I 20s precedenti abortivano le risposte lunghe a meta'.
+    // Body cap 10 MB: protezione contro response gigante / server malevolo.
     private static readonly HttpClient HttpClient = new(HttpHandler)
     {
-        Timeout = TimeSpan.FromMinutes(5)
+        Timeout = TimeSpan.FromMinutes(5),
+        MaxResponseContentBufferSize = 10L * 1024 * 1024
     };
 
     public static async Task<GatewayChatResult> SendChatAsync(

@@ -186,6 +186,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Profile("Profilo", Icons.Rounded.AccountCircle)
 }
 
+@androidx.compose.runtime.Immutable
 data class ChatMessage(
     val author: String,
     val text: String,
@@ -196,6 +197,7 @@ data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString()
 )
 
+@androidx.compose.runtime.Immutable
 data class VisualBlock(
     val id: String,
     val type: String,
@@ -223,6 +225,7 @@ data class VisualBlock(
     val variant: String = ""
 )
 
+@androidx.compose.runtime.Immutable
 data class VisualTableColumn(
     val key: String,
     val label: String,
@@ -231,16 +234,19 @@ data class VisualTableColumn(
     val sortable: Boolean = false
 )
 
+@androidx.compose.runtime.Immutable
 data class VisualChartSeries(
     val name: String,
     val points: List<VisualChartPoint>
 )
 
+@androidx.compose.runtime.Immutable
 data class VisualChartPoint(
     val x: String,
     val y: Double
 )
 
+@androidx.compose.runtime.Immutable
 data class VisualGalleryImage(
     val mediaUrl: String,
     val alt: String,
@@ -625,12 +631,13 @@ private fun HermesSidebar(
             }
             if (conversations.isEmpty()) {
                 item {
-                    Text(
-                        "Nessuna chat salvata.",
-                        color = AppColors.Muted,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(vertical = 10.dp)
-                    )
+                    Column(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("Nessuna chat ancora.", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Tocca + per iniziarne una.", color = AppColors.Muted, fontSize = 12.sp)
+                    }
                 }
             } else {
                 items(conversations.take(40), key = { it.id }) { conversation ->
@@ -1745,7 +1752,10 @@ private fun ArchiveScreen(
         }
         if (results.isEmpty()) {
             item {
-                Text("Nessun risultato.", color = AppColors.Muted)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Archivio vuoto.", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Le conversazioni vengono salvate qui automaticamente. Inizia una nuova chat dalla sidebar.", color = AppColors.Muted, fontSize = 13.sp)
+                }
             }
         }
         items(results) { item ->
@@ -1969,7 +1979,10 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
         }
         if (tasks.isEmpty()) {
             item {
-                Text("Nessun job ancora.", color = AppColors.Muted)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Nessun job in coda.", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Crea un task qui sopra o invialo da chat con /agente. Verra' salvato nella coda Hermes.", color = AppColors.Muted, fontSize = 13.sp)
+                }
             }
         }
         items(tasks) { task ->
@@ -5042,8 +5055,9 @@ internal object AppColors {
     val Elevated = Color(0xFF232831)
     val AssistantBubble = Color(0xFF1F242E)
     val UserBubble = Color(0xFF7A3E00)
-    val Muted = Color(0xFFA2ADBF)
-    val Faint = Color(0xFF6B7585)
+    // Muted bumped da #A2ADBF (3.8:1 su Background) a #C8D2E0 (~6.5:1) per WCAG AA.
+    val Muted = Color(0xFFC8D2E0)
+    val Faint = Color(0xFF8892A2)
     val Accent = Color(0xFFF5A524)
     val NavIndicator = Color(0xFF4A351F)
     val Border = Color(0xFF232932)

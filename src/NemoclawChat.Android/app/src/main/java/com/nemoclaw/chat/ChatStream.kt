@@ -56,6 +56,7 @@ private fun StringBuilder.appendBounded(text: String): Boolean {
     return true
 }
 
+@androidx.compose.runtime.Immutable
 data class ChatStreamStats(
     val ttftMs: Double? = null,
     val totalMs: Double? = null,
@@ -64,6 +65,7 @@ data class ChatStreamStats(
     val promptTokens: Int? = null
 )
 
+@androidx.compose.runtime.Immutable
 data class ToolCallState(
     val id: String,
     val name: String,
@@ -72,6 +74,7 @@ data class ToolCallState(
     val result: String? = null
 )
 
+@androidx.compose.runtime.Immutable
 data class StreamingState(
     val text: String = "",
     val thinking: String = "",

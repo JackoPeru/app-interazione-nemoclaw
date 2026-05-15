@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.23 Release Hermes Hub 0.6.23
+v0.6.24 Release Hermes Hub 0.6.24
 ```
 
 ## Regola Memoria
@@ -54,7 +54,41 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.23 (Windows + Android):
+Hermes Hub 0.6.24 (Windows + Android):
+
+Audit round 5 — focus UI + code. Tutti i fix in `docs/audit-0.6.24.md`.
+
+Critici:
+- Android `AppColors.Muted` da `#A2ADBF` (3.8:1) a `#C8D2E0` (~6.5:1 su Background). Conformita' WCAG AA per testo secondario. Faint da `#6B7585` a `#8892A2`.
+- Android data class `@Immutable` su `ChatMessage`, `VisualBlock`, `VisualTableColumn`, `VisualChartSeries`, `VisualChartPoint`, `VisualGalleryImage`, `ChatStreamStats`, `ToolCallState`, `StreamingState`. Compose puo' skip recomposition stabile.
+- Windows `GatewayService.HttpClient` con `MaxResponseContentBufferSize = 10MB`. Server malevolo o response gigante non OOM-a app.
+
+High:
+- Android touch target su expander rows: `heightIn(min = 48.dp)` + icone bumped a 18-20dp. Conformita' Material 48dp.
+- Android `StreamingBubbleView` con `animateContentSize()`. Recompose token-per-token smooth, no flicker.
+- Android markdown code block: `softWrap = false` + `horizontalScroll(rememberScrollState())`. Codice lungo non clippa silenzioso.
+- Windows `GatewayCredentialStore.SaveSecret`/`DeleteSecret` ora usa `SharedVault.Value` cached + try-catch + log.
+- Windows `HomePage.Unloaded` handler: unsubscribe `PromptBox.TextChanged` + chiude `_slashPopup.IsOpen = false` + stop bubble shimmer.
+- Windows `App.xaml.cs` global handler: `UnhandledException` (UI) + `AppDomain.CurrentDomain.UnhandledException` + `TaskScheduler.UnobservedTaskException`. async void handler che crash non spengono app.
+
+Med:
+- Android empty states Archive/Jobs/Recent ora con titolo bold + CTA descrittiva ("Tocca + per iniziarne una.").
+- Android error `Text` con `liveRegion = Assertive`. TalkBack annuncia errori stream subito.
+- Windows `MutedTextBrush` da `#FFA2ADBF` a `#FFC8D2E0`. WCAG AA su dark bg.
+- Windows `ChatArchiveStore` cache statico `List<ConversationRecord>?` con `lock`, invalidato su SaveAll. No piu' reparse JSON ad ogni `Load()`/`Find()`/`Recent()`.
+- Windows HomePage track `_currentStreamingBubble`, `Unloaded` stop shimmer su navigation away.
+
+Low:
+- Windows `AppUpdateService.HttpClient.Timeout` 5min → 30min (asset > 100MB su conn lenta).
+- Windows sidebar dynamic buttons: `ToolTipService.SetToolTip` + `AutomationProperties.SetName` per accessibility.
+
+Esclusi (scope troppo grande):
+- Windows sidebar collapse animation (WinUI 3 GridLength richiede Composition API).
+- Android light theme (refactor `ChatClawTheme` con dynamic schema).
+- `ChatStateHolder` Parcelable (refactor ViewModel + SavedStateHandle).
+- i18n strings.xml extraction, Material typography scale, spacing constants.
+
+## Release 0.6.23
 
 Audit round 4. Tutti i fix in `docs/audit-0.6.23.md`.
 
@@ -279,7 +313,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.23`.
+- Versione app: `0.6.24`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -315,7 +349,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.23`, versionCode `36`.
+- Versione app: `0.6.24`, versionCode `37`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

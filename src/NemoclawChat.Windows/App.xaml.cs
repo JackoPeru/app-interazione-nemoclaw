@@ -25,6 +25,26 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        UnhandledException += OnUnhandledException;
+        System.AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+    }
+
+    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine($"[App] Unhandled: {e.Exception.GetType().Name}: {e.Message}");
+        e.Handled = true;
+    }
+
+    private static void OnDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine($"[App] AppDomain unhandled: {e.ExceptionObject}");
+    }
+
+    private static void OnUnobservedTaskException(object? sender, System.Threading.Tasks.UnobservedTaskExceptionEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine($"[App] Unobserved task: {e.Exception.Message}");
+        e.SetObserved();
     }
 
     /// <summary>
