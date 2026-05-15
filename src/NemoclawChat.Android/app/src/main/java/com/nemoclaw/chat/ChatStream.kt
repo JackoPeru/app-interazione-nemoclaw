@@ -203,6 +203,7 @@ fun streamChatRequest(
     val accumText = StringBuilder()
     val accumThink = StringBuilder()
     var lastError: String? = null
+    var activeApiKey = apiKey?.takeIf { it.isNotBlank() }
 
     suspend fun emitAndTrack(ev: ChatStreamEvent): Boolean {
         when (ev) {
@@ -257,11 +258,17 @@ fun streamChatRequest(
     while (responsesAttempt < 3 && !sawDelta) {
         responsesAttempt++
         lastError = null
-        val terminated = openSseStream(responseUrl, responsePayload, apiKey, "Hermes Responses API") { ev ->
+        val terminated = openSseStream(responseUrl, responsePayload, activeApiKey, "Hermes Responses API") { ev ->
             emitAndTrack(ev)
         }
         if (!terminated || sawDelta) {
             break
+        }
+        if (isInvalidApiKeyError(lastError) && activeApiKey != null) {
+            activeApiKey = null
+            responsesAttempt = 0
+            emit(ChatStreamEvent.Status("API key rifiutata. Riprovo senza Authorization..."))
+            continue
         }
         if (lastError != null && responsesAttempt < 3) {
             kotlinx.coroutines.delay(1000L * (1 shl (responsesAttempt - 1)))
@@ -292,10 +299,19 @@ fun streamChatRequest(
                             .put("content", msg.text)
                     )
                 }
-            })
+        })
         val url = "${settings.gatewayUrl.trimEnd('/')}/chat/completions"
-        openSseStream(url, payload, apiKey, "Hermes Chat Completions") { ev ->
+        lastError = null
+        var chatTerminated = openSseStream(url, payload, activeApiKey, "Hermes Chat Completions") { ev ->
             emitAndTrack(ev)
+        }
+        if (chatTerminated && !sawDelta && isInvalidApiKeyError(lastError) && activeApiKey != null) {
+            activeApiKey = null
+            lastError = null
+            emit(ChatStreamEvent.Status("API key rifiutata da Chat Completions. Riprovo senza Authorization..."))
+            openSseStream(url, payload, activeApiKey, "Hermes Chat Completions") { ev ->
+                emitAndTrack(ev)
+            }
         }
     }
 
@@ -311,6 +327,13 @@ fun streamChatRequest(
     val tps = if (tokensOut > 0 && sinceFirst > 0) tokensOut / (sinceFirst / 1000.0) else null
     emit(ChatStreamEvent.Done(ChatStreamStats(ttftMs, totalMs, tokensOut, tps, promptTokens)))
 }.flowOn(Dispatchers.IO)
+
+private fun isInvalidApiKeyError(message: String?): Boolean {
+    val value = message?.lowercase().orEmpty()
+    return value.contains("invalid_api_key") ||
+        value.contains("invalid api key") ||
+        (value.contains("401") && value.contains("api key"))
+}
 
 private suspend inline fun openSseStream(
     url: String,

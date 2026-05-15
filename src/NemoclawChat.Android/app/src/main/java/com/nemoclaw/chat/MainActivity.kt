@@ -2852,6 +2852,13 @@ private fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(onClick = {
+                            deleteGatewaySecret(context)
+                            gatewaySecret = ""
+                            status = "Hermes API key cancellata. Le prossime richieste partiranno senza Authorization."
+                        }) {
+                            Text("Cancella API key")
+                        }
+                        Button(onClick = {
                             val error = validateHttpUrl(gatewayUrl, "Hermes API URL")
                             if (error != null) {
                                 status = error
