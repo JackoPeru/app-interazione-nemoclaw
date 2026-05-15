@@ -348,7 +348,7 @@ data class AppSettings(
     val accessMode: String = AppDefaults.accessMode,
     val visualBlocksMode: String = AppDefaults.visualBlocksMode,
     val fontScale: Float = AppDefaults.fontScale,
-    val demoMode: Boolean = true
+    val demoMode: Boolean = AppDefaults.demoMode
 )
 
 private data class GatewayChatResult(
@@ -4417,7 +4417,7 @@ private fun loadSettings(context: Context): AppSettings {
         accessMode = prefs.getString("accessMode", AppDefaults.accessMode) ?: AppDefaults.accessMode,
         visualBlocksMode = prefs.getString("visualBlocksMode", AppDefaults.visualBlocksMode) ?: AppDefaults.visualBlocksMode,
         fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
-        demoMode = prefs.getBoolean("demoMode", true)
+        demoMode = prefs.getBoolean("demoMode", AppDefaults.demoMode)
     )
 }
 
@@ -5116,6 +5116,7 @@ private object AppDefaults {
     const val accessMode = "Tailscale/LAN"
     const val visualBlocksMode = "auto"
     const val fontScale = 1.0f
+    const val demoMode = false
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"
     const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"
 }
