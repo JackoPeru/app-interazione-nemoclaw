@@ -11,6 +11,9 @@ namespace NemoclawChat_Windows.Pages;
 
 internal static class MarkdownRenderer
 {
+    private const int MaxBlocks = 500;
+    private const int MaxInputChars = 200_000;
+
     public static UIElement Render(string markdown, Color textColor)
     {
         var panel = new StackPanel { Spacing = 6 };
@@ -19,8 +22,24 @@ internal static class MarkdownRenderer
             return panel;
         }
 
-        var lines = markdown.Replace("\r\n", "\n").Split('\n');
+        var safeMarkdown = markdown.Length > MaxInputChars
+            ? markdown[..MaxInputChars] + "\n\n[troncato: limite 200000 caratteri raggiunto]"
+            : markdown;
+        var lines = safeMarkdown.Replace("\r\n", "\n").Split('\n');
         var paragraph = new System.Text.StringBuilder();
+        var renderedBlocks = 0;
+
+        bool CanRender() => renderedBlocks < MaxBlocks;
+
+        void AddBlock(UIElement element)
+        {
+            if (!CanRender())
+            {
+                return;
+            }
+            panel.Children.Add(element);
+            renderedBlocks++;
+        }
 
         void FlushParagraph()
         {
@@ -28,11 +47,11 @@ internal static class MarkdownRenderer
             {
                 return;
             }
-            panel.Children.Add(BuildInlineTextBlock(paragraph.ToString().Trim(), textColor, 14, FontWeights.Normal));
+            AddBlock(BuildInlineTextBlock(paragraph.ToString().Trim(), textColor, 14, FontWeights.Normal));
             paragraph.Clear();
         }
 
-        for (int i = 0; i < lines.Length; i++)
+        for (int i = 0; i < lines.Length && CanRender(); i++)
         {
             var line = lines[i];
             if (line.StartsWith("```", System.StringComparison.Ordinal))
@@ -47,31 +66,31 @@ internal static class MarkdownRenderer
                     codeBuf.Append(lines[i]);
                     i++;
                 }
-                panel.Children.Add(BuildCodeBlock(lang, codeBuf.ToString(), textColor));
+                AddBlock(BuildCodeBlock(lang, codeBuf.ToString(), textColor));
                 continue;
             }
             if (line.StartsWith("# ", System.StringComparison.Ordinal))
             {
                 FlushParagraph();
-                panel.Children.Add(BuildInlineTextBlock(line[2..].Trim(), textColor, 20, FontWeights.SemiBold));
+                AddBlock(BuildInlineTextBlock(line[2..].Trim(), textColor, 20, FontWeights.SemiBold));
                 continue;
             }
             if (line.StartsWith("## ", System.StringComparison.Ordinal))
             {
                 FlushParagraph();
-                panel.Children.Add(BuildInlineTextBlock(line[3..].Trim(), textColor, 17, FontWeights.SemiBold));
+                AddBlock(BuildInlineTextBlock(line[3..].Trim(), textColor, 17, FontWeights.SemiBold));
                 continue;
             }
             if (line.StartsWith("### ", System.StringComparison.Ordinal))
             {
                 FlushParagraph();
-                panel.Children.Add(BuildInlineTextBlock(line[4..].Trim(), textColor, 15, FontWeights.SemiBold));
+                AddBlock(BuildInlineTextBlock(line[4..].Trim(), textColor, 15, FontWeights.SemiBold));
                 continue;
             }
             if (line.StartsWith("- ", System.StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal))
             {
                 FlushParagraph();
-                panel.Children.Add(BuildInlineTextBlock($"• {line[2..].Trim()}", textColor, 14, FontWeights.Normal));
+                AddBlock(BuildInlineTextBlock($"- {line[2..].Trim()}", textColor, 14, FontWeights.Normal));
                 continue;
             }
             if (string.IsNullOrWhiteSpace(line))
@@ -83,6 +102,10 @@ internal static class MarkdownRenderer
             paragraph.Append(line);
         }
         FlushParagraph();
+        if (!CanRender())
+        {
+            panel.Children.Add(BuildInlineTextBlock("[troncato: limite 500 blocchi raggiunto]", textColor, 12, FontWeights.Normal));
+        }
         return panel;
     }
 

@@ -458,17 +458,28 @@ internal fun inferToolOutcome(tool: ToolCallState): ToolOutcome {
     }
 }
 
+private const val PRETTIFY_JSON_MAX_CHARS = 20_000
+
 internal fun prettifyJson(raw: String): String {
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return raw
     return try {
-        when {
+        val pretty = when {
             trimmed.startsWith("{") -> org.json.JSONObject(trimmed).toString(2)
             trimmed.startsWith("[") -> org.json.JSONArray(trimmed).toString(2)
             else -> raw
         }
+        if (pretty.length > PRETTIFY_JSON_MAX_CHARS) {
+            pretty.take(PRETTIFY_JSON_MAX_CHARS) + "\n... [troncato a $PRETTIFY_JSON_MAX_CHARS char]"
+        } else {
+            pretty
+        }
     } catch (_: Exception) {
-        raw
+        if (raw.length > PRETTIFY_JSON_MAX_CHARS) {
+            raw.take(PRETTIFY_JSON_MAX_CHARS) + "\n... [troncato a $PRETTIFY_JSON_MAX_CHARS char]"
+        } else {
+            raw
+        }
     }
 }
 

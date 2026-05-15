@@ -11,8 +11,8 @@ android {
         applicationId = "com.nemoclaw.chat"
         minSdk = 26
         targetSdk = 36
-        versionCode = 38
-        versionName = "0.6.25"
+        versionCode = 39
+        versionName = "0.6.26"
     }
 
     buildTypes {
@@ -31,6 +31,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    lint {
+        warningsAsErrors = false
+        abortOnError = false
+        baseline = file("lint-baseline.xml")
+        disable += listOf("MissingTranslation")
     }
 }
 

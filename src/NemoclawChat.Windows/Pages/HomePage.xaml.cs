@@ -8,9 +8,11 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using NemoclawChat_Windows.Services;
+using System.Collections.ObjectModel;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Storage.Pickers;
+using Windows.Storage;
 using Windows.System;
 using WinRT.Interop;
 
@@ -18,6 +20,7 @@ namespace NemoclawChat_Windows.Pages;
 
 public sealed partial class HomePage : Page
 {
+    public ObservableCollection<MessageViewModel> Messages { get; } = [];
     private string _mode = "Chat";
     private string? _conversationId;
     private string? _previousResponseId;
@@ -258,7 +261,7 @@ public sealed partial class HomePage : Page
         _messageHistory.Clear();
         _conversationId = null;
         _previousResponseId = null;
-        MessagesPanel.Children.Clear();
+        Messages.Clear();
         EmptyState.Visibility = Visibility.Visible;
         PromptBox.Text = string.Empty;
         PromptBox.Focus(FocusState.Programmatic);
@@ -381,6 +384,7 @@ public sealed partial class HomePage : Page
             {
                 finalText = $"Hermes non raggiungibile: {streamError}";
                 bubble.AppendText(finalText);
+                ShowError(finalText);
                 source = "Errore Hermes";
                 statusMessage = $"Invio fallito: {streamError}";
                 bubble.Complete(new ChatStreamStats(null, null, null, null, null));
@@ -398,6 +402,7 @@ public sealed partial class HomePage : Page
         }
         catch (Exception ex)
         {
+            ShowError($"Stream interrotto: {ex.Message}");
             bubble?.AppendText($"\n[errore stream] {ex.Message}");
             bubble?.Complete(new ChatStreamStats(null, null, null, null, null));
         }
@@ -451,7 +456,7 @@ public sealed partial class HomePage : Page
         _conversationId = conversation.Id;
         _previousResponseId = conversation.PreviousResponseId;
         EmptyState.Visibility = Visibility.Collapsed;
-        MessagesPanel.Children.Clear();
+        Messages.Clear();
         _messageHistory.Clear();
 
         foreach (var message in conversation.Messages)
@@ -514,15 +519,92 @@ public sealed partial class HomePage : Page
             HorizontalAlignment = alignment,
             Child = content
         };
+        bubble.ContextFlyout = BuildCopyFlyout(text);
 
-        MessagesPanel.Children.Add(bubble);
+        Messages.Add(new MessageViewModel(bubble));
         _ = MessagesScroll.ChangeView(null, MessagesScroll.ScrollableHeight, null);
     }
 
     private StreamingBubble CreateStreamingAssistantBubble()
     {
-        var bubble = new StreamingBubble(this, MessagesPanel, MessagesScroll);
+        var bubble = new StreamingBubble(this, element => Messages.Add(new MessageViewModel(element)), MessagesScroll);
         return bubble;
+    }
+
+    private MenuFlyout BuildCopyFlyout(string text)
+    {
+        var item = new MenuFlyoutItem { Text = "Copia", Tag = text };
+        item.Click += CopyMessage_Click;
+        var flyout = new MenuFlyout();
+        flyout.Items.Add(item);
+        return flyout;
+    }
+
+    private void CopyMessage_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { Tag: string text } || string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+        var package = new DataPackage();
+        package.SetText(text);
+        Clipboard.SetContent(package);
+    }
+
+    private void ShowError(string message)
+    {
+        ErrorInfoBar.Title = "Errore";
+        ErrorInfoBar.Message = message;
+        ErrorInfoBar.Severity = InfoBarSeverity.Error;
+        ErrorInfoBar.IsOpen = true;
+    }
+
+    private void NewChat_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        NewChat_Click(sender, new RoutedEventArgs());
+        args.Handled = true;
+    }
+
+    private void ClearChat_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        _messageHistory.Clear();
+        _conversationId = null;
+        _previousResponseId = null;
+        Messages.Clear();
+        EmptyState.Visibility = Visibility.Visible;
+        PromptBox.Text = string.Empty;
+        args.Handled = true;
+    }
+
+    private void PromptBox_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            e.AcceptedOperation = DataPackageOperation.Copy;
+        }
+    }
+
+    private async void PromptBox_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        var items = await e.DataView.GetStorageItemsAsync();
+        foreach (var item in items.Take(5))
+        {
+            if (item is StorageFile file)
+            {
+                PromptBox.Text = AppendPrompt($"File allegato: {file.Path}");
+            }
+        }
+    }
+
+    private void PromptBox_Paste(object sender, TextControlPasteEventArgs e)
+    {
+        var view = Clipboard.GetContent();
+        if (view.Contains(StandardDataFormats.Bitmap))
+        {
+            e.Handled = true;
+            ShowError("Paste immagine non ancora supportato. Salva file e usa allega.");
+        }
     }
 
     // ----- Slash commands -----
@@ -710,7 +792,7 @@ public sealed partial class HomePage : Page
                 _messageHistory.Clear();
                 _conversationId = null;
                 _previousResponseId = null;
-                MessagesPanel.Children.Clear();
+                Messages.Clear();
                 EmptyState.Visibility = Visibility.Visible;
                 break;
             case SlashAction.Help:
@@ -1102,6 +1184,20 @@ public sealed partial class HomePage : Page
             ? uri
             : new Uri($"{GatewayService.HermesRoot(AppSettingsStore.Load()).TrimEnd('/')}{value}");
     }
+}
+
+public sealed class MessageViewModel
+{
+    public MessageViewModel()
+    {
+    }
+
+    public MessageViewModel(UIElement element)
+    {
+        Element = element;
+    }
+
+    public UIElement? Element { get; set; }
 }
 
 internal enum SlashAction

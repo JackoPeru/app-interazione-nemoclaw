@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using NemoclawChat_Windows.Services;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -25,9 +26,19 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        FileLogger.Initialize();
+        ApplyHighContrastOverrides();
         UnhandledException += OnUnhandledException;
         System.AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+    }
+
+    private static void ApplyHighContrastOverrides()
+    {
+        var settings = new Windows.UI.ViewManagement.AccessibilitySettings();
+        if (!settings.HighContrast) return;
+        Current.Resources["MutedTextBrush"] = new SolidColorBrush(Microsoft.UI.Colors.White);
+        Current.Resources["FaintTextBrush"] = new SolidColorBrush(Microsoft.UI.Colors.White);
     }
 
     // Marker categoria per future telemetry hookup (Sentry/AppCenter ecc).

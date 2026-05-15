@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.25 Release Hermes Hub 0.6.25
+v0.6.26 Release Hermes Hub 0.6.26
 ```
 
 ## Regola Memoria
@@ -53,6 +53,35 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.26 (Windows + Android):
+
+Audit round 7. Tutti i fix in `docs/audit-0.6.26.md`.
+
+Android critici/importanti:
+- AES-GCM secret Hermes con AAD stabile; debug HTTP logging redige `Authorization`/`Cookie`.
+- FileProvider limitato a `exports/`; update APK salvati in `externalFilesDir/exports`.
+- Titoli conversazione filtrano bidi control chars; back di sistema torna tra tab o chiude sidebar invece di uscire.
+- Offline state via `ConnectivityManager`; banner immediato e send bloccato se rete assente.
+- Responses API SSE con retry/backoff prima del fallback Chat Completions; fallback loggato e mostrato come status.
+- Manifest con `ACCESS_NETWORK_STATE` + `<queries>` per picker/camera/browser.
+- Tool result gia' monospace (N/A markdown injection); `prettifyJson` troncato a 20k char.
+- Messaggi selezionabili/copiabili con `SelectionContainer`; Settings/Profile con `imePadding`.
+- Adaptive icon Android 13 con monochrome layer; StrictMode debug; lint block configurato.
+- Defer dichiarati: tablet WindowSizeClass e scrollbar chat Compose (scope basso/grosso come audit).
+
+Windows/AdminBridge critici/importanti:
+- HomePage messaggi spostati da `StackPanel` a `ListView` virtualizzata con collection `MessageViewModel`.
+- PromptBox: `MaxLength=50000`, spellcheck, automation name, drag/drop file, paste immagine intercettato.
+- Errori stream mostrati in `InfoBar`; messaggi con context menu `Copia`; shortcut `Ctrl+N` nuova chat e `Ctrl+L` pulisci chat.
+- ChatStream SSE hard cap 50MB totale; MarkdownRenderer cap 200k char/500 blocchi.
+- VisualBlocks parse/deserialization con `MaxDepth=16`.
+- AdminBridge: audit log rotation 10MBx5, rate limiting 60 req/min/IP, CORS whitelist Hermes, `/v1/reload`, shutdown log.
+- Windows: posizione/dimensione finestra persistenti, `RequestedTheme=Dark`, file logger release `%LOCALAPPDATA%\ChatClaw\logs\app.log`, high contrast brush override, sidebar tooltips/automation.
+- AppSettingsStore migration tollerante a race I/O.
+- Defer dichiarati: WindowsAppSDK version bump e touch/pen custom handlers.
+
+## Release 0.6.25
 
 Hermes Hub 0.6.25 (Windows + Android):
 
@@ -341,7 +370,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.25`.
+- Versione app: `0.6.26`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -377,7 +406,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.25`, versionCode `38`.
+- Versione app: `0.6.26`, versionCode `39`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

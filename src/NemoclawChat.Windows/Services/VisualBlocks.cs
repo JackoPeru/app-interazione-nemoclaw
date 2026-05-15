@@ -142,7 +142,12 @@ public static class VisualBlockParser
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        MaxDepth = 16
+    };
+    private static readonly JsonDocumentOptions DocumentOptions = new()
+    {
+        MaxDepth = 16
     };
 
     private static readonly HashSet<string> BlockTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -171,7 +176,7 @@ public static class VisualBlockParser
 
         try
         {
-            using var document = JsonDocument.Parse(trimmed);
+            using var document = JsonDocument.Parse(trimmed, DocumentOptions);
             var root = document.RootElement;
             if (root.ValueKind == JsonValueKind.Object &&
                 root.TryGetProperty("visual_blocks_version", out var version) &&
@@ -181,7 +186,7 @@ public static class VisualBlockParser
                 return [];
             }
 
-            if (TryGetPropertyRecursive(root, "visual_blocks", out var blocksElement) &&
+            if (TryGetPropertyRecursive(root, "visual_blocks", 0, out var blocksElement) &&
                 blocksElement.ValueKind == JsonValueKind.Array)
             {
                 var raw = blocksElement.GetRawText();
@@ -248,9 +253,13 @@ public static class VisualBlockParser
         };
     }
 
-    private static bool TryGetPropertyRecursive(JsonElement element, string name, out JsonElement value)
+    private static bool TryGetPropertyRecursive(JsonElement element, string name, int depth, out JsonElement value)
     {
         value = default;
+        if (depth > 16)
+        {
+            return false;
+        }
         if (element.ValueKind == JsonValueKind.Object)
         {
             if (element.TryGetProperty(name, out value))
@@ -260,7 +269,7 @@ public static class VisualBlockParser
 
             foreach (var property in element.EnumerateObject())
             {
-                if (TryGetPropertyRecursive(property.Value, name, out value))
+                if (TryGetPropertyRecursive(property.Value, name, depth + 1, out value))
                 {
                     return true;
                 }
@@ -271,7 +280,7 @@ public static class VisualBlockParser
         {
             foreach (var item in element.EnumerateArray())
             {
-                if (TryGetPropertyRecursive(item, name, out value))
+                if (TryGetPropertyRecursive(item, name, depth + 1, out value))
                 {
                     return true;
                 }

@@ -16,20 +16,28 @@ public static class AppSettingsStore
             var currentDirectory = Path.Combine(localAppData, CurrentDirectoryName);
             var legacyDirectory = Path.Combine(localAppData, LegacyDirectoryName);
 
-            if (!Directory.Exists(currentDirectory) && Directory.Exists(legacyDirectory))
+            try
             {
-                Directory.CreateDirectory(currentDirectory);
-                foreach (var file in Directory.GetFiles(legacyDirectory))
+                if (!Directory.Exists(currentDirectory) && Directory.Exists(legacyDirectory))
                 {
-                    var destination = Path.Combine(currentDirectory, Path.GetFileName(file));
-                    if (!File.Exists(destination))
+                    Directory.CreateDirectory(currentDirectory);
+                    foreach (var file in Directory.GetFiles(legacyDirectory))
                     {
-                        File.Copy(file, destination);
+                        var destination = Path.Combine(currentDirectory, Path.GetFileName(file));
+                        if (!File.Exists(destination))
+                        {
+                            try { File.Copy(file, destination); } catch (IOException) { }
+                        }
                     }
                 }
+                Directory.CreateDirectory(currentDirectory);
             }
-
-            Directory.CreateDirectory(currentDirectory);
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
             return currentDirectory;
         }
     }

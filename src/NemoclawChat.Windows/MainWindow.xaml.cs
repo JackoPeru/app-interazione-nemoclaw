@@ -3,6 +3,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NemoclawChat_Windows.Pages;
 using NemoclawChat_Windows.Services;
+using Windows.Graphics;
+using Windows.Storage;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -23,6 +25,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Title = "Hermes Hub";
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
         AppWindow.SetIcon("Assets/AppIcon.ico");
+        RestoreWindowState();
         ContentFrame.Navigate(typeof(HomePage));
         ChatArchiveStore.Changed += RefreshRecentChats;
         Closed += MainWindow_Closed;
@@ -36,11 +39,42 @@ public sealed partial class MainWindow : Window
         try
         {
             ChatArchiveStore.Changed -= RefreshRecentChats;
+            SaveWindowState();
             Closed -= MainWindow_Closed;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[MainWindow] cleanup error: {ex.Message}");
+        }
+    }
+
+    private void SaveWindowState()
+    {
+        var prefs = ApplicationData.Current.LocalSettings.Values;
+        prefs["WindowX"] = AppWindow.Position.X;
+        prefs["WindowY"] = AppWindow.Position.Y;
+        prefs["WindowW"] = AppWindow.Size.Width;
+        prefs["WindowH"] = AppWindow.Size.Height;
+    }
+
+    private void RestoreWindowState()
+    {
+        var prefs = ApplicationData.Current.LocalSettings.Values;
+        if (prefs.TryGetValue("WindowW", out var w) &&
+            prefs.TryGetValue("WindowH", out var h) &&
+            w is int width &&
+            h is int height &&
+            width > 200 &&
+            height > 200)
+        {
+            AppWindow.Resize(new SizeInt32(width, height));
+            if (prefs.TryGetValue("WindowX", out var x) &&
+                prefs.TryGetValue("WindowY", out var y) &&
+                x is int posX &&
+                y is int posY)
+            {
+                AppWindow.Move(new PointInt32(posX, posY));
+            }
         }
     }
 

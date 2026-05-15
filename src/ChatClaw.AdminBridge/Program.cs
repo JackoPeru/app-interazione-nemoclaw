@@ -1,12 +1,37 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.WriteIndented = true;
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+});
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("default", policy =>
+    {
+        policy.WithOrigins("https://hermes.local", "http://hermes.local")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpCtx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpCtx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
 var config = BridgeConfig.Load();
@@ -23,6 +48,8 @@ builder.WebHost.ConfigureKestrel(options =>
 
 var app = builder.Build();
 var audit = new AuditLog(config.AuditPath);
+app.UseCors("default");
+app.UseRateLimiter();
 
 app.Use(async (context, next) =>
 {
@@ -49,6 +76,21 @@ app.Use(async (context, next) =>
 });
 
 app.MapGet("/v1/health", () => Results.Json(new { status = "ok", app = "ChatClaw Admin Bridge", version = "0.1.0" }));
+
+app.MapPost("/v1/reload", () =>
+{
+    var reloaded = BridgeConfig.Load();
+    if (string.IsNullOrWhiteSpace(reloaded.Token))
+    {
+        audit.Write("config.reload", "denied:missing-token");
+        return Results.BadRequest(new { status = "denied", message = "CHATCLAW_ADMIN_TOKEN mancante: config non applicata." });
+    }
+
+    config = reloaded;
+    audit = new AuditLog(config.AuditPath);
+    audit.Write("config.reload", "ok");
+    return Results.Json(new { status = "ok", roots = config.Roots });
+});
 
 app.MapGet("/v1/status", () =>
 {
@@ -227,6 +269,12 @@ app.MapPost("/v1/files/write", async (FileWriteRequest request) =>
 
     audit.Write("files.write", path);
     return Results.Json(new { status = "ok", path, backupPath });
+});
+
+var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+lifetime.ApplicationStopping.Register(() =>
+{
+    Console.WriteLine("[admin-bridge] shutdown gracefully...");
 });
 
 await app.RunAsync();
@@ -421,6 +469,8 @@ sealed class BridgeConfig
 
 sealed class AuditLog(string path)
 {
+    private const long MaxBytes = 10L * 1024 * 1024;
+    private const int MaxRotations = 5;
     private readonly object _lock = new();
 
     public void Write(string action, string detail)
@@ -437,6 +487,7 @@ sealed class AuditLog(string path)
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                RotateIfNeeded();
                 File.AppendAllText(path, line, System.Text.Encoding.UTF8);
             }
             catch (IOException)
@@ -448,6 +499,26 @@ sealed class AuditLog(string path)
                 // idem
             }
         }
+    }
+
+    private void RotateIfNeeded()
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length < MaxBytes) return;
+            for (var i = MaxRotations - 1; i >= 1; i--)
+            {
+                var src = $"{path}.{i}";
+                var dst = $"{path}.{i + 1}";
+                if (!File.Exists(src)) continue;
+                if (File.Exists(dst)) File.Delete(dst);
+                File.Move(src, dst);
+            }
+            File.Move(path, $"{path}.1", overwrite: true);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 }
 

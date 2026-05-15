@@ -59,55 +59,57 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Click="CollapseSidebar_Click"
-                        Foreground="{StaticResource MutedTextBrush}">
+                        Foreground="{StaticResource MutedTextBrush}"
+                        AutomationProperties.Name="Comprimi sidebar"
+                        ToolTipService.ToolTip="Comprimi sidebar">
                         <FontIcon FontSize="14" Glyph="&#xE700;" />
                     </Button>
                 </Grid>
 
                 <StackPanel Grid.Row="1" Spacing="4">
-                    <Button Click="NewChat_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="NewChat_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Nuova chat" AutomationProperties.Name="Nuova chat">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE710;" />
                             <TextBlock Text="Nuova chat" />
                         </StackPanel>
                     </Button>
-                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Archivio chat" AutomationProperties.Name="Archivio chat">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE721;" />
                             <TextBlock Text="Cerca chat" />
                         </StackPanel>
                     </Button>
-                    <Button Click="Tasks_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="Tasks_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Jobs Hermes" AutomationProperties.Name="Jobs Hermes">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE7C1;" />
                             <TextBlock Text="Jobs" />
                         </StackPanel>
                     </Button>
-                    <Button Click="Server_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="Server_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Server Hermes" AutomationProperties.Name="Server Hermes">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE968;" />
                             <TextBlock Text="Server" />
                         </StackPanel>
                     </Button>
-                    <Button Click="Operator_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="Operator_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Runs Hermes" AutomationProperties.Name="Runs Hermes">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE950;" />
                             <TextBlock Text="Runs" />
                         </StackPanel>
                     </Button>
-                    <Button Click="Video_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="Video_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Video" AutomationProperties.Name="Video">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE714;" />
                             <TextBlock Text="Video" />
                         </StackPanel>
                     </Button>
-                    <Button Click="News_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="News_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="News" AutomationProperties.Name="News">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE789;" />
                             <TextBlock Text="News" />
                         </StackPanel>
                     </Button>
-                    <Button Click="Settings_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="Settings_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Impostazioni" AutomationProperties.Name="Impostazioni">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE713;" />
                             <TextBlock Text="Impostazioni" />
@@ -116,7 +118,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="2" Spacing="18">
-                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Progetti" AutomationProperties.Name="Progetti">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock
                                 Foreground="White"
@@ -126,7 +128,7 @@
                             <TextBlock Foreground="{StaticResource MutedTextBrush}" Text=">" />
                         </StackPanel>
                     </Button>
-                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}">
+                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Recenti" AutomationProperties.Name="Recenti">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock
                                 Foreground="White"
@@ -174,7 +176,9 @@
                         BorderThickness="0"
                         Click="About_Click"
                         HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Stretch" />
+                        HorizontalContentAlignment="Stretch"
+                        ToolTipService.ToolTip="Profilo"
+                        AutomationProperties.Name="Profilo" />
                 </Grid>
             </Grid>
         </Border>
@@ -201,7 +205,9 @@
                         BorderThickness="0"
                         Click="CollapseSidebar_Click"
                         Foreground="{StaticResource MutedTextBrush}"
-                        Visibility="Collapsed">
+                        Visibility="Collapsed"
+                        ToolTipService.ToolTip="Mostra sidebar"
+                        AutomationProperties.Name="Mostra sidebar">
                         <FontIcon FontSize="14" Glyph="&#xE8A0;" />
                     </Button>
                 </StackPanel>
@@ -229,7 +235,9 @@
                         Click="Settings_Click"
                         Background="Transparent"
                         BorderThickness="0"
-                        Foreground="{StaticResource MutedTextBrush}">
+                        Foreground="{StaticResource MutedTextBrush}"
+                        ToolTipService.ToolTip="Impostazioni"
+                        AutomationProperties.Name="Impostazioni">
                         <FontIcon FontSize="14" Glyph="&#xE713;" />
                     </Button>
                 </StackPanel>

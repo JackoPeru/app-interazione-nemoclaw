@@ -9,14 +9,35 @@
     NavigationCacheMode="Required"
     mc:Ignorable="d">
 
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator
+            Key="N"
+            Modifiers="Control"
+            Invoked="NewChat_Invoked" />
+        <KeyboardAccelerator
+            Key="L"
+            Modifiers="Control"
+            Invoked="ClearChat_Invoked" />
+    </Page.KeyboardAccelerators>
+
     <Grid Background="{StaticResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <InfoBar
+            x:Name="ErrorInfoBar"
+            Grid.Row="0"
+            Margin="24,4"
+            IsClosable="True"
+            IsOpen="False"
+            Severity="Error" />
+
         <ScrollViewer
             x:Name="MessagesScroll"
+            Grid.Row="1"
             Padding="24,0,24,18"
             VerticalScrollBarVisibility="Auto">
             <Grid MinHeight="620">
@@ -82,17 +103,39 @@
                     </StackPanel>
                 </Grid>
 
-                <StackPanel
-                    x:Name="MessagesPanel"
+                <ListView
+                    x:Name="MessagesList"
                     Width="860"
                     HorizontalAlignment="Center"
                     Padding="0,32,0,32"
-                    Spacing="18" />
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsItemClickEnabled="False"
+                    ItemsSource="{x:Bind Messages, Mode=OneWay}"
+                    SelectionMode="None">
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsStackPanel Orientation="Vertical" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0,0,0,18" />
+                            <Setter Property="Background" Value="Transparent" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:MessageViewModel">
+                            <ContentControl Content="{x:Bind Element}" />
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
             </Grid>
         </ScrollViewer>
 
         <StackPanel
-            Grid.Row="0"
+            Grid.Row="1"
             Margin="0,20,34,0"
             HorizontalAlignment="Right"
             VerticalAlignment="Top"
@@ -108,6 +151,7 @@
                 Click="NewChat_Click"
                 CornerRadius="18"
                 Foreground="White"
+                AutomationProperties.Name="Nuova chat"
                 ToolTipService.ToolTip="Inizia una nuova chat">
                 <StackPanel Orientation="Horizontal" Spacing="7">
                     <FontIcon FontSize="14" Glyph="&#xE70F;" />
@@ -123,7 +167,8 @@
                 BorderThickness="1"
                 Click="ToggleMode_Click"
                 CornerRadius="18"
-                Foreground="White">
+                Foreground="White"
+                AutomationProperties.Name="Cambia modalita chat agente">
                 <StackPanel Orientation="Horizontal" Spacing="7">
                     <FontIcon
                         x:Name="ModeToggleIcon"
@@ -139,7 +184,7 @@
         </StackPanel>
 
         <Grid
-            Grid.Row="1"
+            Grid.Row="2"
             Padding="24,0,24,28"
             HorizontalAlignment="Stretch">
             <Border
@@ -169,7 +214,8 @@
                             Height="38"
                             Background="Transparent"
                             BorderThickness="0"
-                            Foreground="{StaticResource MutedTextBrush}">
+                            Foreground="{StaticResource MutedTextBrush}"
+                            AutomationProperties.Name="Azioni e allegati">
                             <FontIcon FontSize="16" Glyph="&#xE710;" />
                             <Button.Flyout>
                                 <MenuFlyout>
@@ -235,12 +281,19 @@
                             MinHeight="40"
                             MaxHeight="180"
                             AcceptsReturn="False"
+                            AllowDrop="True"
+                            AutomationProperties.Name="Prompt input"
                             Background="Transparent"
                             BorderThickness="0"
+                            DragOver="PromptBox_DragOver"
+                            Drop="PromptBox_Drop"
                             Foreground="White"
+                            IsSpellCheckEnabled="True"
                             KeyDown="PromptBox_KeyDown"
+                            MaxLength="50000"
                             PlaceholderForeground="{StaticResource MutedTextBrush}"
                             PlaceholderText="Fai una domanda"
+                            Paste="PromptBox_Paste"
                             TextWrapping="Wrap" />
 
                         <Button
@@ -250,7 +303,8 @@
                             Background="Transparent"
                             BorderThickness="0"
                             Click="VoiceNote_Click"
-                            Foreground="{StaticResource MutedTextBrush}">
+                            Foreground="{StaticResource MutedTextBrush}"
+                            AutomationProperties.Name="Nota vocale">
                             <FontIcon FontSize="16" Glyph="&#xE720;" />
                         </Button>
 
@@ -263,7 +317,8 @@
                             BorderThickness="0"
                             Click="Send_Click"
                             CornerRadius="21"
-                            Foreground="#FF111111">
+                            Foreground="#FF111111"
+                            AutomationProperties.Name="Invia messaggio">
                             <FontIcon FontSize="16" Glyph="&#xE724;" />
                         </Button>
                     </Grid>

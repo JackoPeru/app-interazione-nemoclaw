@@ -264,6 +264,8 @@ public static class ChatStreamClient
             using var reader = new StreamReader(stream, Encoding.UTF8);
 
             const int SSE_EVENT_MAX_CHARS = 10 * 1024 * 1024;
+            const long SSE_TOTAL_MAX_BYTES = 50L * 1024 * 1024;
+            long totalReadBytes = 0;
             var dataBuilder = new StringBuilder();
             string? eventName = null;
             bool eventOverflow = false;
@@ -275,6 +277,12 @@ public static class ChatStreamClient
                 if (line is null)
                 {
                     break;
+                }
+                totalReadBytes += Encoding.UTF8.GetByteCount(line) + 1;
+                if (totalReadBytes > SSE_TOTAL_MAX_BYTES)
+                {
+                    yield return new StreamError("Stream totale > 50MB, interrotto.");
+                    yield break;
                 }
 
                 if (line.Length == 0)

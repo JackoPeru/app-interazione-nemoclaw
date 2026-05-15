@@ -14,7 +14,7 @@ namespace NemoclawChat_Windows.Pages;
 internal sealed class StreamingBubble
 {
     private readonly Page _page;
-    private readonly Panel _host;
+    private readonly Action<UIElement> _addElement;
     private readonly ScrollViewer _scroll;
     private readonly StackPanel _content;
     private readonly TextBlock _thinkingLabel;
@@ -33,10 +33,10 @@ internal sealed class StreamingBubble
     private double _shimmerPhase;
     private DateTime _started = DateTime.UtcNow;
 
-    public StreamingBubble(Page page, Panel host, ScrollViewer scroll)
+    public StreamingBubble(Page page, Action<UIElement> addElement, ScrollViewer scroll)
     {
         _page = page;
-        _host = host;
+        _addElement = addElement;
         _scroll = scroll;
         _content = new StackPanel { Spacing = 10 };
 
@@ -121,7 +121,7 @@ internal sealed class StreamingBubble
             Child = _content
         };
 
-        _host.Children.Add(bubble);
+        _addElement(bubble);
         _ = _scroll.ChangeView(null, _scroll.ScrollableHeight, null);
 
         _shimmerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };

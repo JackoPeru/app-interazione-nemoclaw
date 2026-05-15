@@ -9,12 +9,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.os.StrictMode
 import android.provider.MediaStore
 import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
@@ -26,6 +28,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
@@ -164,6 +167,20 @@ import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectAll()
+                    .penaltyLog()
+                    .build()
+            )
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder()
+                    .detectLeakedClosableObjects()
+                    .penaltyLog()
+                    .build()
+            )
+        }
         super.onCreate(savedInstanceState)
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
@@ -406,7 +423,13 @@ private fun ChatApp() {
     val selectedTab = remember(selectedTabName) {
         runCatching { Tab.valueOf(selectedTabName) }.getOrDefault(Tab.Chat)
     }
-    val setSelectedTab: (Tab) -> Unit = { selectedTabName = it.name }
+    var tabHistory by rememberSaveable { mutableStateOf(listOf(Tab.Chat.name)) }
+    val setSelectedTab: (Tab) -> Unit = { tab ->
+        if (tab.name != selectedTabName) {
+            tabHistory = (tabHistory + tab.name).takeLast(10)
+            selectedTabName = tab.name
+        }
+    }
     var settings by remember { mutableStateOf(loadSettings(context)) }
     var pendingPrompt by rememberSaveable { mutableStateOf("") }
     var pendingConversationId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -430,6 +453,18 @@ private fun ChatApp() {
         density = baseDensity.density,
         fontScale = safeFontScale
     )
+
+    BackHandler(enabled = sidebarOpen || tabHistory.size > 1) {
+        if (sidebarOpen) {
+            sidebarOpen = false
+            return@BackHandler
+        }
+        if (tabHistory.size > 1) {
+            val popped = tabHistory.dropLast(1)
+            tabHistory = popped
+            selectedTabName = popped.last()
+        }
+    }
 
     CompositionLocalProvider(LocalDensity provides appDensity) {
         Scaffold(
@@ -478,9 +513,9 @@ private fun ChatApp() {
                     )
                     Tab.Archive -> ArchiveScreen(
                         context = context,
-                        onOpenConversation = { id, prompt ->
+                        onOpenConversation = { id, _ ->
                             pendingConversationId = id
-                            pendingPrompt = prompt
+                            pendingPrompt = ""
                             setSelectedTab(Tab.Chat)
                         }
                     )
@@ -723,6 +758,7 @@ private fun ChatScreen(
     }
 
     val haptics = LocalHapticFeedback.current
+    val online by rememberOnlineState(context)
     val isStreaming = state.streamingState != null
     LaunchedEffect(isStreaming) {
         if (!isStreaming && state.messages.isNotEmpty()) {
@@ -806,6 +842,16 @@ private fun ChatScreen(
                 )
             }
         }
+        if (!online) {
+            Surface(color = Color(0xFF7A3E00), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    text = "Offline. Hermes non raggiungibile.",
+                    color = Color.White,
+                    fontSize = 12.sp
+                )
+            }
+        }
         Composer(
             context = context,
             value = state.draft,
@@ -819,6 +865,10 @@ private fun ChatScreen(
             onModeChange = { state.mode = it },
             onSend = {
                 val text = state.draft.trim()
+                if (!online) {
+                    state.messages.add(ChatMessage("Stato", "Offline. Hermes non raggiungibile.", fromUser = false, isAction = true))
+                    return@Composer
+                }
                 if (text.isNotEmpty() && !state.sending && state.activeStreamJob == null) {
                     state.sending = true
                     state.messages.add(ChatMessage("Tu", text, true))
@@ -1106,55 +1156,57 @@ private fun Card(
 
 @Composable
 private fun MessageBubble(message: ChatMessage) {
-    if (!message.fromUser && !message.isAction) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp, vertical = 2.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            MarkdownText(message.text, color = Color.White, fontSize = 15.sp)
-            if (message.visualBlocks.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    message.visualBlocks.filter { it.isValidVisualBlock() }.forEach { block ->
-                        VisualBlockView(block)
-                    }
-                }
-            }
-        }
-        return
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(if (message.fromUser) 0.86f else 0.92f),
-            color = if (message.fromUser) AppColors.UserBubble else AppColors.Panel,
-            shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, AppColors.Border),
-            shadowElevation = 0.dp,
-            tonalElevation = 0.dp
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = message.author,
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                if (message.fromUser || message.isAction) {
-                    Text(text = message.text, color = Color.White)
-                } else {
-                    MarkdownText(message.text, color = Color.White)
-                }
+    SelectionContainer {
+        if (!message.fromUser && !message.isAction) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp, vertical = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MarkdownText(message.text, color = Color.White, fontSize = 15.sp)
                 if (message.visualBlocks.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         message.visualBlocks.filter { it.isValidVisualBlock() }.forEach { block ->
                             VisualBlockView(block)
+                        }
+                    }
+                }
+            }
+            return@SelectionContainer
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(if (message.fromUser) 0.86f else 0.92f),
+                color = if (message.fromUser) AppColors.UserBubble else AppColors.Panel,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, AppColors.Border),
+                shadowElevation = 0.dp,
+                tonalElevation = 0.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = message.author,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    if (message.fromUser || message.isAction) {
+                        Text(text = message.text, color = Color.White)
+                    } else {
+                        MarkdownText(message.text, color = Color.White)
+                    }
+                    if (message.visualBlocks.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            message.visualBlocks.filter { it.isValidVisualBlock() }.forEach { block ->
+                                VisualBlockView(block)
+                            }
                         }
                     }
                 }
@@ -1685,6 +1737,7 @@ private fun ArchiveScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -2704,6 +2757,7 @@ private fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .padding(24.dp),
         verticalArrangement = Arrangement.Top
     ) {
@@ -4230,7 +4284,7 @@ private suspend fun downloadUpdateApk(
     version: String,
     onProgress: (Float, String, String) -> Unit
 ): File? = withContext(Dispatchers.IO) {
-    val targetDirectory = context.getExternalFilesDir(null) ?: context.cacheDir
+    val targetDirectory = File(context.getExternalFilesDir(null) ?: context.cacheDir, "exports").apply { mkdirs() }
     val targetFile = File(targetDirectory, "HermesHub-${normalizeVersion(version)}.apk")
     val client = OkHttpClient.Builder().build()
     val request = Request.Builder()
@@ -4325,7 +4379,7 @@ private fun installDownloadedApk(context: Context, apkPath: String): String {
 
 private fun findDownloadedUpdateApk(context: Context, version: String): File? {
     val normalizedVersion = normalizeVersion(version)
-    val targetDirectory = context.getExternalFilesDir(null) ?: context.cacheDir
+    val targetDirectory = File(context.getExternalFilesDir(null) ?: context.cacheDir, "exports")
     val targetFile = File(targetDirectory, "HermesHub-$normalizedVersion.apk")
     return targetFile.takeIf { it.exists() }
 }
@@ -4402,6 +4456,7 @@ private fun loadGatewaySecret(context: Context): String? {
         val ciphertext = packed.copyOfRange(12, packed.size)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateGatewaySecretKey(), GCMParameterSpec(128, iv))
+        cipher.updateAAD(GATEWAY_SECRET_AAD)
         String(cipher.doFinal(ciphertext), Charsets.UTF_8)
     } catch (_: Exception) {
         null
@@ -4413,6 +4468,7 @@ private fun saveGatewaySecret(context: Context, secret: String) {
 
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, getOrCreateGatewaySecretKey())
+    cipher.updateAAD(GATEWAY_SECRET_AAD)
     val ciphertext = cipher.doFinal(secret.trim().toByteArray(Charsets.UTF_8))
     val packed = cipher.iv + ciphertext
     context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
@@ -4429,6 +4485,8 @@ private fun deleteGatewaySecret(context: Context) {
 }
 
 private val gatewaySecretKeyLock = Any()
+private val GATEWAY_SECRET_AAD: ByteArray =
+    "HermesHub|gateway-secret|v1".toByteArray(Charsets.UTF_8)
 
 private fun getOrCreateGatewaySecretKey(): SecretKey {
     synchronized(gatewaySecretKeyLock) {
@@ -4938,10 +4996,16 @@ private fun writeVisualBlocks(blocks: List<VisualBlock>): JSONArray {
 }
 
 private val MULTI_WHITESPACE_REGEX = Regex("\\s+")
+private val BIDI_CONTROL_CHARS = setOf(
+    '\u200E', '\u200F',
+    '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+    '\u2066', '\u2067', '\u2068', '\u2069'
+)
 
 private fun makeTitle(prompt: String): String {
     val cleaned = prompt
         .replace('\u00A0', ' ')
+        .filterNot { it in BIDI_CONTROL_CHARS }
         .lines()
         .joinToString(" ") { it.trim() }
         .filter { ch -> ch.isLetterOrDigit() || ch.isWhitespace() || ch in "_-.,:;?!()[]\"'/\\@#%&*+=" }

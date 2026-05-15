@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Call
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -38,6 +39,9 @@ private fun debugHttpLoggingInterceptor(): okhttp3.Interceptor? {
         if (headersLevel != null) {
             clazz.getMethod("setLevel", levelClass).invoke(instance, headersLevel)
         }
+        val redactMethod = clazz.getMethod("redactHeader", String::class.java)
+        redactMethod.invoke(instance, "Authorization")
+        redactMethod.invoke(instance, "Cookie")
         instance as okhttp3.Interceptor
     } catch (_: Throwable) {
         null
@@ -249,10 +253,23 @@ fun streamChatRequest(
         .put("metadata", visualBlocksMetadataJson(settings))
 
     val responseUrl = "${settings.gatewayUrl.trimEnd('/')}/responses"
-    val terminated = openSseStream(responseUrl, responsePayload, apiKey, "Hermes Responses API") { ev ->
-        emitAndTrack(ev)
+    var responsesAttempt = 0
+    while (responsesAttempt < 3 && !sawDelta) {
+        responsesAttempt++
+        lastError = null
+        val terminated = openSseStream(responseUrl, responsePayload, apiKey, "Hermes Responses API") { ev ->
+            emitAndTrack(ev)
+        }
+        if (!terminated || sawDelta) {
+            break
+        }
+        if (lastError != null && responsesAttempt < 3) {
+            kotlinx.coroutines.delay(1000L * (1 shl (responsesAttempt - 1)))
+            emit(ChatStreamEvent.Status("Riconnessione Hermes (tentativo ${responsesAttempt + 1})..."))
+        }
     }
-    if (terminated && lastError != null && !sawDelta) {
+    if (lastError != null && !sawDelta) {
+        Log.w("ChatStream", "Responses API fallback: $lastError")
         emit(ChatStreamEvent.Status("Responses API non disponibile, fallback rapido a Chat Completions..."))
     }
 
