@@ -30,20 +30,27 @@ public partial class App : Application
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
     }
 
+    // Marker categoria per future telemetry hookup (Sentry/AppCenter ecc).
+    private const string TelemetryTagUnhandled = "telemetry/unhandled";
+    private const string TelemetryTagDomain = "telemetry/domain-unhandled";
+    private const string TelemetryTagTask = "telemetry/unobserved-task";
+
     private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine($"[App] Unhandled: {e.Exception.GetType().Name}: {e.Message}");
+        System.Diagnostics.Debug.WriteLine($"[App] {TelemetryTagUnhandled} {e.Exception.GetType().FullName}: {e.Message}\n{e.Exception.StackTrace}");
+        // e.Handled=true mantiene UI viva. Eccezioni gravi (StackOverflow, OutOfMemory, AccessViolation)
+        // gia' non transitano qui — quindi swallow e' ragionevole. Per debug puro togli flag.
         e.Handled = true;
     }
 
     private static void OnDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine($"[App] AppDomain unhandled: {e.ExceptionObject}");
+        System.Diagnostics.Debug.WriteLine($"[App] {TelemetryTagDomain} terminating={e.IsTerminating}: {e.ExceptionObject}");
     }
 
     private static void OnUnobservedTaskException(object? sender, System.Threading.Tasks.UnobservedTaskExceptionEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine($"[App] Unobserved task: {e.Exception.Message}");
+        System.Diagnostics.Debug.WriteLine($"[App] {TelemetryTagTask} {e.Exception.Flatten().Message}");
         e.SetObserved();
     }
 

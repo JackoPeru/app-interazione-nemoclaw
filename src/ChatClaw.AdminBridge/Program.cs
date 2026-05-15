@@ -185,35 +185,44 @@ app.MapPost("/v1/files/write", async (FileWriteRequest request) =>
         return Results.BadRequest(new { status = "denied", message = $"Payload troppo grande. Limite {config.MaxWriteChars} caratteri." });
     }
 
+    var writeLock = PathWriteLocks.Get(path);
+    await writeLock.WaitAsync();
     string? backupPath = null;
-    if (File.Exists(path))
-    {
-        backupPath = $"{path}.{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.bak";
-        try
-        {
-            File.Copy(path, backupPath);
-        }
-        catch (IOException ex)
-        {
-            audit.Write("files.write", $"backup-failed:{ex.GetType().Name}");
-            return Results.Problem($"Backup non riuscito: {ex.Message}", statusCode: 503);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            audit.Write("files.write", $"backup-denied:{ex.GetType().Name}");
-            return Results.Problem($"Backup negato: {ex.Message}", statusCode: 503);
-        }
-    }
-
     try
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await File.WriteAllTextAsync(path, payload);
+        if (File.Exists(path))
+        {
+            backupPath = $"{path}.{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.bak";
+            try
+            {
+                File.Copy(path, backupPath);
+            }
+            catch (IOException ex)
+            {
+                audit.Write("files.write", $"backup-failed:{ex.GetType().Name}");
+                return Results.Problem($"Backup non riuscito: {ex.Message}", statusCode: 503);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                audit.Write("files.write", $"backup-denied:{ex.GetType().Name}");
+                return Results.Problem($"Backup negato: {ex.Message}", statusCode: 503);
+            }
+        }
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllTextAsync(path, payload);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            audit.Write("files.write", $"failed:{ex.GetType().Name}");
+            return Results.Problem($"Scrittura fallita: {ex.Message}", statusCode: 500);
+        }
     }
-    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    finally
     {
-        audit.Write("files.write", $"failed:{ex.GetType().Name}");
-        return Results.Problem($"Scrittura fallita: {ex.Message}", statusCode: 500);
+        writeLock.Release();
     }
 
     audit.Write("files.write", path);
@@ -275,6 +284,15 @@ static bool CryptographicEquals(string left, string right)
     var leftBytes = System.Text.Encoding.UTF8.GetBytes(left);
     var rightBytes = System.Text.Encoding.UTF8.GetBytes(right);
     return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
+}
+
+static class PathWriteLocks
+{
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _locks =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public static SemaphoreSlim Get(string path) =>
+        _locks.GetOrAdd(path, _ => new SemaphoreSlim(1, 1));
 }
 
 sealed record TailRequest(string Path, int Lines);

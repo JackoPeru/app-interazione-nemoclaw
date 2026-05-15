@@ -77,16 +77,18 @@ internal fun StreamingBubbleView(state: StreamingState) {
                     state.visualBlocks.filter { it.isValidVisualBlock() }
                 }
                 validBlocks.forEach { block ->
-                    VisualBlockView(block)
+                    androidx.compose.runtime.key(block.id) {
+                        VisualBlockView(block)
+                    }
                 }
 
                 if (state.isDone) {
                     val parts = mutableListOf<String>()
-                    state.stats?.ttftMs?.takeIf { it > 0 }?.let { parts += "TTFT ${"%.0f".format(it)}ms" }
-                    state.stats?.tokensPerSecond?.takeIf { it > 0 }?.let { parts += "${"%.1f".format(it)} t/s" }
+                    state.stats?.ttftMs?.takeIf { it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.0f", it)}ms" }
+                    state.stats?.tokensPerSecond?.takeIf { it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.1f", it)} t/s" }
                     state.stats?.tokensOut?.takeIf { it > 0 }?.let { parts += "$it tok" }
                     state.stats?.promptTokens?.takeIf { it > 0 }?.let { parts += "prompt $it" }
-                    state.stats?.totalMs?.takeIf { it > 0 }?.let { parts += "${"%.1f".format(it / 1000.0)}s" }
+                    state.stats?.totalMs?.takeIf { it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
                     if (parts.isNotEmpty()) {
                         Text(
                             text = parts.joinToString("  ·  "),
@@ -120,7 +122,7 @@ internal fun HermesActivityExpander(state: StreamingState) {
         active && state.text.isNotEmpty() -> "Sto generando"
         active -> "Sto processando"
         state.hasThinking -> {
-            if (state.thinkingElapsedSec >= 1) "Pensato per ${"%.1f".format(state.thinkingElapsedSec)}s" else "Ragionamento"
+            if (state.thinkingElapsedSec >= 1) "Pensato per ${String.format(java.util.Locale.US, "%.1f", state.thinkingElapsedSec)}s" else "Ragionamento"
         }
         state.toolCalls.isNotEmpty() -> "Tool usati"
         else -> "Attivita Hermes"
@@ -182,7 +184,9 @@ internal fun HermesActivityExpander(state: StreamingState) {
                     HorizontalDivider(color = AppColors.Border)
                     Text("Tool", color = AppColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     state.toolCalls.forEach { tool ->
-                        ToolActivityRow(tool)
+                        androidx.compose.runtime.key(tool.id) {
+                            ToolActivityRow(tool)
+                        }
                     }
                 }
             }
@@ -231,7 +235,7 @@ internal fun ThinkingExpander(thinking: String, active: Boolean, elapsedSec: Dou
             if (active) {
                 ShimmerText("Sto pensando")
             } else {
-                val label = if (elapsedSec >= 1) "Pensato per ${"%.1f".format(elapsedSec)}s" else "Ragionamento"
+                val label = if (elapsedSec >= 1) "Pensato per ${String.format(java.util.Locale.US, "%.1f", elapsedSec)}s" else "Ragionamento"
                 Text(text = label, color = AppColors.Muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
             Icon(

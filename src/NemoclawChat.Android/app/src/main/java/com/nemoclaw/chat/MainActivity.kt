@@ -435,8 +435,9 @@ private fun ChatApp() {
         Scaffold(
             containerColor = AppColors.Background,
             bottomBar = {
+                val bottomTabs = remember { Tab.entries.filterNot { it == Tab.Archive || it == Tab.Tasks } }
                 NavigationBar(containerColor = AppColors.Sidebar) {
-                    Tab.entries.filterNot { it == Tab.Archive || it == Tab.Tasks }.forEach { tab ->
+                    bottomTabs.forEach { tab ->
                         NavigationBarItem(
                             selected = selectedTab == tab,
                             onClick = { setSelectedTab(tab) },
@@ -1414,7 +1415,7 @@ private fun CalloutBlock(block: VisualBlock) {
         modifier = Modifier.border(0.dp, Color.Transparent),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Box(modifier = Modifier.widthIn(min = 3.dp, max = 3.dp).height(56.dp).background(color, RoundedCornerShape(2.dp)))
+        Box(modifier = Modifier.width(3.dp).height(56.dp).background(color, RoundedCornerShape(2.dp)))
         MarkdownBlock(block.text)
     }
 }
@@ -1803,8 +1804,11 @@ private fun ArchiveScreen(
                 Text("Conferma eliminazione", color = Color.White, fontWeight = FontWeight.SemiBold)
             },
             text = {
+                val safeTitle = item.title.replace('\n', ' ').replace('\r', ' ').let {
+                    if (it.length > 60) it.take(60).trimEnd() + "..." else it
+                }
                 Text(
-                    "Vuoi eliminare davvero \"${item.title}\" dall'archivio locale?",
+                    "Vuoi eliminare davvero \"$safeTitle\" dall'archivio locale?",
                     color = AppColors.Muted
                 )
             },
@@ -3604,13 +3608,16 @@ private suspend fun httpGet(url: String, apiKey: String? = null): String = withC
     }
 }
 
-private suspend fun postJson(url: String, payload: JSONObject, apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
-    val client = OkHttpClient.Builder()
+private val apiHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.MINUTES)
+        .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
-        .callTimeout(60, TimeUnit.MINUTES)
+        .callTimeout(120, TimeUnit.SECONDS)
         .build()
+}
+
+private suspend fun postJson(url: String, payload: JSONObject, apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
     val builder = Request.Builder()
         .url(url)
         .header("Accept", "text/event-stream, application/json, text/plain")
@@ -3618,14 +3625,14 @@ private suspend fun postJson(url: String, payload: JSONObject, apiKey: String? =
     if (!apiKey.isNullOrBlank()) {
         builder.header("Authorization", "Bearer ${apiKey.trim()}")
     }
-    val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-    val request = when (method.uppercase()) {
-        "PATCH" -> builder.patch(body).build()
+    val normalizedMethod = method.uppercase()
+    val request = when (normalizedMethod) {
         "DELETE" -> builder.delete().build()
-        else -> builder.post(body).build()
+        "PATCH" -> builder.patch(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+        else -> builder.post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
     }
 
-    client.newCall(request).execute().use { response ->
+    apiHttpClient.newCall(request).execute().use { response ->
         response.code to response.body.string()
     }
 }
@@ -4930,14 +4937,17 @@ private fun writeVisualBlocks(blocks: List<VisualBlock>): JSONArray {
     return array
 }
 
+private val MULTI_WHITESPACE_REGEX = Regex("\\s+")
+
 private fun makeTitle(prompt: String): String {
     val cleaned = prompt
-        .replace(' ', ' ')
+        .replace('\u00A0', ' ')
         .lines()
         .joinToString(" ") { it.trim() }
         .filter { ch -> ch.isLetterOrDigit() || ch.isWhitespace() || ch in "_-.,:;?!()[]\"'/\\@#%&*+=" }
-        .replace(Regex("\\s+"), " ")
+        .replace(MULTI_WHITESPACE_REGEX, " ")
         .trim()
+    if (cleaned.isEmpty()) return "Nuova richiesta"
     return if (cleaned.length <= 46) cleaned else cleaned.take(46).trimEnd() + "..."
 }
 

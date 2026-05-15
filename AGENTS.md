@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.24 Release Hermes Hub 0.6.24
+v0.6.25 Release Hermes Hub 0.6.25
 ```
 
 ## Regola Memoria
@@ -54,7 +54,35 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.24 (Windows + Android):
+Hermes Hub 0.6.25 (Windows + Android):
+
+Audit round 6. Tutti i fix in `docs/audit-0.6.25.md`.
+
+Critici:
+- Android `postJson` ora riusa `apiHttpClient` singleton lazy (era `OkHttpClient.Builder().build()` per call). Connection pool condiviso, fd risparmiati.
+- Android `postJson` DELETE: verificato no body (gia' corretto via `.delete()`).
+- AdminBridge `/v1/files/write`: `PathWriteLocks.Get(path)` (`SemaphoreSlim` per path con `ConcurrentDictionary`). Write paralleli stesso path serializzati.
+- Windows HomePage `SendCurrentPromptAsync` set `_isSending=true` + `IsEnabled=false` PRIMA di prompt validation. No race su rapid Send click multipli.
+
+High:
+- Android ChatStreamUi `validBlocks.forEach` e `toolCalls.forEach` ora avvolti in `androidx.compose.runtime.key(id)`. Compose recomposition stabile.
+- Android `"%.1f".format(...)` → `String.format(java.util.Locale.US, "%.1f", ...)` su ChatStreamUi. Locale IT non corrompe piu' decimali stats/timings (era asimmetrico con MainActivity gia' corretto).
+- Android `Tab.entries.filterNot{...}` ora `remember`-ato nella NavigationBar. No alloc per recompose.
+- Windows `WorkspaceRequestStore` e `AgentTaskStore` ora con cache statico `List<...>?` + `lock` + invalidate su SaveAll. Parita' con `ChatArchiveStore`.
+
+Med:
+- Android `Regex("\\s+")` ora `MULTI_WHITESPACE_REGEX` top-level. Non compila piu' per call.
+- Android `makeTitle` fallback `"Nuova richiesta"` se input solo whitespace/punctuation.
+- Android AlertDialog delete: title runtime `.replace('\n', ' ')` + truncate 60 char. Lunghi titoli no overflow.
+- Android VisualBlock: verificato `isValidVisualBlock` gia' rifiuta `id.isBlank()`.
+- Windows `App.UnhandledException`/domain/task ora con tag marker `telemetry/...` + stack trace + IsTerminating flag. Pronto per hookup futuro telemetry.
+
+Low:
+- Android `Modifier.widthIn(min=3.dp, max=3.dp)` → `Modifier.width(3.dp)` (CalloutBlock).
+- Android `allowBackup` verificato gia' `false` in AndroidManifest.
+- Android ShimmerText/InfiniteTransition conditional: deferred (refactor lifecycle).
+
+## Release 0.6.24
 
 Audit round 5 — focus UI + code. Tutti i fix in `docs/audit-0.6.24.md`.
 
@@ -313,7 +341,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.24`.
+- Versione app: `0.6.25`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -349,7 +377,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.24`, versionCode `37`.
+- Versione app: `0.6.25`, versionCode `38`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

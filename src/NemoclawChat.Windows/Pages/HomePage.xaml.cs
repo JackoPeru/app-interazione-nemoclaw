@@ -273,21 +273,25 @@ public sealed partial class HomePage : Page
 
     private async Task SendCurrentPromptAsync()
     {
+        // Atomic guard: set flag prima di qualsiasi await. UI thread single-threaded ma
+        // multipli entry-point (Send_Click, PromptBox_KeyDown, slash command activate)
+        // possono entrare back-to-back prima che Send button si disabiliti.
         if (_isSending)
         {
             return;
         }
+        _isSending = true;
+        SendButton.IsEnabled = false;
 
         var prompt = PromptBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt))
         {
+            _isSending = false;
+            SendButton.IsEnabled = true;
             return;
         }
 
         CloseSlashPopup();
-
-        _isSending = true;
-        SendButton.IsEnabled = false;
 
         StreamingBubble? bubble = null;
 

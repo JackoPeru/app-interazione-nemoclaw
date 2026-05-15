@@ -19,6 +19,9 @@ public static class WorkspaceRequestStore
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private const string CurrentDirectoryName = "ChatClaw";
 
+    private static readonly object _cacheLock = new();
+    private static List<WorkspaceRequestRecord>? _cache;
+
     private static string StorePath
     {
         get
@@ -32,19 +35,24 @@ public static class WorkspaceRequestStore
 
     public static List<WorkspaceRequestRecord> Load()
     {
-        var content = AtomicJsonFile.Read(StorePath);
-        if (string.IsNullOrEmpty(content))
+        lock (_cacheLock)
         {
-            return [];
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<WorkspaceRequestRecord>>(content) ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
+            if (_cache is not null) return new List<WorkspaceRequestRecord>(_cache);
+            var content = AtomicJsonFile.Read(StorePath);
+            if (string.IsNullOrEmpty(content))
+            {
+                _cache = [];
+                return [];
+            }
+            try
+            {
+                _cache = JsonSerializer.Deserialize<List<WorkspaceRequestRecord>>(content) ?? [];
+            }
+            catch (JsonException)
+            {
+                _cache = [];
+            }
+            return new List<WorkspaceRequestRecord>(_cache);
         }
     }
 
@@ -71,7 +79,9 @@ public static class WorkspaceRequestStore
             UpdatedAt = DateTimeOffset.Now
         };
         items.Insert(0, record);
-        AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(items.Take(200).ToList(), JsonOptions));
+        var trimmed = items.Take(200).ToList();
+        AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(trimmed, JsonOptions));
+        lock (_cacheLock) { _cache = trimmed; }
         return record;
     }
 
