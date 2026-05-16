@@ -11,5 +11,6 @@ public sealed class AppSettings
     public string Model { get; set; } = "hermes-agent";
     public string AccessMode { get; set; } = "Tailscale/LAN";
     public string VisualBlocksMode { get; set; } = "auto";
+    public string VideoLibraryPath { get; set; } = string.Empty;
     public bool DemoMode { get; set; } = false;
 }

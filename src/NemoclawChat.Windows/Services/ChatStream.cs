@@ -215,11 +215,6 @@ public static class ChatStreamClient
         };
         request.Headers.TryAddWithoutValidation("Accept", "text/event-stream, application/json");
         request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
-        var apiKey = GatewayCredentialStore.LoadSecret();
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-        }
 
         HttpResponseMessage? response = null;
         string? sendError = null;

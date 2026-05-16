@@ -24,13 +24,11 @@ public sealed partial class SettingsPage : Page
         ProviderBox.Text = settings.Provider;
         InferenceEndpointBox.Text = settings.InferenceEndpoint;
         ModelBox.Text = settings.Model;
+        VideoLibraryPathBox.Text = settings.VideoLibraryPath;
         DemoModeSwitch.IsOn = settings.DemoMode;
         SelectComboItem(PreferredApiBox, settings.PreferredApi);
         SelectComboItem(AccessModeBox, settings.AccessMode);
         SelectComboItem(VisualBlocksModeBox, settings.VisualBlocksMode);
-        PairingCodeBox.PlaceholderText = GatewayCredentialStore.HasSecret()
-            ? "API key salvata nel Credential Locker"
-            : "Hermes API key";
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -44,15 +42,9 @@ public sealed partial class SettingsPage : Page
         }
 
         AppSettingsStore.Save(settings);
-        if (!string.IsNullOrWhiteSpace(PairingCodeBox.Password))
-        {
-            GatewayCredentialStore.SaveSecret(PairingCodeBox.Password);
-            PairingCodeBox.Password = string.Empty;
-        }
+        GatewayCredentialStore.DeleteSecret();
 
-        StatusText.Text = GatewayCredentialStore.HasSecret()
-            ? "Impostazioni salvate. Hermes API key salvata in Credential Locker."
-            : "Impostazioni salvate. Nessuna Hermes API key salvata.";
+        StatusText.Text = "Impostazioni salvate. Nessuna API key usata: connessione solo via URL Hermes.";
     }
 
     private async void TestGatewayWs_Click(object sender, RoutedEventArgs e)
@@ -94,11 +86,10 @@ public sealed partial class SettingsPage : Page
         StatusText.Text = "Default ripristinati.";
     }
 
-    private string ReadGatewaySecret()
+    private void ClearApiKey_Click(object sender, RoutedEventArgs e)
     {
-        return string.IsNullOrWhiteSpace(PairingCodeBox.Password)
-            ? GatewayCredentialStore.LoadSecret()
-            : PairingCodeBox.Password;
+        GatewayCredentialStore.DeleteSecret();
+        StatusText.Text = "Vecchia API key rimossa. Hermes Hub usa solo URL.";
     }
 
     private AppSettings ReadSettings()
@@ -114,6 +105,7 @@ public sealed partial class SettingsPage : Page
             InferenceEndpoint = InferenceEndpointBox.Text.Trim(),
             PreferredApi = SelectedComboText(PreferredApiBox),
             Model = ModelBox.Text.Trim(),
+            VideoLibraryPath = VideoLibraryPathBox.Text.Trim(),
             AccessMode = SelectedComboText(AccessModeBox),
             VisualBlocksMode = SelectedComboText(VisualBlocksModeBox),
             DemoMode = DemoModeSwitch.IsOn

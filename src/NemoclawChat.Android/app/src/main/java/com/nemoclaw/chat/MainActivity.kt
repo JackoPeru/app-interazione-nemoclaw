@@ -12,9 +12,6 @@ import android.os.Bundle
 import android.os.StrictMode
 import android.provider.MediaStore
 import android.provider.Settings
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -157,11 +154,6 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.util.concurrent.TimeUnit
-import java.security.KeyStore
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -347,6 +339,7 @@ data class AppSettings(
     val model: String = AppDefaults.model,
     val accessMode: String = AppDefaults.accessMode,
     val visualBlocksMode: String = AppDefaults.visualBlocksMode,
+    val videoLibraryPath: String = AppDefaults.videoLibraryPath,
     val fontScale: Float = AppDefaults.fontScale,
     val demoMode: Boolean = AppDefaults.demoMode
 )
@@ -372,7 +365,8 @@ private data class ServerSnapshot(
     val providerDetail: String,
     val inferenceEndpoint: String,
     val policy: String,
-    val statusMessage: String
+    val statusMessage: String,
+    val videoLibraryPath: String
 )
 
 private data class GatewayWsProbe(
@@ -2122,13 +2116,14 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
                 providerDetail = "Provider: ${settings.provider} | API: ${settings.preferredApi}",
                 inferenceEndpoint = settings.inferenceEndpoint,
                 policy = settings.accessMode,
-                statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare Hermes." else "Solo Hermes. Verifica lo stato del server."
+                statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare Hermes." else "Solo Hermes. Verifica lo stato del server.",
+                videoLibraryPath = settings.videoLibraryPath
             )
         )
     }
 
     LaunchedEffect(settings) {
-        snapshot = loadServerSnapshot(settings, loadGatewaySecret(context))
+        snapshot = loadServerSnapshot(context, settings, loadGatewaySecret(context))
     }
 
     LazyColumn(
@@ -2155,7 +2150,10 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
             ServerMetric("API lato server", snapshot.inferenceEndpoint, "Il client parla a Hermes API, non direttamente al runtime modello.")
         }
         item {
-            ServerMetric("Sicurezza", snapshot.policy, "API key via Authorization Bearer; esposizione consigliata solo LAN/Tailscale.")
+            ServerMetric("Sicurezza", snapshot.policy, "Nessuna API key lato app. Usa solo URL Hermes su LAN/Tailscale.")
+        }
+        item {
+            ServerMetric("Cartella video Hermes", snapshot.videoLibraryPath.ifBlank { "In attesa di sync server" }, "Hermes decide path e app lo recepisce da /health/detailed.")
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -2182,7 +2180,7 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
                         }
                         Button(onClick = {
                             scope.launch {
-                                snapshot = loadServerSnapshot(settings, loadGatewaySecret(context))
+                                snapshot = loadServerSnapshot(context, settings, loadGatewaySecret(context))
                             }
                         }) {
                             Text("Aggiorna stato")
@@ -2386,9 +2384,9 @@ private fun VideoScreen(context: Context, settings: AppSettings, onOpenChatPromp
         settings = settings,
         kind = "Video",
         title = "Video",
-        description = "Feed personale di video generati da Hermes sul PC. L'app apre lo streaming; il download resta una scelta esplicita.",
-        empty = "Nessun video ancora. Crea lo spunto dalla chat primaria o programma un job Hermes.",
-        chatPrompt = "Crea un job video per la sezione Video di Hermes Hub: ",
+        description = "Feed video Hermes. Desktop monitora cartella video configurata; Android usa stessi metadata e feedback per affinare i prossimi output.",
+        empty = "Nessun video ancora. Metti file nella cartella video Hermes o crea uno spunto dalla chat primaria.",
+        chatPrompt = "Crea o aggiorna un video per la cartella monitorata della sezione Video di Hermes Hub: ",
         onOpenChatPrompt = onOpenChatPrompt
     )
 }
@@ -2585,7 +2583,7 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
             ServerMetric("Archivio locale", "${conversations.size} elementi", "Cronologia e progetti salvati sul dispositivo.")
         }
         item {
-            ServerMetric("Privacy", "Locale-first", "Chat/settings restano sul dispositivo finche' non colleghi Hermes. API key cifrata localmente.")
+            ServerMetric("Privacy", "Locale-first", "Chat/settings restano sul dispositivo finche' non colleghi Hermes. Nessuna API key richiesta.")
         }
         item {
             ServerMetric("Parita Windows", "Allineata", "Chat, archivio, progetti/recenti, jobs, Hermes server, runs, settings e profilo presenti anche su Android.")
@@ -2727,13 +2725,13 @@ private fun SettingsScreen(
     var gatewayUrl by remember(settings.gatewayUrl) { mutableStateOf(settings.gatewayUrl) }
     var gatewayWsUrl by remember(settings.gatewayWsUrl) { mutableStateOf(settings.gatewayWsUrl) }
     var adminBridgeUrl by remember(settings.adminBridgeUrl) { mutableStateOf(settings.adminBridgeUrl) }
-    var gatewaySecret by remember { mutableStateOf("") }
     var provider by remember(settings.provider) { mutableStateOf(settings.provider) }
     var inferenceEndpoint by remember(settings.inferenceEndpoint) { mutableStateOf(settings.inferenceEndpoint) }
     var preferredApi by remember(settings.preferredApi) { mutableStateOf(settings.preferredApi) }
     var model by remember(settings.model) { mutableStateOf(settings.model) }
     var accessMode by remember(settings.accessMode) { mutableStateOf(settings.accessMode) }
     var visualBlocksMode by remember(settings.visualBlocksMode) { mutableStateOf(settings.visualBlocksMode) }
+    var videoLibraryPath by remember(settings.videoLibraryPath) { mutableStateOf(settings.videoLibraryPath) }
     var fontScale by remember(settings.fontScale) { mutableStateOf(settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)) }
     var demoMode by remember(settings.demoMode) { mutableStateOf(settings.demoMode) }
     var status by remember { mutableStateOf("Pronto.") }
@@ -2749,6 +2747,7 @@ private fun SettingsScreen(
             model = model.trim(),
             accessMode = accessMode.trim(),
             visualBlocksMode = visualBlocksMode.trim(),
+            videoLibraryPath = videoLibraryPath.trim(),
             fontScale = scale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
             demoMode = demoMode
         )
@@ -2763,7 +2762,7 @@ private fun SettingsScreen(
     ) {
         Text("Impostazioni", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(10.dp))
-        Text("Impostazioni salvate sul dispositivo. Hermes API key cifrata con Android Keystore.", color = AppColors.Muted)
+        Text("Impostazioni salvate sul dispositivo. Hermes Hub usa solo gli URL Hermes configurati, senza API key.", color = AppColors.Muted)
         Spacer(modifier = Modifier.height(18.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
@@ -2777,19 +2776,13 @@ private fun SettingsScreen(
                 )
             }
             item { SettingsField("Hermes API URL", gatewayUrl, { gatewayUrl = it }) }
-            item {
-                SettingsPasswordField(
-                    label = if (hasGatewaySecret(context)) "Hermes API key (gia' salvata)" else "Hermes API key",
-                    value = gatewaySecret,
-                    onValueChange = { gatewaySecret = it }
-                )
-            }
             item { SettingsField("Provider", provider, { provider = it }) }
             item { SettingsField("Endpoint API lato server", inferenceEndpoint, { inferenceEndpoint = it }) }
             item { SettingsField("API preferita", preferredApi, { preferredApi = it }) }
             item { SettingsField("Modello", model, { model = it }) }
             item { SettingsField("Accesso", accessMode, { accessMode = it }) }
             item { SettingsField("Modalita visuale (auto / always / never)", visualBlocksMode, { visualBlocksMode = it }) }
+            item { SettingsField("Cartella video Hermes (sync server)", videoLibraryPath, { }) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Fallback locale", color = Color.White, modifier = Modifier.weight(1f))
@@ -2816,15 +2809,8 @@ private fun SettingsScreen(
                             val error = validateSettings(candidate)
                             if (error == null) {
                                 onSave(candidate)
-                                if (gatewaySecret.isNotBlank()) {
-                                    saveGatewaySecret(context, gatewaySecret)
-                                    gatewaySecret = ""
-                                }
-                                status = if (hasGatewaySecret(context)) {
-                                    "Impostazioni salvate. Hermes API key cifrata in Android Keystore."
-                                } else {
-                                    "Impostazioni salvate. Nessuna Hermes API key salvata."
-                                }
+                                deleteGatewaySecret(context)
+                                status = "Impostazioni salvate. Nessuna API key usata: connessione solo via URL Hermes."
                             } else {
                                 status = error
                             }
@@ -2840,7 +2826,7 @@ private fun SettingsScreen(
                             }
                         status = "Leggo capabilities Hermes..."
                         scope.launch {
-                            status = runCatching { httpGet("${candidate.gatewayUrl.trimEnd('/')}/capabilities", gatewaySecret.ifBlank { loadGatewaySecret(context) }) }
+                            status = runCatching { httpGet("${candidate.gatewayUrl.trimEnd('/')}/capabilities", null) }
                                 .getOrElse { "Capabilities non leggibili: ${it.message ?: it.javaClass.simpleName}" }
                         }
                         }) {
@@ -2853,10 +2839,9 @@ private fun SettingsScreen(
                     ) {
                         Button(onClick = {
                             deleteGatewaySecret(context)
-                            gatewaySecret = ""
-                            status = "Hermes API key cancellata. Le prossime richieste partiranno senza Authorization."
+                            status = "Vecchia API key rimossa. Hermes Hub usa solo URL."
                         }) {
-                            Text("Cancella API key")
+                            Text("Pulisci vecchia API key")
                         }
                         Button(onClick = {
                             val error = validateHttpUrl(gatewayUrl, "Hermes API URL")
@@ -2868,14 +2853,13 @@ private fun SettingsScreen(
                             val healthUrl = "${hermesRoot(AppSettings(gatewayUrl = gatewayUrl.trim()))}/health"
                             status = "Test: $healthUrl"
                             scope.launch {
-                                status = testGateway(healthUrl, gatewaySecret.ifBlank { loadGatewaySecret(context) })
+                                status = testGateway(healthUrl, null)
                             }
                         }) {
                             Text("Test Hermes")
                         }
                         Button(onClick = {
                             deleteGatewaySecret(context)
-                            gatewaySecret = ""
                             onReset()
                         }) {
                             Text("Reset")
@@ -3220,11 +3204,12 @@ private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
             "hub_sections",
             JSONObject()
                 .put("chat", "Conversazione principale Hermes Hub.")
-                .put("video", "Feed personale video: output resta sul PC/Hermes, app usa stream_url/download_url e feedback.")
+                .put("video", "Feed personale video: Hermes conosce cartella monitorata, desktop mostra file locali, app salva feedback e metadata.")
                 .put("news", "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.")
                 .put("jobs", "Coda Hermes Jobs condivisa con CLI/server.")
                 .put("runs", "Runs operative Hermes.")
         )
+        .put("video_library_path", settings.videoLibraryPath)
         .put(
             "visual_blocks",
             JSONObject()
@@ -3321,7 +3306,7 @@ private suspend fun updateTaskRequest(settings: AppSettings, task: AgentTask, ac
     }
 }
 
-private suspend fun loadServerSnapshot(settings: AppSettings, apiKey: String?): ServerSnapshot = withContext(Dispatchers.IO) {
+private suspend fun loadServerSnapshot(context: Context, settings: AppSettings, apiKey: String?): ServerSnapshot = withContext(Dispatchers.IO) {
     val healthUrl = "${hermesRoot(settings)}/health"
     val baseSnapshot = ServerSnapshot(
         gateway = settings.gatewayUrl,
@@ -3329,7 +3314,8 @@ private suspend fun loadServerSnapshot(settings: AppSettings, apiKey: String?): 
         providerDetail = "Provider: ${settings.provider} | API: ${settings.preferredApi}",
         inferenceEndpoint = settings.inferenceEndpoint,
         policy = settings.accessMode,
-        statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare Hermes." else "Solo Hermes. Verifica lo stato del server."
+        statusMessage = if (settings.demoMode) "Fallback locale attivo. Provero' comunque a usare Hermes." else "Solo Hermes. Verifica lo stato del server.",
+        videoLibraryPath = settings.videoLibraryPath
     )
 
     try {
@@ -3337,6 +3323,15 @@ private suspend fun loadServerSnapshot(settings: AppSettings, apiKey: String?): 
         try {
             val body = httpGet("${hermesRoot(settings)}/health/detailed", apiKey)
             val json = JSONObject(body)
+            val syncedVideoPath = json.extractString("video_library_path")
+                ?: json.extractString("videoLibraryPath")
+                ?: json.extractNestedString("video", "library_path")
+                ?: json.extractNestedString("video", "video_library_path")
+                ?: json.extractNestedString("config", "video_library_path")
+                ?: settings.videoLibraryPath
+            if (syncedVideoPath != settings.videoLibraryPath) {
+                saveSettings(context, settings.copy(videoLibraryPath = syncedVideoPath))
+            }
             ServerSnapshot(
                 gateway = settings.gatewayUrl,
                 model = json.extractString("model")
@@ -3354,7 +3349,8 @@ private suspend fun loadServerSnapshot(settings: AppSettings, apiKey: String?): 
                     ?: settings.accessMode,
                 statusMessage = json.extractString("status")
                     ?: json.extractString("message")
-                    ?: healthStatus
+                    ?: healthStatus,
+                videoLibraryPath = syncedVideoPath
             )
         } catch (_: Exception) {
             baseSnapshot.copy(statusMessage = if (settings.demoMode) "$healthStatus Fallback locale attivo." else "$healthStatus Solo Hermes.")
@@ -3364,16 +3360,13 @@ private suspend fun loadServerSnapshot(settings: AppSettings, apiKey: String?): 
     }
 }
 
-private suspend fun testGateway(healthUrl: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+private suspend fun testGateway(healthUrl: String, @Suppress("UNUSED_PARAMETER") apiKey: String?): String = withContext(Dispatchers.IO) {
     try {
         val connection = (URL(healthUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 5_000
             readTimeout = 5_000
             setRequestProperty("Accept", "application/json")
-            if (!apiKey.isNullOrBlank()) {
-                setRequestProperty("Authorization", "Bearer ${apiKey.trim()}")
-            }
         }
 
         connection.use {
@@ -3434,7 +3427,7 @@ private suspend fun sendWorkspaceRunRequest(
     prompt: String,
     apiKey: String?
 ): WorkspaceRunResult = withContext(Dispatchers.IO) {
-    val runPrompt = workspaceInstructions(kind, prompt)
+    val runPrompt = workspaceInstructions(settings, kind, prompt)
     val title = makeTitle(prompt)
 
     val jobPayload = JSONObject()
@@ -3529,12 +3522,13 @@ private suspend fun sendWorkspaceRunRequest(
     )
 }
 
-private fun workspaceInstructions(kind: String, prompt: String): String {
+private fun workspaceInstructions(settings: AppSettings, kind: String, prompt: String): String {
     return if (kind.equals("Video", ignoreCase = true)) {
         """
             Destinazione: Hermes Hub / Video.
+            Cartella video monitorata: ${settings.videoLibraryPath}
             Memoria: usa la memoria agente condivisa Hermes/CLI/app per preferenze utente, stile, durata, ritmo, fonti e regole editoriali. Se impari una preferenza stabile, salvala lato Hermes se possibile.
-            Obiettivo: crea o programma un video personale per Matteo. Il file resta sul PC/server Hermes; il telefono riceve solo metadati, stream_url e download_url opzionale.
+            Obiettivo: crea o programma un video personale per Matteo. File finale pensato per comparire automaticamente nella cartella video monitorata; il telefono riceve solo metadati, stream_url e download_url opzionale.
             Produzione: ricerca tema se necessario, crea script, storyboard, asset plan, eventuale Remotion project/render o pipeline IA se disponibile lato server.
             Feedback: usa feedback precedenti per adattare durata, ritmo, editing, tono, fonti, voce, musica e livello tecnico.
             Output JSON richiesto: {"kind":"Video","title":"...","summary":"...","status":"...","job_id":"...","stream_url":"...","download_url":"...","sources":[]}
@@ -3651,16 +3645,13 @@ private fun resolveHermesUrl(settings: AppSettings, path: String): String {
     }
 }
 
-private suspend fun httpGet(url: String, apiKey: String? = null): String = withContext(Dispatchers.IO) {
+private suspend fun httpGet(url: String, @Suppress("UNUSED_PARAMETER") apiKey: String? = null): String = withContext(Dispatchers.IO) {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
         connectTimeout = 5_000
         readTimeout = 5_000
         setRequestProperty("Accept", "application/json")
         setRequestProperty("User-Agent", "HermesHub-Android")
-        if (!apiKey.isNullOrBlank()) {
-            setRequestProperty("Authorization", "Bearer ${apiKey.trim()}")
-        }
     }
 
     connection.use {
@@ -3678,14 +3669,11 @@ private val apiHttpClient: OkHttpClient by lazy {
         .build()
 }
 
-private suspend fun postJson(url: String, payload: JSONObject, apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
+private suspend fun postJson(url: String, payload: JSONObject, @Suppress("UNUSED_PARAMETER") apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
     val builder = Request.Builder()
         .url(url)
         .header("Accept", "text/event-stream, application/json, text/plain")
         .header("User-Agent", "HermesHub-Android")
-    if (!apiKey.isNullOrBlank()) {
-        builder.header("Authorization", "Bearer ${apiKey.trim()}")
-    }
     val normalizedMethod = method.uppercase()
     val request = when (normalizedMethod) {
         "DELETE" -> builder.delete().build()
@@ -4423,6 +4411,7 @@ private fun loadSettings(context: Context): AppSettings {
         model = prefs.getString("model", AppDefaults.model) ?: AppDefaults.model,
         accessMode = prefs.getString("accessMode", AppDefaults.accessMode) ?: AppDefaults.accessMode,
         visualBlocksMode = prefs.getString("visualBlocksMode", AppDefaults.visualBlocksMode) ?: AppDefaults.visualBlocksMode,
+        videoLibraryPath = prefs.getString("videoLibraryPath", AppDefaults.videoLibraryPath) ?: AppDefaults.videoLibraryPath,
         fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
         demoMode = prefs.getBoolean("demoMode", AppDefaults.demoMode)
     )
@@ -4442,46 +4431,14 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .putString("model", settings.model.trim())
         .putString("accessMode", settings.accessMode.trim())
         .putString("visualBlocksMode", settings.visualBlocksMode.trim())
+        .putString("videoLibraryPath", settings.videoLibraryPath.trim())
         .putFloat("fontScale", settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE))
         .putBoolean("demoMode", settings.demoMode)
         .apply()
 }
 
-private fun hasGatewaySecret(context: Context): Boolean {
-    return !loadGatewaySecret(context).isNullOrBlank()
-}
-
-private fun loadGatewaySecret(context: Context): String? {
-    val encoded = context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
-        .getString(GATEWAY_SECRET_PREF_KEY, null)
-        ?: return null
-
-    return try {
-        val packed = Base64.decode(encoded, Base64.NO_WRAP)
-        if (packed.size <= 12) return null
-        val iv = packed.copyOfRange(0, 12)
-        val ciphertext = packed.copyOfRange(12, packed.size)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateGatewaySecretKey(), GCMParameterSpec(128, iv))
-        cipher.updateAAD(GATEWAY_SECRET_AAD)
-        String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-    } catch (_: Exception) {
-        null
-    }
-}
-
-private fun saveGatewaySecret(context: Context, secret: String) {
-    if (secret.isBlank()) return
-
-    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.ENCRYPT_MODE, getOrCreateGatewaySecretKey())
-    cipher.updateAAD(GATEWAY_SECRET_AAD)
-    val ciphertext = cipher.doFinal(secret.trim().toByteArray(Charsets.UTF_8))
-    val packed = cipher.iv + ciphertext
-    context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putString(GATEWAY_SECRET_PREF_KEY, Base64.encodeToString(packed, Base64.NO_WRAP))
-        .apply()
+private fun loadGatewaySecret(@Suppress("UNUSED_PARAMETER") context: Context): String? {
+    return null
 }
 
 private fun deleteGatewaySecret(context: Context) {
@@ -4489,30 +4446,6 @@ private fun deleteGatewaySecret(context: Context) {
         .edit()
         .remove(GATEWAY_SECRET_PREF_KEY)
         .apply()
-}
-
-private val gatewaySecretKeyLock = Any()
-private val GATEWAY_SECRET_AAD: ByteArray =
-    "HermesHub|gateway-secret|v1".toByteArray(Charsets.UTF_8)
-
-private fun getOrCreateGatewaySecretKey(): SecretKey {
-    synchronized(gatewaySecretKeyLock) {
-        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (keyStore.getEntry(GATEWAY_SECRET_KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey?.let {
-            return it
-        }
-
-        val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-        val spec = KeyGenParameterSpec.Builder(
-            GATEWAY_SECRET_KEY_ALIAS,
-            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-        )
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            .build()
-        keyGenerator.init(spec)
-        return keyGenerator.generateKey()
-    }
 }
 
 private fun loadArchiveItems(context: Context): List<ArchiveItem> {
@@ -5106,7 +5039,6 @@ private const val CURRENT_TASKS_PREFS = "chatclaw_tasks"
 private const val LEGACY_TASKS_PREFS = "nemoclaw_tasks"
 private const val CURRENT_WORKSPACE_PREFS = "chatclaw_workspace_requests"
 private const val GATEWAY_SECRET_PREF_KEY = "gatewaySecretCiphertext"
-private const val GATEWAY_SECRET_KEY_ALIAS = "chatclaw_gateway_secret"
 private const val MIN_FONT_SCALE = 0.85f
 private const val MAX_FONT_SCALE = 1.25f
 private const val CHAT_HISTORY_MAX_MESSAGES = 30
@@ -5122,6 +5054,7 @@ private object AppDefaults {
     const val model = "hermes-agent"
     const val accessMode = "Tailscale/LAN"
     const val visualBlocksMode = "auto"
+    const val videoLibraryPath = ""
     const val fontScale = 1.0f
     const val demoMode = false
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"

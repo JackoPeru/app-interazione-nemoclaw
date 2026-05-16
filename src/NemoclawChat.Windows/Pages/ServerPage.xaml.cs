@@ -59,7 +59,7 @@ public sealed partial class ServerPage : Page
         GatewayWsText.Text = $"{_settings.GatewayUrl.TrimEnd('/')}/capabilities";
         ModelText.Text = snapshot.Model;
         ProviderText.Text = snapshot.ProviderDetail;
-        InferenceText.Text = snapshot.InferenceEndpoint;
+        InferenceText.Text = $"{snapshot.InferenceEndpoint}\nCartella video Hermes: {(string.IsNullOrWhiteSpace(snapshot.VideoLibraryPath) ? "in attesa di sync server" : snapshot.VideoLibraryPath)}";
         PolicyText.Text = snapshot.Policy;
         StatusText.Text = snapshot.StatusMessage;
     }

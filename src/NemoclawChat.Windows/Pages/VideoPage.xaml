@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:services="using:NemoclawChat_Windows.Services"
     mc:Ignorable="d">
 
     <ScrollViewer Background="{StaticResource AppBackgroundBrush}">
@@ -12,8 +13,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
             <StackPanel Spacing="8">
@@ -23,86 +23,165 @@
                     Foreground="White"
                     Text="Video" />
                 <TextBlock
-                    MaxWidth="820"
+                    MaxWidth="920"
                     Foreground="{StaticResource MutedTextBrush}"
-                    Text="Workspace separato per chiedere a Hermes idee, script, storyboard e future generazioni video senza mischiarle alla chat principale." />
+                    Text="Feed automatico stile YouTube: ogni video messo nella cartella Hermes compare qui, con player locale, note rapide e feedback che Hermes deve usare per migliorare i prossimi output." />
             </StackPanel>
 
-            <Grid Grid.Row="1" ColumnSpacing="16">
+            <Border Grid.Row="1" Style="{StaticResource PremiumCardBorderStyle}">
+                <Grid ColumnSpacing="14" RowSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock FontWeight="SemiBold" Foreground="White" Text="Cartella monitorata" />
+                        <TextBlock x:Name="LibraryPathText" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                        <Button Click="OpenFolder_Click" Content="Apri cartella" />
+                        <Button Click="Refresh_Click" Content="Aggiorna feed" />
+                    </StackPanel>
+
+                    <TextBlock
+                        x:Name="PageStatusText"
+                        Grid.Row="1"
+                        Grid.ColumnSpan="2"
+                        Foreground="{StaticResource MutedTextBrush}"
+                        Text="Pronto." />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2" ColumnSpacing="18">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="1.2*" />
+                    <ColumnDefinition Width="0.95*" />
                 </Grid.ColumnDefinitions>
 
                 <Border Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock
-                            FontWeight="SemiBold"
-                            Foreground="White"
-                            Text="Nuovo progetto video" />
-                        <TextBlock
-                            Foreground="{StaticResource MutedTextBrush}"
-                            Text="Prepara brief, tono, durata, formato e lista asset necessari." />
-                        <TextBox
-                            x:Name="VideoPromptBox"
-                            MinHeight="130"
-                            AcceptsReturn="True"
-                            Header="Brief video"
-                            PlaceholderText="Esempio: crea script per video demo Hermes Hub da 60 secondi..."
-                            TextWrapping="Wrap" />
-                        <Button
-                            x:Name="VideoRunButton"
-                            HorizontalAlignment="Left"
-                            Background="{StaticResource AccentGreenBrush}"
-                            BorderThickness="0"
-                            Click="PrepareVideo_Click"
-                            Content="Invia a Hermes"
-                            Foreground="White" />
+                    <StackPanel Spacing="14">
+                        <TextBlock FontWeight="SemiBold" Foreground="White" Text="Feed video" />
+                        <ListView
+                            x:Name="VideoListView"
+                            IsItemClickEnabled="True"
+                            ItemClick="VideoListView_ItemClick"
+                            SelectionMode="Single">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="services:LocalVideoRecord">
+                                    <Grid Margin="0,0,0,14" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="220" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border
+                                            Height="124"
+                                            Background="#FF232831"
+                                            BorderBrush="#33FFFFFF"
+                                            BorderThickness="1"
+                                            CornerRadius="18">
+                                            <Grid>
+                                                <Rectangle RadiusX="18" RadiusY="18">
+                                                    <Rectangle.Fill>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                            <GradientStop Color="#FF3A260B" Offset="0" />
+                                                            <GradientStop Color="#FF1D222B" Offset="1" />
+                                                        </LinearGradientBrush>
+                                                    </Rectangle.Fill>
+                                                </Rectangle>
+                                                <FontIcon
+                                                    FontSize="44"
+                                                    Glyph="&#xE768;"
+                                                    Foreground="#FFF5A524"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center" />
+                                                <Border
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Top"
+                                                    Margin="12"
+                                                    Padding="8,4"
+                                                    Background="#AA0F1115"
+                                                    CornerRadius="999">
+                                                    <TextBlock Foreground="White" Text="{x:Bind Extension}" />
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+
+                                        <StackPanel Grid.Column="1" Spacing="6">
+                                            <TextBlock
+                                                Foreground="White"
+                                                FontWeight="SemiBold"
+                                                FontSize="16"
+                                                Text="{x:Bind Title}"
+                                                TextWrapping="WrapWholeWords" />
+                                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="{x:Bind FileName}" TextWrapping="WrapWholeWords" />
+                                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="{x:Bind ModifiedLabel}" />
+                                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="{x:Bind SizeLabel}" />
+                                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="{x:Bind FeedbackCountLabel}" />
+                                            <TextBlock
+                                                Foreground="{StaticResource MutedTextBrush}"
+                                                MaxLines="2"
+                                                Text="{x:Bind FeedbackPreview}"
+                                                TextTrimming="CharacterEllipsis"
+                                                TextWrapping="WrapWholeWords" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
                     </StackPanel>
                 </Border>
 
                 <Border Grid.Column="1" Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock
-                            FontWeight="SemiBold"
-                            Foreground="White"
-                            Text="Pipeline futura" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="1. Brief e obiettivo" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="2. Script e storyboard" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="3. Asset, voce, musica" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="4. Generazione video tramite Hermes quando il backend sara' pronto" />
+                    <StackPanel Spacing="14">
+                        <TextBlock FontWeight="SemiBold" Foreground="White" Text="Video selezionato" />
+                        <MediaPlayerElement
+                            x:Name="VideoPlayer"
+                            AreTransportControlsEnabled="True"
+                            Height="260"
+                            AutoPlay="False" />
+                        <TextBlock x:Name="SelectedVideoTitleText" Foreground="White" FontSize="20" FontWeight="SemiBold" Text="Seleziona un video" />
+                        <TextBlock x:Name="SelectedVideoMetaText" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Click="QuickFeedback_Click" Tag="Hook piu' forte nei primi 5 secondi" Content="Hook" />
+                            <Button Click="QuickFeedback_Click" Tag="Ritmo piu' veloce e meno pause" Content="Ritmo" />
+                            <Button Click="QuickFeedback_Click" Tag="Piu' chiarezza didattica e step concreti" Content="Chiarezza" />
+                            <Button Click="QuickFeedback_Click" Tag="Montaggio piu' pulito e meno ridondanza" Content="Montaggio" />
+                        </StackPanel>
+
+                        <TextBox
+                            x:Name="FeedbackBox"
+                            Header="Feedback per Hermes"
+                            AcceptsReturn="True"
+                            MinHeight="120"
+                            PlaceholderText="Es: intro lenta, serve hook piu' forte, voiceover piu' naturale, taglia 20 secondi finali..." />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button
+                                x:Name="SendFeedbackButton"
+                                Background="{StaticResource AccentGreenBrush}"
+                                BorderThickness="0"
+                                Click="SendFeedback_Click"
+                                Content="Invia feedback a Hermes"
+                                Foreground="White" />
+                            <Button Click="CopyPath_Click" Content="Copia path video" />
+                        </StackPanel>
+                        <TextBlock x:Name="FeedbackStatusText" Foreground="{StaticResource MutedTextBrush}" Text="Hermes deve usare questi feedback come memoria editoriale stabile quando appropriato." TextWrapping="Wrap" />
+                        <TextBox
+                            x:Name="AgentResponseBox"
+                            MinHeight="180"
+                            AcceptsReturn="True"
+                            IsReadOnly="True"
+                            TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
             </Grid>
-
-            <Border Grid.Row="2" Style="{StaticResource PremiumCardBorderStyle}">
-                <StackPanel Spacing="10">
-                    <TextBlock
-                        FontWeight="SemiBold"
-                        Foreground="White"
-                        Text="Stato" />
-                    <TextBlock
-                        x:Name="VideoStatusText"
-                        Foreground="{StaticResource MutedTextBrush}"
-                        Text="Pronto. Invia un brief: Hermes eseguira' un run reale o usera' fallback chat." />
-                    <TextBox
-                        x:Name="VideoResultBox"
-                        MinHeight="180"
-                        AcceptsReturn="True"
-                        IsReadOnly="True"
-                        TextWrapping="Wrap" />
-                </StackPanel>
-            </Border>
-
-            <Border Grid.Row="3" Style="{StaticResource PremiumCardBorderStyle}">
-                <StackPanel Spacing="10">
-                    <TextBlock
-                        FontWeight="SemiBold"
-                        Foreground="White"
-                        Text="Recenti video" />
-                    <StackPanel x:Name="VideoRecentPanel" Spacing="8" />
-                </StackPanel>
-            </Border>
         </Grid>
     </ScrollViewer>
 </Page>

@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.28 Release Hermes Hub 0.6.28
+v0.6.29 Release Hermes Hub 0.6.29
 ```
 
 ## Regola Memoria
@@ -53,6 +53,25 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.29 (Windows + Android):
+
+Decisione auth client:
+- Hermes Hub deve funzionare senza API key lato app in LAN/Tailscale. Android e Windows usano solo gli URL Hermes configurati e non inviano piu' header `Authorization` nelle richieste Hermes chat/server/runs/jobs.
+- Settings mantiene solo un'azione di pulizia vecchia API key per rimuovere credenziali residue da Keystore/Credential Locker.
+- I segreti provider/modello restano lato Hermes/server. AdminBridge resta separato e puo' continuare a usare `CHATCLAW_ADMIN_TOKEN`.
+
+Decisione ingest Video:
+- Sezione Video passa a modello `watched-folder`: cartella non viene decisa dal client ma da Hermes, che la annuncia via payload server (`/health/detailed`, campo tipo `video_library_path`).
+- Windows Video page ora legge automaticamente i file video locali da quella cartella e li mostra come feed/player con UI piu' vicina a YouTube.
+- Feedback video diventa per-file: utente puo' lasciare note rapide/editoriali; app le salva localmente e le invia a Hermes chiedendo di trattarle come memoria editoriale condivisa quando appropriato.
+- Windows e Android sincronizzano automaticamente `Cartella video Hermes` dal server quando Hermes la espone; finche' manca, UI mostra stato "in attesa di sync server".
+
+## Modifiche non rilasciate
+
+(Nessuna modifica non rilasciata)
+
+## Release 0.6.28
 
 Hermes Hub 0.6.28 (Windows + Android):
 
@@ -401,7 +420,9 @@ Windows:
 - Runs: pagina dedicata con preset HTTP reali per health, models, capabilities, `POST /v1/runs`, `GET/POST /api/jobs`.
 - Vecchio WebSocket operator rimosso dalla UX principale. Servizi legacy restano nel repo non primari.
 - Settings: `GatewayUrl` ora significa `Hermes API URL`, default `http://hermes.local:8642/v1`; `GatewayWsUrl` vuoto; `AdminBridgeUrl` derivato root Hermes.
-- Credenziale Hermes API key: salvata in Windows Credential Locker; campo vuoto mantiene segreto esistente, reset lo elimina.
+- Settings: include `Cartella video Hermes` in sola lettura/sync server; Hermes decide il path e l'app lo recepisce automaticamente.
+- Auth Hermes lato app rimossa: Windows usa solo URL Hermes e non invia `Authorization`; Settings puo' solo pulire vecchie credenziali salvate in Credential Locker.
+- Video: feed desktop ora cartella-centrico, non solo job-centrico. Ogni `.mp4/.m4v/.mov/.mkv/.webm/.avi` nella cartella monitorata compare automaticamente con player locale, note rapide e feedback a Hermes.
 - Profilo/About: info app/profilo locale, versione, privacy, gateway attivo.
 - Update system: controlla GitHub Releases latest, scarica asset Windows in app con progresso e poi apre installer/asset da bottone `Installa update`.
 - Compatibilita storage: usa `%LOCALAPPDATA%\\ChatClaw\\...` ma migra automaticamente da `%LOCALAPPDATA%\\NemoclawChat\\...` se esiste.
@@ -438,9 +459,10 @@ Android:
 - Jobs: coda task persistente in `SharedPreferences`, creazione job con tentativo reale su Hermes Jobs API, run/pause/delete con sync Hermes se disponibile e fallback locale se no.
 - Server: dashboard Hermes/modello/API/sicurezza, test `/health`, lettura reale di `/health/detailed`, `/v1/models`, `/v1/capabilities`.
 - Runs: tab dedicata con endpoint manuale e preset reali Hermes per dashboard, modelli, capabilities, runs e jobs. Vecchio WS operator rimosso dalla UX principale.
+- Settings: aggiunto campo `Cartella video Hermes` per dichiarare a Hermes path condiviso usato dalla sezione Video.
 - Settings: `gatewayWsUrl` vuoto, non mostrato nella UX Hermes.
 - Settings: `adminBridgeUrl` derivato da root Hermes, non requisito primario.
-- Credenziale Hermes API key: cifrata con Android Keystore AES-GCM e salvata in `chatclaw_settings`; campo vuoto mantiene segreto esistente, reset lo elimina.
+- Auth Hermes lato app rimossa: Android usa solo URL Hermes e non invia `Authorization`; Settings puo' solo pulire vecchie credenziali residue in `chatclaw_settings`.
 - Profilo: info Matteo/app/gateway/privacy/parita Windows.
 - Update system: controlla GitHub Releases latest, scarica APK dentro l'app con progress bar + dimensione file e poi apre installer Android con tasto `Aggiorna`.
 - Nessun bottone `Release` nella UI update Android: il flusso resta interno all'app come UniNote (`Controlla > Scarica > Aggiorna`).
@@ -488,7 +510,7 @@ API primaria: POST /v1/responses
 API fallback: POST /v1/chat/completions
 Model demo: hermes-agent
 Accesso: Tailscale/LAN
-Auth: Authorization: Bearer <Hermes API key>
+Auth app: nessuna API key lato client; accesso consigliato solo LAN/Tailscale o reverse proxy sicuro lato server.
 ```
 
 Nota architetturale:
@@ -497,7 +519,7 @@ Nota architetturale:
 - App devono parlare a Hermes Agent API Server.
 - Chat primaria via Responses API con `store`, `conversation` e `previous_response_id`.
 - Runs API e Jobs API sostituiscono la vecchia console operator WS.
-- Segreti/provider token restano lato server; la Hermes API key e' l'unico segreto client.
+- Segreti/provider token restano lato server; Hermes Hub non usa segreti client per Hermes API in LAN/Tailscale.
 - Visual Blocks v1: `output_text` deve essere completo anche quando ci sono blocchi; history inviata a Hermes deve contenere solo testo umano, non JSON dei blocchi. Client dichiara `metadata.visual_blocks.min_supported_version/max_supported_version/mode`. `mode`: `never` disabilita, `auto` lascia decidere Hermes, `always` preferisce blocchi quando ragionevole senza forzarli.
 - Hermes Hub context: ogni richiesta chat/job/run deve dichiarare che l'app ha sezioni Chat, Video, News, Jobs/Runs e Archivio. Video/News devono essere creati lato Hermes/PC come job/artifact con `workspace=video|news`, `stream_url`/`download_url` per video e fonti per news. La memoria agente e' condivisa tra app, CLI e jobs; lo storico locale app non sostituisce la memoria Hermes.
 - Sicurezza Visual Blocks: niente HTML, JS o SVG client-side. Diagrammi solo Mermaid source + media proxy pre-renderizzato con fallback code block `mermaid`. Media solo da proxy Hermes, no `file://`, no `data:`, no URL esterni diretti.

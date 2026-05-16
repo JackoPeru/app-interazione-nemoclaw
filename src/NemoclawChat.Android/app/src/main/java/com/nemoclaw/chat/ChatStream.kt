@@ -193,7 +193,7 @@ fun streamChatRequest(
     history: List<ChatMessage>,
     conversationId: String?,
     previousResponseId: String?,
-    apiKey: String?
+    @Suppress("UNUSED_PARAMETER") apiKey: String?
 ): Flow<ChatStreamEvent> = flow {
     val start = System.nanoTime()
     var sawDelta = false
@@ -203,7 +203,6 @@ fun streamChatRequest(
     val accumText = StringBuilder()
     val accumThink = StringBuilder()
     var lastError: String? = null
-    var activeApiKey = apiKey?.takeIf { it.isNotBlank() }
 
     suspend fun emitAndTrack(ev: ChatStreamEvent): Boolean {
         when (ev) {
@@ -258,17 +257,11 @@ fun streamChatRequest(
     while (responsesAttempt < 3 && !sawDelta) {
         responsesAttempt++
         lastError = null
-        val terminated = openSseStream(responseUrl, responsePayload, activeApiKey, "Hermes Responses API") { ev ->
+        val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API") { ev ->
             emitAndTrack(ev)
         }
         if (!terminated || sawDelta) {
             break
-        }
-        if (isInvalidApiKeyError(lastError) && activeApiKey != null) {
-            activeApiKey = null
-            responsesAttempt = 0
-            emit(ChatStreamEvent.Status("API key rifiutata. Riprovo senza Authorization..."))
-            continue
         }
         if (lastError != null && responsesAttempt < 3) {
             kotlinx.coroutines.delay(1000L * (1 shl (responsesAttempt - 1)))
@@ -302,16 +295,8 @@ fun streamChatRequest(
         })
         val url = "${settings.gatewayUrl.trimEnd('/')}/chat/completions"
         lastError = null
-        var chatTerminated = openSseStream(url, payload, activeApiKey, "Hermes Chat Completions") { ev ->
+        openSseStream(url, payload, "Hermes Chat Completions") { ev ->
             emitAndTrack(ev)
-        }
-        if (chatTerminated && !sawDelta && isInvalidApiKeyError(lastError) && activeApiKey != null) {
-            activeApiKey = null
-            lastError = null
-            emit(ChatStreamEvent.Status("API key rifiutata da Chat Completions. Riprovo senza Authorization..."))
-            openSseStream(url, payload, activeApiKey, "Hermes Chat Completions") { ev ->
-                emitAndTrack(ev)
-            }
         }
     }
 
@@ -328,17 +313,9 @@ fun streamChatRequest(
     emit(ChatStreamEvent.Done(ChatStreamStats(ttftMs, totalMs, tokensOut, tps, promptTokens)))
 }.flowOn(Dispatchers.IO)
 
-private fun isInvalidApiKeyError(message: String?): Boolean {
-    val value = message?.lowercase().orEmpty()
-    return value.contains("invalid_api_key") ||
-        value.contains("invalid api key") ||
-        (value.contains("401") && value.contains("api key"))
-}
-
 private suspend inline fun openSseStream(
     url: String,
     payload: JSONObject,
-    apiKey: String?,
     label: String,
     crossinline onEvent: suspend (ChatStreamEvent) -> Boolean
 ): Boolean {
@@ -353,9 +330,6 @@ private suspend inline fun openSseStream(
             .url(url)
             .header("Accept", "text/event-stream, application/json")
             .header("User-Agent", "HermesHub-Android")
-        if (!apiKey.isNullOrBlank()) {
-            builder.header("Authorization", "Bearer ${apiKey.trim()}")
-        }
         val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request = builder.post(body).build()
         val activeCall = streamHttpClient.newCall(request)
@@ -636,7 +610,7 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
             "hub_sections",
             JSONObject()
                 .put("chat", "Conversazione principale Hermes Hub.")
-                .put("video", "Feed personale video: output resta sul PC/Hermes, app usa stream_url/download_url e feedback.")
+                .put("video", "Feed personale video: Hermes conosce cartella monitorata, desktop mostra file locali, app salva feedback e metadata.")
                 .put("news", "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.")
                 .put("jobs", "Coda Hermes Jobs condivisa con CLI/server.")
                 .put("runs", "Runs operative Hermes.")

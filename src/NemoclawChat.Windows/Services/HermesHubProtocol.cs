@@ -54,10 +54,16 @@ public static class HermesHubProtocol
             hub_sections = new
             {
                 chat = "Conversazione principale Hermes Hub.",
-                video = "Feed personale video: output resta sul PC/Hermes, app usa stream_url/download_url e feedback.",
+                video = "Feed personale video: Hermes monitora cartella video nota e app desktop mostra automaticamente file video locali con feedback.",
                 news = "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.",
                 jobs = "Coda Hermes Jobs condivisa con CLI/server.",
                 runs = "Runs operative Hermes."
+            },
+            video_ingest = new
+            {
+                mode = "watched-folder",
+                folder_path = settings.VideoLibraryPath,
+                behavior = "Ogni file video messo in cartella deve apparire nel feed Video desktop."
             },
             visual_blocks = new
             {

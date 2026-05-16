@@ -19,7 +19,8 @@ public sealed record ServerSnapshot(
     string ProviderDetail,
     string InferenceEndpoint,
     string Policy,
-    string StatusMessage);
+    string StatusMessage,
+    string VideoLibraryPath);
 
 public enum TaskCommand
 {
@@ -304,7 +305,7 @@ public static class GatewayService
     public static async Task<WorkspaceRunResult> SendWorkspaceRunAsync(AppSettings settings, string kind, string prompt)
     {
         var runPrompt = kind.Equals("Video", StringComparison.OrdinalIgnoreCase)
-            ? $"Destinazione: Hermes Hub / Video.\nMemoria: usa la memoria agente condivisa Hermes/CLI/app per preferenze utente, stile, durata, ritmo, fonti e regole editoriali. Se impari una preferenza stabile, salvala lato Hermes se possibile.\nObiettivo: crea output operativo per produzione video su PC/Hermes: brief, script, storyboard, scene, asset, voce, musica, rischi, prossimi step, stream_url/download_url se disponibili.\n\nRichiesta utente:\n{prompt}"
+            ? $"Destinazione: Hermes Hub / Video.\nCartella video monitorata: {settings.VideoLibraryPath}\nMemoria: usa la memoria agente condivisa Hermes/CLI/app per preferenze utente, stile, durata, ritmo, fonti e regole editoriali. Se impari una preferenza stabile, salvala lato Hermes se possibile.\nObiettivo: crea output operativo per produzione video su PC/Hermes: brief, script, storyboard, scene, asset, voce, musica, rischi, prossimi step. Tutti i file finali devono essere pensati per comparire nel feed Video tramite quella cartella monitorata. Se utile, indica stream_url/download_url.\n\nRichiesta utente:\n{prompt}"
             : $"Destinazione: Hermes Hub / News.\nMemoria: usa la memoria agente condivisa Hermes/CLI/app per interessi, fonti preferite, profondita, tono e filtri di qualita. Se impari una preferenza stabile, salvala lato Hermes se possibile.\nObiettivo: crea output operativo per articolo/briefing: query, fonti consultate, filtri, sintesi, frequenza, formato briefing, rischi di affidabilita.\n\nRichiesta utente:\n{prompt}";
 
         var payload = JsonSerializer.Serialize(new
@@ -381,7 +382,8 @@ public static class GatewayService
                 settings.AccessMode,
                 settings.DemoMode
                     ? $"{healthStatus} Fallback locale attivo."
-                    : $"{healthStatus} Solo Hermes, nessun fallback locale.");
+                    : $"{healthStatus} Solo Hermes, nessun fallback locale.",
+                settings.VideoLibraryPath);
         }
         catch (Exception ex)
         {
@@ -394,7 +396,8 @@ public static class GatewayService
                 $"Provider: {settings.Provider} | API: {settings.PreferredApi}",
                 settings.InferenceEndpoint,
                 settings.AccessMode,
-                $"Hermes non raggiungibile: {ex.Message}. {modeText}");
+                $"Hermes non raggiungibile: {ex.Message}. {modeText}",
+                settings.VideoLibraryPath);
         }
     }
 
@@ -452,9 +455,21 @@ public static class GatewayService
                 ?? ExtractString(root, "networkPolicy")
                 ?? ExtractNestedString(root, "security", "networkPolicy")
                 ?? settings.AccessMode;
+            var videoLibraryPath = ExtractString(root, "video_library_path")
+                ?? ExtractString(root, "videoLibraryPath")
+                ?? ExtractNestedString(root, "video", "library_path")
+                ?? ExtractNestedString(root, "video", "video_library_path")
+                ?? ExtractNestedString(root, "config", "video_library_path")
+                ?? settings.VideoLibraryPath;
             var statusMessage = ExtractString(root, "status")
                 ?? ExtractString(root, "message")
                 ?? healthStatus;
+
+            if (!string.Equals(videoLibraryPath, settings.VideoLibraryPath, StringComparison.Ordinal))
+            {
+                settings.VideoLibraryPath = videoLibraryPath;
+                AppSettingsStore.Save(settings);
+            }
 
             snapshot = new ServerSnapshot(
                 settings.GatewayUrl,
@@ -462,7 +477,8 @@ public static class GatewayService
                 $"Provider: {provider} | API: {api}",
                 inference,
                 policy,
-                statusMessage);
+                statusMessage,
+                settings.VideoLibraryPath);
             return true;
         }
         catch
@@ -550,11 +566,6 @@ public static class GatewayService
         var request = new HttpRequestMessage(method, uri);
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
         request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
-        var apiKey = GatewayCredentialStore.LoadSecret();
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-        }
 
         return request;
     }

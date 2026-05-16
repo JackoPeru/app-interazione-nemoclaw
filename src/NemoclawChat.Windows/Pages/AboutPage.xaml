@@ -72,7 +72,7 @@
                     <Border Grid.Row="1" Padding="18" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="8">
                             <TextBlock Foreground="White" FontWeight="SemiBold" Text="Privacy" />
-                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Chat e settings restano locali finche' non colleghi Hermes. API key protetta nel sistema, segreti modello lato server." TextWrapping="Wrap" />
+                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Chat e settings restano locali finche' non colleghi Hermes. Nessuna API key lato app; segreti modello restano lato server." TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="1" Grid.Column="1" Padding="18" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
