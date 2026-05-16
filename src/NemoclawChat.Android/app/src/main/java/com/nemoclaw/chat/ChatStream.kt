@@ -257,7 +257,7 @@ fun streamChatRequest(
     while (responsesAttempt < 3 && !sawDelta) {
         responsesAttempt++
         lastError = null
-        val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API") { ev ->
+        val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey) { ev ->
             emitAndTrack(ev)
         }
         if (!terminated || sawDelta) {
@@ -295,7 +295,7 @@ fun streamChatRequest(
         })
         val url = "${settings.gatewayUrl.trimEnd('/')}/chat/completions"
         lastError = null
-        openSseStream(url, payload, "Hermes Chat Completions") { ev ->
+        openSseStream(url, payload, "Hermes Chat Completions", apiKey) { ev ->
             emitAndTrack(ev)
         }
     }
@@ -317,6 +317,7 @@ private suspend inline fun openSseStream(
     url: String,
     payload: JSONObject,
     label: String,
+    apiKey: String?,
     crossinline onEvent: suspend (ChatStreamEvent) -> Boolean
 ): Boolean {
     var call: Call? = null
@@ -326,58 +327,77 @@ private suspend inline fun openSseStream(
         }
     }
     return try {
-        val builder = Request.Builder()
-            .url(url)
-            .header("Accept", "text/event-stream, application/json")
-            .header("User-Agent", "HermesHub-Android")
         val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request = builder.post(body).build()
-        val activeCall = streamHttpClient.newCall(request)
-        call = activeCall
-        activeCall.execute().use { response ->
-            val responseBody = response.body
-            if (!response.isSuccessful) {
-                val text = responseBody.string().take(240)
-                onEvent(ChatStreamEvent.Error("$label HTTP ${response.code}: $text"))
-                return@use true
-            }
-            onEvent(ChatStreamEvent.Status("$label connesso. Attendo eventi..."))
-            val ct = responseBody.contentType()?.toString().orEmpty()
-            if (!ct.contains("event-stream", ignoreCase = true)) {
-                val full = responseBody.string()
-                parseFullBody(full).forEach { onEvent(it) }
-                return@use false
-            }
-            val source = responseBody.source()
-            val dataBuf = StringBuilder()
-            var eventName: String? = null
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val line = source.readUtf8Line() ?: break
-                if (line.isEmpty()) {
-                    if (dataBuf.isNotEmpty()) {
-                        parseSseData(eventName, dataBuf.toString()).forEach { onEvent(it) }
-                        dataBuf.clear()
-                        eventName = null
+        val authCandidates = listOf<String?>(null) + hermesAuthRetryCandidates(apiKey)
+        var lastHttpError: Pair<Int, String>? = null
+
+        for ((index, bearerToken) in authCandidates.withIndex()) {
+            val builder = Request.Builder()
+                .url(url)
+                .header("Accept", "text/event-stream, application/json")
+                .header("User-Agent", "HermesHub-Android")
+            bearerToken?.let { builder.header("Authorization", "Bearer $it") }
+            val request = builder.post(body).build()
+            val activeCall = streamHttpClient.newCall(request)
+            call = activeCall
+            var completedSuccessfully = false
+            activeCall.execute().use { response ->
+                val responseBody = response.body
+                if (!response.isSuccessful) {
+                    val text = responseBody.string().take(240)
+                    lastHttpError = response.code to text
+                    val canRetry = index < authCandidates.lastIndex && shouldRetryHermesWithBearerAuth(response.code, text)
+                    if (canRetry) {
+                        onEvent(ChatStreamEvent.Status("Hermes richiede auth. Riprovo automaticamente..."))
+                        return@use
                     }
-                    continue
+                    onEvent(ChatStreamEvent.Error("$label HTTP ${response.code}: $text"))
+                    return@use
                 }
-                when {
-                    line.startsWith(":") -> Unit
-                    line.startsWith("event:", ignoreCase = true) -> {
-                        eventName = line.substring(6).trim()
+                lastHttpError = null
+                onEvent(ChatStreamEvent.Status("$label connesso. Attendo eventi..."))
+                val ct = responseBody.contentType()?.toString().orEmpty()
+                if (!ct.contains("event-stream", ignoreCase = true)) {
+                    val full = responseBody.string()
+                    parseFullBody(full).forEach { onEvent(it) }
+                    completedSuccessfully = true
+                    return@use
+                }
+                val source = responseBody.source()
+                val dataBuf = StringBuilder()
+                var eventName: String? = null
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val line = source.readUtf8Line() ?: break
+                    if (line.isEmpty()) {
+                        if (dataBuf.isNotEmpty()) {
+                            parseSseData(eventName, dataBuf.toString()).forEach { onEvent(it) }
+                            dataBuf.clear()
+                            eventName = null
+                        }
+                        continue
                     }
-                    line.startsWith("data:", ignoreCase = true) -> {
-                        if (dataBuf.isNotEmpty()) dataBuf.append('\n')
-                        dataBuf.append(line.substring(5).trimStart())
+                    when {
+                        line.startsWith(":") -> Unit
+                        line.startsWith("event:", ignoreCase = true) -> {
+                            eventName = line.substring(6).trim()
+                        }
+                        line.startsWith("data:", ignoreCase = true) -> {
+                            if (dataBuf.isNotEmpty()) dataBuf.append('\n')
+                            dataBuf.append(line.substring(5).trimStart())
+                        }
                     }
                 }
+                if (dataBuf.isNotEmpty()) {
+                    parseSseData(eventName, dataBuf.toString()).forEach { onEvent(it) }
+                }
+                completedSuccessfully = true
             }
-            if (dataBuf.isNotEmpty()) {
-                parseSseData(eventName, dataBuf.toString()).forEach { onEvent(it) }
+            if (completedSuccessfully && lastHttpError == null) {
+                return false
             }
-            false
         }
+        true
     } catch (ex: CancellationException) {
         throw ex
     } catch (ex: Exception) {

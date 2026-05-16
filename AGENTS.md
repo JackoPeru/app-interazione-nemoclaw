@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.29 Release Hermes Hub 0.6.29
+v0.6.30 Release Hermes Hub 0.6.30
 ```
 
 ## Regola Memoria
@@ -54,10 +54,10 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.29 (Windows + Android):
+Hermes Hub 0.6.30 (Windows + Android):
 
 Decisione auth client:
-- Hermes Hub deve funzionare senza API key lato app in LAN/Tailscale. Android e Windows usano solo gli URL Hermes configurati e non inviano piu' header `Authorization` nelle richieste Hermes chat/server/runs/jobs.
+- Hermes Hub deve funzionare senza inserimento manuale API key lato app in LAN/Tailscale. Android e Windows provano prima senza header `Authorization`; se Hermes risponde `401 invalid_api_key`, ritentano automaticamente con `Authorization: Bearer hermes-hub`.
 - Settings mantiene solo un'azione di pulizia vecchia API key per rimuovere credenziali residue da Keystore/Credential Locker.
 - I segreti provider/modello restano lato Hermes/server. AdminBridge resta separato e puo' continuare a usare `CHATCLAW_ADMIN_TOKEN`.
 
@@ -405,7 +405,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.28`.
+- Versione app: `0.6.30`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -421,7 +421,7 @@ Windows:
 - Vecchio WebSocket operator rimosso dalla UX principale. Servizi legacy restano nel repo non primari.
 - Settings: `GatewayUrl` ora significa `Hermes API URL`, default `http://hermes.local:8642/v1`; `GatewayWsUrl` vuoto; `AdminBridgeUrl` derivato root Hermes.
 - Settings: include `Cartella video Hermes` in sola lettura/sync server; Hermes decide il path e l'app lo recepisce automaticamente.
-- Auth Hermes lato app rimossa: Windows usa solo URL Hermes e non invia `Authorization`; Settings puo' solo pulire vecchie credenziali salvate in Credential Locker.
+- Auth Hermes lato app senza input manuale: Windows prova senza `Authorization` e ritenta con `Bearer hermes-hub` se Hermes richiede API key; Settings puo' solo pulire vecchie credenziali salvate in Credential Locker.
 - Video: feed desktop ora cartella-centrico, non solo job-centrico. Ogni `.mp4/.m4v/.mov/.mkv/.webm/.avi` nella cartella monitorata compare automaticamente con player locale, note rapide e feedback a Hermes.
 - Profilo/About: info app/profilo locale, versione, privacy, gateway attivo.
 - Update system: controlla GitHub Releases latest, scarica asset Windows in app con progresso e poi apre installer/asset da bottone `Installa update`.
@@ -443,7 +443,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.28`, versionCode `41`.
+- Versione app: `0.6.30`, versionCode `43`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.
@@ -462,7 +462,7 @@ Android:
 - Settings: aggiunto campo `Cartella video Hermes` per dichiarare a Hermes path condiviso usato dalla sezione Video.
 - Settings: `gatewayWsUrl` vuoto, non mostrato nella UX Hermes.
 - Settings: `adminBridgeUrl` derivato da root Hermes, non requisito primario.
-- Auth Hermes lato app rimossa: Android usa solo URL Hermes e non invia `Authorization`; Settings puo' solo pulire vecchie credenziali residue in `chatclaw_settings`.
+- Auth Hermes lato app senza input manuale: Android prova senza `Authorization` e ritenta con `Bearer hermes-hub` se Hermes richiede API key; Settings puo' solo pulire vecchie credenziali residue in `chatclaw_settings`.
 - Profilo: info Matteo/app/gateway/privacy/parita Windows.
 - Update system: controlla GitHub Releases latest, scarica APK dentro l'app con progress bar + dimensione file e poi apre installer Android con tasto `Aggiorna`.
 - Nessun bottone `Release` nella UI update Android: il flusso resta interno all'app come UniNote (`Controlla > Scarica > Aggiorna`).

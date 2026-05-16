@@ -35,6 +35,8 @@ public sealed record WorkspaceRunResult(string Result, string Source, string Sta
 
 public static class GatewayService
 {
+    internal const string HermesFallbackApiKey = "hermes-hub";
+
     private static readonly HttpClientHandler HttpHandler = new()
     {
         AllowAutoRedirect = false
@@ -47,6 +49,11 @@ public static class GatewayService
         Timeout = TimeSpan.FromMinutes(5),
         MaxResponseContentBufferSize = 10L * 1024 * 1024
     };
+
+    private sealed record BufferedHermesResponse(int StatusCode, string? ReasonPhrase, string Body, string? MediaType)
+    {
+        public bool IsSuccessStatusCode => StatusCode is >= 200 and <= 299;
+    }
 
     public static async Task<GatewayChatResult> SendChatAsync(
         AppSettings settings,
@@ -73,13 +80,13 @@ public static class GatewayService
                     metadata = HermesHubProtocol.Metadata(settings)
                 });
 
-                using var request = BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/responses", responsePayload);
-                using var response = await HttpClient.SendAsync(request);
-                var body = await response.Content.ReadAsStringAsync();
+                var response = await SendBufferedAsync(token =>
+                    BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/responses", responsePayload, token));
+                var body = response.Body;
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    lastError = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+                    lastError = $"HTTP {response.StatusCode} {response.ReasonPhrase}";
                     if (!string.IsNullOrWhiteSpace(body))
                     {
                         lastError += $": {ExtractHumanError(body)}";
@@ -88,7 +95,7 @@ public static class GatewayService
                 }
                 else
                 {
-                    var assistantText = ExtractAssistantText(response.Content.Headers.ContentType?.MediaType, body);
+                    var assistantText = ExtractAssistantText(response.MediaType, body);
                     if (!string.IsNullOrWhiteSpace(assistantText))
                     {
                         return new GatewayChatResult(
@@ -131,13 +138,13 @@ public static class GatewayService
                 }))
             });
 
-            using var request = BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions", chatPayload);
-            using var response = await HttpClient.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
+            var response = await SendBufferedAsync(token =>
+                BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions", chatPayload, token));
+            var body = response.Body;
 
             if (response.IsSuccessStatusCode)
             {
-                var assistantText = ExtractAssistantText(response.Content.Headers.ContentType?.MediaType, body);
+                var assistantText = ExtractAssistantText(response.MediaType, body);
                 if (!string.IsNullOrWhiteSpace(assistantText))
                 {
                     return new GatewayChatResult(
@@ -154,7 +161,7 @@ public static class GatewayService
             }
             else
             {
-                lastError = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {ExtractHumanError(body)}";
+                lastError = $"HTTP {response.StatusCode} {response.ReasonPhrase}: {ExtractHumanError(body)}";
             }
         }
         catch (Exception ex)
@@ -201,10 +208,9 @@ public static class GatewayService
 
         try
         {
-            using var request = BuildJsonRequest(HttpMethod.Post, $"{HermesRoot(settings)}/api/jobs", payload);
-
-            using var response = await HttpClient.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
+            var response = await SendBufferedAsync(token =>
+                BuildJsonRequest(HttpMethod.Post, $"{HermesRoot(settings)}/api/jobs", payload, token));
+            var body = response.Body;
 
             if (response.IsSuccessStatusCode)
             {
@@ -221,7 +227,7 @@ public static class GatewayService
                 return new GatewayTaskResult(syncedTask, "Job creato su Hermes.");
             }
 
-            var error = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+            var error = $"HTTP {response.StatusCode} {response.ReasonPhrase}";
             if (!string.IsNullOrWhiteSpace(body))
             {
                 error += $": {ExtractHumanError(body)}";
@@ -269,10 +275,9 @@ public static class GatewayService
 
         try
         {
-            using var request = BuildJsonRequest(method, requestUri, "{}");
-
-            using var response = await HttpClient.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
+            var response = await SendBufferedAsync(token =>
+                BuildJsonRequest(method, requestUri, "{}", token));
+            var body = response.Body;
 
             if (response.IsSuccessStatusCode)
             {
@@ -288,7 +293,7 @@ public static class GatewayService
                 return new GatewayTaskResult(syncedTask, $"Job aggiornato su Hermes: {remoteStatus}.");
             }
 
-            var error = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+            var error = $"HTTP {response.StatusCode} {response.ReasonPhrase}";
             if (!string.IsNullOrWhiteSpace(body))
             {
                 error += $": {ExtractHumanError(body)}";
@@ -351,18 +356,15 @@ public static class GatewayService
 
         try
         {
-            using var healthRequest = BuildRequest(HttpMethod.Get, healthUrl);
-            using var healthResponse = await HttpClient.SendAsync(healthRequest);
+            var healthResponse = await SendBufferedAsync(token => BuildRequest(HttpMethod.Get, healthUrl, token));
             var healthStatus = healthResponse.IsSuccessStatusCode
                 ? "Hermes raggiungibile."
-                : $"Hermes risponde: HTTP {(int)healthResponse.StatusCode} {healthResponse.ReasonPhrase}";
+                : $"Hermes risponde: HTTP {healthResponse.StatusCode} {healthResponse.ReasonPhrase}";
 
             try
             {
-                using var statusRequest = BuildRequest(HttpMethod.Get, $"{root}/health/detailed");
-
-                using var statusResponse = await HttpClient.SendAsync(statusRequest);
-                var statusBody = await statusResponse.Content.ReadAsStringAsync();
+                var statusResponse = await SendBufferedAsync(token => BuildRequest(HttpMethod.Get, $"{root}/health/detailed", token));
+                var statusBody = statusResponse.Body;
 
                 if (statusResponse.IsSuccessStatusCode && TryParseServerSnapshot(statusBody, settings, healthStatus, out var snapshot))
                 {
@@ -501,9 +503,8 @@ public static class GatewayService
     {
         try
         {
-            using var request = BuildRequest(HttpMethod.Get, $"{settings.GatewayUrl.TrimEnd('/')}/capabilities");
-            using var response = await HttpClient.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
+            var response = await SendBufferedAsync(token => BuildRequest(HttpMethod.Get, $"{settings.GatewayUrl.TrimEnd('/')}/capabilities", token));
+            var body = response.Body;
             if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
             {
                 return true;
@@ -521,17 +522,17 @@ public static class GatewayService
     public static async Task<string> SendHermesRequestAsync(AppSettings settings, HttpMethod method, string path, string? jsonPayload = null)
     {
         var uri = ResolveHermesUri(settings, path);
-        using var request = string.IsNullOrWhiteSpace(jsonPayload)
-            ? BuildRequest(method, uri)
-            : BuildJsonRequest(method, uri, jsonPayload);
-        using var response = await HttpClient.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
+        var response = await SendBufferedAsync(token =>
+            string.IsNullOrWhiteSpace(jsonPayload)
+                ? BuildRequest(method, uri, token)
+                : BuildJsonRequest(method, uri, jsonPayload, token));
+        var body = response.Body;
         if (response.IsSuccessStatusCode)
         {
-            return string.IsNullOrWhiteSpace(body) ? $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}" : body;
+            return string.IsNullOrWhiteSpace(body) ? $"HTTP {response.StatusCode} {response.ReasonPhrase}" : body;
         }
 
-        return $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {ExtractHumanError(body)}";
+        return $"HTTP {response.StatusCode} {response.ReasonPhrase}: {ExtractHumanError(body)}";
     }
 
     public static string HermesRoot(AppSettings settings)
@@ -561,18 +562,66 @@ public static class GatewayService
         return $"{settings.GatewayUrl.TrimEnd('/')}{normalizedPath}";
     }
 
-    private static HttpRequestMessage BuildRequest(HttpMethod method, string uri)
+    internal static IEnumerable<string?> BuildHermesAuthCandidates()
+    {
+        yield return null;
+        yield return HermesFallbackApiKey;
+    }
+
+    internal static bool ShouldRetryWithBearerAuth(int statusCode, string body)
+    {
+        if (statusCode != 401)
+        {
+            return false;
+        }
+
+        return body.Contains("invalid api key", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("invalid_api_key", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("invalidapikey", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<BufferedHermesResponse> SendBufferedAsync(
+        Func<string?, HttpRequestMessage> requestFactory,
+        CancellationToken cancellationToken = default)
+    {
+        BufferedHermesResponse? last = null;
+        var candidates = BuildHermesAuthCandidates().ToArray();
+        for (var i = 0; i < candidates.Length; i++)
+        {
+            using var request = requestFactory(candidates[i]);
+            using var response = await HttpClient.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            var buffered = new BufferedHermesResponse(
+                (int)response.StatusCode,
+                response.ReasonPhrase,
+                body,
+                response.Content.Headers.ContentType?.MediaType);
+            last = buffered;
+            if (!ShouldRetryWithBearerAuth(buffered.StatusCode, buffered.Body) || i == candidates.Length - 1)
+            {
+                return buffered;
+            }
+        }
+
+        return last ?? new BufferedHermesResponse(0, "No Response", string.Empty, null);
+    }
+
+    private static HttpRequestMessage BuildRequest(HttpMethod method, string uri, string? bearerToken = null)
     {
         var request = new HttpRequestMessage(method, uri);
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
         request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
+        if (!string.IsNullOrWhiteSpace(bearerToken))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {bearerToken}");
+        }
 
         return request;
     }
 
-    private static HttpRequestMessage BuildJsonRequest(HttpMethod method, string uri, string payload)
+    private static HttpRequestMessage BuildJsonRequest(HttpMethod method, string uri, string payload, string? bearerToken = null)
     {
-        var request = BuildRequest(method, uri);
+        var request = BuildRequest(method, uri, bearerToken);
         if (method != HttpMethod.Get && method != HttpMethod.Delete)
         {
             request.Content = new StringContent(payload, Encoding.UTF8, "application/json");

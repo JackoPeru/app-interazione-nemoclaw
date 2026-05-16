@@ -209,142 +209,161 @@ public static class ChatStreamClient
         string label,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        var authCandidates = GatewayService.BuildHermesAuthCandidates().ToArray();
+        for (var attempt = 0; attempt < authCandidates.Length; attempt++)
         {
-            Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
-        };
-        request.Headers.TryAddWithoutValidation("Accept", "text/event-stream, application/json");
-        request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
+            };
+            request.Headers.TryAddWithoutValidation("Accept", "text/event-stream, application/json");
+            request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
+            if (!string.IsNullOrWhiteSpace(authCandidates[attempt]))
+            {
+                request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {authCandidates[attempt]}");
+            }
 
-        HttpResponseMessage? response = null;
-        string? sendError = null;
-        try
-        {
-            response = await StreamClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            sendError = ex.Message;
-        }
+            HttpResponseMessage? response = null;
+            string? sendError = null;
+            try
+            {
+                response = await StreamClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                sendError = ex.Message;
+            }
 
-        if (sendError is not null || response is null)
-        {
-            yield return new StreamError($"{label}: {sendError ?? "errore sconosciuto"}");
-            yield break;
-        }
+            if (sendError is not null || response is null)
+            {
+                yield return new StreamError($"{label}: {sendError ?? "errore sconosciuto"}");
+                yield break;
+            }
 
-        try
-        {
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                var canRetry = attempt < authCandidates.Length - 1 &&
+                               GatewayService.ShouldRetryWithBearerAuth((int)response.StatusCode, body);
+                if (canRetry)
+                {
+                    yield return new StreamStatus("Hermes richiede auth. Riprovo automaticamente...");
+                    continue;
+                }
                 yield return new StreamError($"{label}: HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {Trim(body)}");
                 yield break;
             }
 
-            var mediaType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
-            var isSse = mediaType.Contains("event-stream", StringComparison.OrdinalIgnoreCase);
-
-            if (!isSse)
+            try
             {
-                var body = await response.Content.ReadAsStringAsync(cancellationToken);
-                foreach (var ev in FallbackParseFullBody(body))
-                {
-                    yield return ev;
-                }
-                yield break;
-            }
+                var mediaType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+                var isSse = mediaType.Contains("event-stream", StringComparison.OrdinalIgnoreCase);
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-
-            const int SSE_EVENT_MAX_CHARS = 10 * 1024 * 1024;
-            const long SSE_TOTAL_MAX_BYTES = 50L * 1024 * 1024;
-            long totalReadBytes = 0;
-            var dataBuilder = new StringBuilder();
-            string? eventName = null;
-            bool eventOverflow = false;
-
-            while (!reader.EndOfStream)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var line = await reader.ReadLineAsync(cancellationToken);
-                if (line is null)
+                if (!isSse)
                 {
-                    break;
-                }
-                totalReadBytes += Encoding.UTF8.GetByteCount(line) + 1;
-                if (totalReadBytes > SSE_TOTAL_MAX_BYTES)
-                {
-                    yield return new StreamError("Stream totale > 50MB, interrotto.");
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    foreach (var ev in FallbackParseFullBody(body))
+                    {
+                        yield return ev;
+                    }
                     yield break;
                 }
 
-                if (line.Length == 0)
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+
+                const int SSE_EVENT_MAX_CHARS = 10 * 1024 * 1024;
+                const long SSE_TOTAL_MAX_BYTES = 50L * 1024 * 1024;
+                long totalReadBytes = 0;
+                var dataBuilder = new StringBuilder();
+                string? eventName = null;
+                bool eventOverflow = false;
+
+                while (!reader.EndOfStream)
                 {
-                    if (eventOverflow)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var line = await reader.ReadLineAsync(cancellationToken);
+                    if (line is null)
                     {
-                        dataBuilder.Clear();
-                        eventOverflow = false;
-                        eventName = null;
-                        yield return new StreamError("SSE event > 10MB, scartato.");
-                        continue;
+                        break;
                     }
-                    if (dataBuilder.Length > 0)
+                    totalReadBytes += Encoding.UTF8.GetByteCount(line) + 1;
+                    if (totalReadBytes > SSE_TOTAL_MAX_BYTES)
                     {
-                        var data = dataBuilder.ToString();
-                        dataBuilder.Clear();
-                        var ev = eventName;
-                        eventName = null;
-                        foreach (var parsed in ParseSseEvent(ev, data))
+                        yield return new StreamError("Stream totale > 50MB, interrotto.");
+                        yield break;
+                    }
+
+                    if (line.Length == 0)
+                    {
+                        if (eventOverflow)
                         {
-                            yield return parsed;
+                            dataBuilder.Clear();
+                            eventOverflow = false;
+                            eventName = null;
+                            yield return new StreamError("SSE event > 10MB, scartato.");
+                            continue;
                         }
-                    }
-                    continue;
-                }
-
-                if (line.StartsWith(":", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
-                {
-                    eventName = line[6..].Trim();
-                    continue;
-                }
-
-                if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (eventOverflow) continue;
-                    var part = line[5..].TrimStart();
-                    if (dataBuilder.Length + part.Length + 1 > SSE_EVENT_MAX_CHARS)
-                    {
-                        eventOverflow = true;
+                        if (dataBuilder.Length > 0)
+                        {
+                            var data = dataBuilder.ToString();
+                            dataBuilder.Clear();
+                            var ev = eventName;
+                            eventName = null;
+                            foreach (var parsed in ParseSseEvent(ev, data))
+                            {
+                                yield return parsed;
+                            }
+                        }
                         continue;
                     }
-                    if (dataBuilder.Length > 0)
-                    {
-                        dataBuilder.Append('\n');
-                    }
-                    dataBuilder.Append(part);
-                    continue;
-                }
-            }
 
-            if (dataBuilder.Length > 0)
-            {
-                foreach (var parsed in ParseSseEvent(eventName, dataBuilder.ToString()))
-                {
-                    yield return parsed;
+                    if (line.StartsWith(":", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        eventName = line[6..].Trim();
+                        continue;
+                    }
+
+                    if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (eventOverflow) continue;
+                        var part = line[5..].TrimStart();
+                        if (dataBuilder.Length + part.Length + 1 > SSE_EVENT_MAX_CHARS)
+                        {
+                            eventOverflow = true;
+                            continue;
+                        }
+                        if (dataBuilder.Length > 0)
+                        {
+                            dataBuilder.Append('\n');
+                        }
+                        dataBuilder.Append(part);
+                        continue;
+                    }
                 }
+
+                if (dataBuilder.Length > 0)
+                {
+                    foreach (var parsed in ParseSseEvent(eventName, dataBuilder.ToString()))
+                    {
+                        yield return parsed;
+                    }
+                }
+
+                yield break;
+            }
+            finally
+            {
+                response.Dispose();
             }
         }
-        finally
-        {
-            response.Dispose();
-        }
+
+        yield return new StreamError($"{label}: errore sconosciuto");
     }
 
     private static IEnumerable<ChatStreamEvent> ParseSseEvent(string? eventName, string data)

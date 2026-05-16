@@ -2150,7 +2150,7 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
             ServerMetric("API lato server", snapshot.inferenceEndpoint, "Il client parla a Hermes API, non direttamente al runtime modello.")
         }
         item {
-            ServerMetric("Sicurezza", snapshot.policy, "Nessuna API key lato app. Usa solo URL Hermes su LAN/Tailscale.")
+            ServerMetric("Sicurezza", snapshot.policy, "Client prova senza auth; se Hermes richiede API key ritenta automaticamente con token tecnico hermes-hub.")
         }
         item {
             ServerMetric("Cartella video Hermes", snapshot.videoLibraryPath.ifBlank { "In attesa di sync server" }, "Hermes decide path e app lo recepisce da /health/detailed.")
@@ -2762,7 +2762,7 @@ private fun SettingsScreen(
     ) {
         Text("Impostazioni", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(10.dp))
-        Text("Impostazioni salvate sul dispositivo. Hermes Hub usa solo gli URL Hermes configurati, senza API key.", color = AppColors.Muted)
+        Text("Impostazioni salvate sul dispositivo. Hermes Hub prova senza API key; se il server la richiede usa automaticamente il token tecnico hermes-hub.", color = AppColors.Muted)
         Spacer(modifier = Modifier.height(18.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
@@ -2810,7 +2810,7 @@ private fun SettingsScreen(
                             if (error == null) {
                                 onSave(candidate)
                                 deleteGatewaySecret(context)
-                                status = "Impostazioni salvate. Nessuna API key usata: connessione solo via URL Hermes."
+                                status = "Impostazioni salvate. Hermes prova prima senza auth, poi usa hermes-hub solo se server richiede API key."
                             } else {
                                 status = error
                             }
@@ -2839,7 +2839,7 @@ private fun SettingsScreen(
                     ) {
                         Button(onClick = {
                             deleteGatewaySecret(context)
-                            status = "Vecchia API key rimossa. Hermes Hub usa solo URL."
+                            status = "Vecchia API key rimossa. Hermes prova senza auth e usa hermes-hub solo se necessario."
                         }) {
                             Text("Pulisci vecchia API key")
                         }
@@ -3646,17 +3646,19 @@ private fun resolveHermesUrl(settings: AppSettings, path: String): String {
 }
 
 private suspend fun httpGet(url: String, @Suppress("UNUSED_PARAMETER") apiKey: String? = null): String = withContext(Dispatchers.IO) {
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = "GET"
-        connectTimeout = 5_000
-        readTimeout = 5_000
-        setRequestProperty("Accept", "application/json")
-        setRequestProperty("User-Agent", "HermesHub-Android")
-    }
+    executeHttpGet(url, null).let { initial ->
+        if (!shouldRetryHermesWithBearerAuth(initial.first, initial.second)) {
+            return@withContext initial.second
+        }
 
-    connection.use {
-        val stream = if (it.responseCode in 200..299) it.inputStream else it.errorStream
-        stream?.bufferedReader()?.use { reader -> reader.readText() }.orEmpty()
+        for (token in hermesAuthRetryCandidates(apiKey)) {
+            val retry = executeHttpGet(url, token)
+            if (!shouldRetryHermesWithBearerAuth(retry.first, retry.second)) {
+                return@withContext retry.second
+            }
+        }
+
+        initial.second
     }
 }
 
@@ -3670,10 +3672,40 @@ private val apiHttpClient: OkHttpClient by lazy {
 }
 
 private suspend fun postJson(url: String, payload: JSONObject, @Suppress("UNUSED_PARAMETER") apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
+    val initial = executeJsonRequest(url, payload, method, null)
+    if (!shouldRetryHermesWithBearerAuth(initial.first, initial.second)) {
+        return@withContext initial
+    }
+
+    for (token in hermesAuthRetryCandidates(apiKey)) {
+        val retry = executeJsonRequest(url, payload, method, token)
+        if (!shouldRetryHermesWithBearerAuth(retry.first, retry.second)) {
+            return@withContext retry
+        }
+    }
+
+    initial
+}
+
+private fun executeHttpGet(url: String, bearerToken: String?): Pair<Int, String> {
+    val builder = Request.Builder()
+        .url(url)
+        .header("Accept", "application/json")
+        .header("User-Agent", "HermesHub-Android")
+    bearerToken?.let { builder.header("Authorization", "Bearer $it") }
+    val request = builder.get().build()
+
+    return apiHttpClient.newCall(request).execute().use { response ->
+        response.code to response.body.string()
+    }
+}
+
+private fun executeJsonRequest(url: String, payload: JSONObject, method: String, bearerToken: String?): Pair<Int, String> {
     val builder = Request.Builder()
         .url(url)
         .header("Accept", "text/event-stream, application/json, text/plain")
         .header("User-Agent", "HermesHub-Android")
+    bearerToken?.let { builder.header("Authorization", "Bearer $it") }
     val normalizedMethod = method.uppercase()
     val request = when (normalizedMethod) {
         "DELETE" -> builder.delete().build()
@@ -3681,7 +3713,7 @@ private suspend fun postJson(url: String, payload: JSONObject, @Suppress("UNUSED
         else -> builder.post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
     }
 
-    apiHttpClient.newCall(request).execute().use { response ->
+    return apiHttpClient.newCall(request).execute().use { response ->
         response.code to response.body.string()
     }
 }

@@ -31,7 +31,7 @@ Preset in [config/hermes-defaults.json](config/hermes-defaults.json):
 - API primaria: `/v1/responses`
 - API fallback: `/v1/chat/completions`
 - Accesso consigliato: `Tailscale/LAN`
-- Auth: `Authorization: Bearer <Hermes API key>`
+- Auth: client prova senza `Authorization`; se Hermes risponde `401 invalid_api_key`, ritenta con `Authorization: Bearer hermes-hub`
 
 ## Build
 
@@ -61,7 +61,7 @@ src/NemoclawChat.Android/app/build/outputs/apk/debug/app-debug.apk
 Versione corrente:
 
 ```text
-v0.6.15
+v0.6.30
 ```
 
 Asset attesi dagli updater:

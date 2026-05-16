@@ -44,7 +44,7 @@ public sealed partial class SettingsPage : Page
         AppSettingsStore.Save(settings);
         GatewayCredentialStore.DeleteSecret();
 
-        StatusText.Text = "Impostazioni salvate. Nessuna API key usata: connessione solo via URL Hermes.";
+        StatusText.Text = "Impostazioni salvate. Hermes prova prima senza auth, poi usa hermes-hub solo se server richiede API key.";
     }
 
     private async void TestGatewayWs_Click(object sender, RoutedEventArgs e)
@@ -89,7 +89,7 @@ public sealed partial class SettingsPage : Page
     private void ClearApiKey_Click(object sender, RoutedEventArgs e)
     {
         GatewayCredentialStore.DeleteSecret();
-        StatusText.Text = "Vecchia API key rimossa. Hermes Hub usa solo URL.";
+        StatusText.Text = "Vecchia API key rimossa. Hermes prova senza auth e usa hermes-hub solo se necessario.";
     }
 
     private AppSettings ReadSettings()
