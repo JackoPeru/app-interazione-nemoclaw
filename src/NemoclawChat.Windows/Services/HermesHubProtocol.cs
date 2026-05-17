@@ -14,6 +14,8 @@ public static class HermesHubProtocol
             - Jobs/Runs: coda operativa Hermes e lavori programmati.
             - Archivio: storico locale dell'app, non memoria agente principale.
             File multimediali in chat: usa visual_blocks image_gallery per piu' immagini o media_file per singoli asset image/video/audio/document. media_url e thumbnail_url devono puntare a proxy Hermes/same-host tipo /v1/media/...; vietati file://, data: e path locali diretti.
+            Non scrivere mai markdown MEDIA:[path](file://...) o path Windows/Linux nel testo finale. Se un tool produce un file locale, pubblicalo prima tramite proxy Hermes e restituisci solo /v1/media/... dentro visual_blocks. Se non puoi pubblicarlo, dillo esplicitamente invece di inviare path locali.
+            Durante lavori agente lunghi, inoltra eventi realtime per reasoning, tool call, argomenti tool, risultati tool e chiamate modello intermedie quando il gateway li supporta: Hermes Hub deve mostrare all'utente cosa stai facendo.
             """;
 
         if (mode.Equals("Agente", StringComparison.OrdinalIgnoreCase))
@@ -64,6 +66,15 @@ public static class HermesHubProtocol
                 mode = "watched-folder",
                 folder_path = settings.VideoLibraryPath,
                 behavior = "Ogni file video messo in cartella deve apparire nel feed Video desktop."
+            },
+            activity_stream = new
+            {
+                requested = true,
+                include_reasoning = true,
+                include_tool_calls = true,
+                include_tool_results = true,
+                include_intermediate_model_calls = true,
+                client_requires_realtime_visibility = true
             },
             visual_blocks = new
             {

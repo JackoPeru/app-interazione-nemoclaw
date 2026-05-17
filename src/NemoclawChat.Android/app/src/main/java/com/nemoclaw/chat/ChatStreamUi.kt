@@ -33,6 +33,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -113,9 +114,18 @@ internal fun StreamingBubbleView(state: StreamingState) {
 
 @Composable
 internal fun HermesActivityExpander(state: StreamingState) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember(state.startedAtNs) { mutableStateOf(true) }
+    var nowNs by remember(state.startedAtNs) { mutableStateOf(System.nanoTime()) }
+    LaunchedEffect(state.startedAtNs, state.isDone) {
+        while (!state.isDone) {
+            kotlinx.coroutines.delay(500L)
+            nowNs = System.nanoTime()
+        }
+    }
     val pendingTool = state.toolCalls.lastOrNull { inferToolOutcome(it) == ToolOutcome.Pending }
     val active = !state.isDone
+    val elapsedSec = ((if (active) nowNs else System.nanoTime()) - state.startedAtNs) / 1_000_000_000.0
+    val progress = activityProgressPercent(state, elapsedSec)
     val title = when {
         pendingTool != null -> "Uso tool: ${pendingTool.name}"
         active && state.hasThinking && state.text.isEmpty() -> "Sto pensando"
@@ -129,32 +139,33 @@ internal fun HermesActivityExpander(state: StreamingState) {
     }
     val stage = activityStageLabel(state)
     val indicator = activityIndicator(state)
+    val compactStatus = "${String.format(java.util.Locale.US, "%.1fs", elapsedSec)} · ${progress}% · ${state.status}"
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp)
+                .heightIn(min = 54.dp)
                 .clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            if (active) {
-                ShimmerText(title)
-            } else {
-                Text(text = title, color = AppColors.Muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            }
-            Icon(
-                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                contentDescription = if (expanded) "Chiudi attivita" else "Mostra attivita",
-                tint = AppColors.Muted,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            if (indicator.isNotEmpty()) {
-                if (active && state.text.isEmpty() && !state.hasThinking && pendingTool == null) {
-                    ShimmerText(indicator)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (active) {
+                    ShimmerText(title)
                 } else {
+                    Text(text = title, color = AppColors.Muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = if (expanded) "Chiudi attivita" else "Mostra attivita",
+                    tint = AppColors.Muted,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                if (indicator.isNotEmpty()) {
                     Text(
                         text = indicator,
                         color = AppColors.Muted,
@@ -163,6 +174,12 @@ internal fun HermesActivityExpander(state: StreamingState) {
                     )
                 }
             }
+            Text(
+                text = compactStatus,
+                color = AppColors.Muted,
+                fontSize = 11.sp,
+                maxLines = 2
+            )
         }
         if (expanded) {
             Column(
@@ -172,6 +189,8 @@ internal fun HermesActivityExpander(state: StreamingState) {
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 ActivityLine("Fase", stage)
+                ActivityLine("Avanzamento", "${progress}% · ${String.format(java.util.Locale.US, "%.1fs", elapsedSec)}")
+                ActivityLine("Stato", state.status)
                 if (state.hasThinking || !state.isDone) {
                     HorizontalDivider(color = AppColors.Border)
                     ActivityLine(
@@ -189,9 +208,30 @@ internal fun HermesActivityExpander(state: StreamingState) {
                         }
                     }
                 }
+                if (state.activityLog.isNotEmpty()) {
+                    HorizontalDivider(color = AppColors.Border)
+                    ActivityLine("Eventi", state.activityLog.joinToString("\n"), monospaced = true)
+                }
             }
         }
     }
+}
+
+internal fun activityProgressPercent(state: StreamingState, elapsedSec: Double): Int {
+    if (state.isDone) return 100
+    val base = when {
+        state.text.isNotBlank() -> 70
+        state.toolCalls.any { inferToolOutcome(it) == ToolOutcome.Pending } -> 55
+        state.toolCalls.isNotEmpty() -> 45
+        state.hasThinking -> 30
+        else -> 8
+    }
+    val drift = when {
+        state.text.isNotBlank() -> (elapsedSec * 1.5).toInt()
+        state.hasThinking || state.toolCalls.isNotEmpty() -> (elapsedSec * 2.0).toInt()
+        else -> (elapsedSec * 3.0).toInt()
+    }
+    return (base + drift).coerceIn(1, 95)
 }
 
 internal fun activityIndicator(state: StreamingState): String {

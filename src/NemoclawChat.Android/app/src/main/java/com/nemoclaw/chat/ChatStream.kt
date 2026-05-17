@@ -91,6 +91,7 @@ data class StreamingState(
     val responseId: String? = null,
     val stats: ChatStreamStats? = null,
     val status: String = "Invio prompt a Hermes...",
+    val activityLog: List<String> = listOf("0.0s  Invio prompt a Hermes..."),
     val error: String? = null,
     val source: String = "Hermes",
     val usedFallback: Boolean = false,
@@ -100,50 +101,52 @@ data class StreamingState(
     fun applyEvent(event: ChatStreamEvent): StreamingState = when (event) {
         is ChatStreamEvent.TextDelta -> {
             val merged = mergeTextDelta(text, event.delta)
+            val media = extractInlineMediaBlocks(merged)
+            val cleanedText = stripInlineMediaMarkup(merged)
+            val nextBlocks = mergeVisualBlocks(visualBlocks, media)
             copy(
-                text = merged,
+                text = cleanedText,
+                visualBlocks = nextBlocks,
                 status = if (toolCalls.any { inferToolPendingStatus(it) }) status else "Hermes sta scrivendo la risposta...",
                 thinkingFrozen = thinkingFrozen || hasThinking,
                 thinkingElapsedSec = if (!thinkingFrozen && hasThinking) {
                     (System.nanoTime() - startedAtNs) / 1_000_000_000.0
                 } else thinkingElapsedSec
-            )
+            ).withActivity(if (text.isEmpty()) "Primo testo ricevuto." else null)
         }
         is ChatStreamEvent.ThinkingDelta -> copy(
             thinking = thinking + event.delta,
             hasThinking = true,
             thinkingFrozen = false,
             status = "Hermes sta ragionando..."
-        )
+        ).withActivity(if (!hasThinking) "Reasoning ricevuto." else null)
         is ChatStreamEvent.ToolCallStart -> copy(
             status = "Tool in esecuzione: ${event.name}",
             toolCalls = if (toolCalls.any { it.id == event.id }) toolCalls
                 else toolCalls + ToolCallState(event.id, event.name)
-        )
+        ).withActivity("Tool avviato: ${event.name}")
         is ChatStreamEvent.ToolCallArgs -> copy(
             status = "Preparazione tool...",
             toolCalls = toolCalls.map {
                 if (it.id == event.id) it.copy(args = it.args + event.delta) else it
             }
-        )
+        ).withActivity("Argomenti tool aggiornati.")
         is ChatStreamEvent.ToolCallEnd -> copy(
             status = "Tool completato.",
             toolCalls = toolCalls.map {
                 if (it.id == event.id) it.copy(status = "completato") else it
             }
-        )
+        ).withActivity("Tool completato.")
         is ChatStreamEvent.ToolResult -> copy(
             status = "Risultato tool ricevuto.",
-            toolCalls = toolCalls.map {
-                if (event.id != null && it.id == event.id) it.copy(result = event.output, status = "risultato pronto") else it
-            }
-        )
-        is ChatStreamEvent.ResponseId -> copy(responseId = event.id)
+            toolCalls = upsertToolResult(toolCalls, event)
+        ).withActivity("Risultato tool ricevuto.")
+        is ChatStreamEvent.ResponseId -> copy(responseId = event.id).withActivity("Response id: ${event.id}")
         is ChatStreamEvent.VisualBlocks -> copy(
-            visualBlocks = event.blocks,
+            visualBlocks = mergeVisualBlocks(visualBlocks, event.blocks),
             visualBlocksVersion = event.version
-        )
-        is ChatStreamEvent.Status -> copy(status = event.message)
+        ).withActivity("Visual blocks ricevuti: ${event.blocks.size}.")
+        is ChatStreamEvent.Status -> copy(status = event.message).withActivity(event.message)
         is ChatStreamEvent.Done -> copy(
             stats = event.stats,
             isDone = true,
@@ -151,10 +154,39 @@ data class StreamingState(
             thinkingFrozen = true,
             thinkingElapsedSec = if (thinkingElapsedSec > 0) thinkingElapsedSec
                 else (System.nanoTime() - startedAtNs) / 1_000_000_000.0
-        )
-        is ChatStreamEvent.Error -> copy(error = event.message, status = "Errore Hermes.", isDone = true)
-        is ChatStreamEvent.Usage -> this
+        ).withActivity("Risposta completata.")
+        is ChatStreamEvent.Error -> copy(error = event.message, status = "Errore Hermes.", isDone = true).withActivity("Errore: ${event.message}")
+        is ChatStreamEvent.Usage -> copy(
+            status = "Usage ricevuta: prompt ${event.promptTokens ?: "-"}, output ${event.completionTokens ?: "-"}."
+        ).withActivity("Usage ricevuta.")
     }
+}
+
+private fun StreamingState.withActivity(message: String?): StreamingState {
+    if (message.isNullOrBlank()) return this
+    val elapsed = (System.nanoTime() - startedAtNs) / 1_000_000_000.0
+    val row = "${String.format(java.util.Locale.US, "%.1fs", elapsed)}  $message"
+    return copy(activityLog = (activityLog + row).takeLast(80))
+}
+
+private fun upsertToolResult(tools: List<ToolCallState>, event: ChatStreamEvent.ToolResult): List<ToolCallState> {
+    val id = event.id ?: event.name ?: "tool-result"
+    if (tools.none { it.id == id }) {
+        return tools + ToolCallState(id = id, name = event.name ?: id, status = "risultato pronto", result = event.output)
+    }
+    return tools.map {
+        if ((event.id != null && it.id == event.id) || (event.id == null && event.name != null && it.name == event.name)) {
+            it.copy(result = event.output, status = "risultato pronto")
+        } else {
+            it
+        }
+    }
+}
+
+private fun mergeVisualBlocks(current: List<VisualBlock>, incoming: List<VisualBlock>): List<VisualBlock> {
+    if (incoming.isEmpty()) return current
+    val seen = current.map { it.id }.toMutableSet()
+    return current + incoming.filter { seen.add(it.id) }
 }
 
 private fun mergeTextDelta(current: String, delta: String): String {
@@ -456,8 +488,17 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
             val item = obj.optJSONObject("item")
             if (item != null) {
                 val itemType = item.optString("type", "")
-                if (itemType.contains("function", ignoreCase = true) || itemType.contains("tool", ignoreCase = true)) {
+                if (itemType.contains("output", ignoreCase = true) || itemType.contains("result", ignoreCase = true)) {
+                    val id = item.optString("call_id", item.optString("id", "tool"))
+                    val name = item.optString("name", "")
+                    val output = extractToolOutput(item)
+                    if (output.isNotBlank()) out += ChatStreamEvent.ToolResult(id, name.ifBlank { null }, output)
+                } else if (itemType.contains("function", ignoreCase = true) || itemType.contains("tool", ignoreCase = true)) {
                     val id = item.optString("id", "tool")
+                    val name = item.optString("name", "tool")
+                    if (name.isNotBlank()) out += ChatStreamEvent.ToolCallStart(id, name)
+                    val args = item.optString("arguments", "")
+                    if (args.isNotBlank()) out += ChatStreamEvent.ToolCallArgs(id, args)
                     out += ChatStreamEvent.ToolCallEnd(id)
                 } else {
                     val text = extractTextFromAnyJson(item)
@@ -488,6 +529,7 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
                 }
                 val text = extractTextFromAnyJson(resp)
                 if (text.isNotBlank()) out += ChatStreamEvent.TextDelta(text)
+                out += extractToolEventsFromAnyJson(resp)
                 val blocks = extractVisualBlocksFromJson(resp.toString())
                 if (blocks.isNotEmpty()) {
                     out += ChatStreamEvent.VisualBlocks(blocks, VISUAL_BLOCKS_VERSION)
@@ -523,6 +565,10 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
                     }
                 }
             }
+            val message = choice.optJSONObject("message")
+            if (message != null) {
+                out += extractToolEventsFromAnyJson(message)
+            }
         }
         val usage = obj.optJSONObject("usage")
         if (usage != null) {
@@ -543,6 +589,64 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
     }
 
     return out
+}
+
+private fun extractToolEventsFromAnyJson(obj: JSONObject): List<ChatStreamEvent> {
+    val out = mutableListOf<ChatStreamEvent>()
+    val toolCalls = obj.optJSONArray("tool_calls")
+    if (toolCalls != null) {
+        for (i in 0 until toolCalls.length()) {
+            val call = toolCalls.optJSONObject(i) ?: continue
+            val id = call.optString("id", call.optString("call_id", "tool-$i"))
+            val fn = call.optJSONObject("function")
+            val name = fn?.optString("name") ?: call.optString("name", "tool")
+            out += ChatStreamEvent.ToolCallStart(id, name)
+            val args = fn?.optString("arguments") ?: call.optString("arguments", "")
+            if (args.isNotBlank()) out += ChatStreamEvent.ToolCallArgs(id, args)
+        }
+    }
+
+    val output = obj.optJSONArray("output")
+    if (output != null) {
+        for (i in 0 until output.length()) {
+            val item = output.optJSONObject(i) ?: continue
+            val type = item.optString("type", "")
+            when {
+                type.contains("function_call_output", ignoreCase = true) ||
+                    type.contains("tool_result", ignoreCase = true) ||
+                    type.contains("tool_output", ignoreCase = true) -> {
+                    val id = item.optString("call_id", item.optString("id", "tool-$i"))
+                    val name = item.optString("name", "")
+                    val result = extractToolOutput(item)
+                    if (result.isNotBlank()) out += ChatStreamEvent.ToolResult(id, name.ifBlank { null }, result)
+                }
+                type.contains("function_call", ignoreCase = true) ||
+                    type.contains("tool_call", ignoreCase = true) -> {
+                    val id = item.optString("call_id", item.optString("id", "tool-$i"))
+                    val name = item.optString("name", "tool")
+                    out += ChatStreamEvent.ToolCallStart(id, name)
+                    val args = item.optString("arguments", "")
+                    if (args.isNotBlank()) out += ChatStreamEvent.ToolCallArgs(id, args)
+                    if (item.optString("status", "").contains("completed", ignoreCase = true)) {
+                        out += ChatStreamEvent.ToolCallEnd(id)
+                    }
+                }
+            }
+        }
+    }
+    return out
+}
+
+private fun extractToolOutput(obj: JSONObject): String {
+    val direct = listOf("output", "result", "content", "text")
+        .firstNotNullOfOrNull { key ->
+            when (val value = obj.opt(key)) {
+                is String -> value.takeIf { it.isNotBlank() }
+                is JSONObject, is JSONArray -> value.toString()
+                else -> null
+            }
+        }
+    return direct.orEmpty()
 }
 
 private const val JSON_EXTRACT_MAX_DEPTH = 10
@@ -601,9 +705,82 @@ private fun parseFullBody(body: String): List<ChatStreamEvent> {
     val rid = extractResponseId(body)
     if (rid != null) out += ChatStreamEvent.ResponseId(rid)
     if (text.isNotEmpty()) out += ChatStreamEvent.TextDelta(text)
+    try {
+        out += extractToolEventsFromAnyJson(JSONObject(body))
+    } catch (_: Exception) {
+        // Body may be plain text.
+    }
     val blocks = try { extractVisualBlocks(body) } catch (_: Exception) { emptyList() }
     if (blocks.isNotEmpty()) out += ChatStreamEvent.VisualBlocks(blocks, VISUAL_BLOCKS_VERSION)
     return out
+}
+
+private val INLINE_MEDIA_REGEX = Regex("""(?is)MEDIA\s*:\s*\[([^\]]{1,500})]\(([^)\s]{1,1200})\)|!\[([^\]]{1,500})]\(([^)\s]{1,1200})\)""")
+
+private fun extractInlineMediaBlocks(text: String): List<VisualBlock> {
+    return INLINE_MEDIA_REGEX.findAll(text).take(12).mapIndexed { index, match ->
+        val label = (match.groups[1]?.value ?: match.groups[3]?.value ?: "Media Hermes").trim()
+        val url = (match.groups[2]?.value ?: match.groups[4]?.value ?: "").trim()
+        val filename = inferMediaFilename(label, url)
+        val kind = inferMediaKind(filename, url)
+        VisualBlock(
+            id = "inline-media-${stableInlineId(url, index)}",
+            type = "media_file",
+            title = filename.ifBlank { "File multimediale" },
+            mediaUrl = url,
+            mediaKind = kind,
+            mimeType = inferMimeType(filename, url),
+            filename = filename,
+            thumbnailUrl = "",
+            alt = label.ifBlank { filename.ifBlank { "Media Hermes" } },
+            caption = if (url.startsWith("file://", ignoreCase = true) || url.contains(":\\") || label.contains(":\\")) {
+                "Hermes ha restituito un path locale. Per mostrarlo su Android deve pubblicarlo tramite proxy /v1/media/..."
+            } else {
+                "Media rilevato dal testo Hermes."
+            }
+        )
+    }.toList()
+}
+
+private fun stripInlineMediaMarkup(text: String): String {
+    return INLINE_MEDIA_REGEX.replace(text, "").replace(Regex("""\n{3,}"""), "\n\n").trim()
+}
+
+private fun stableInlineId(value: String, index: Int): String {
+    val hash = value.fold(17) { acc, ch -> acc * 31 + ch.code }
+    return "${index}-${hash.toUInt().toString(16)}"
+}
+
+private fun inferMediaFilename(label: String, url: String): String {
+    val candidate = label.takeIf { it.contains('.') } ?: url.substringAfterLast('/').substringAfterLast('\\')
+    return candidate.substringBefore('?').substringBefore('#').take(160)
+}
+
+private fun inferMediaKind(filename: String, url: String): String {
+    val value = "$filename $url".lowercase()
+    return when {
+        listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp").any { value.contains(it) } -> "image"
+        listOf(".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi").any { value.contains(it) } -> "video"
+        listOf(".mp3", ".wav", ".m4a", ".flac", ".ogg").any { value.contains(it) } -> "audio"
+        else -> "document"
+    }
+}
+
+private fun inferMimeType(filename: String, url: String): String {
+    val value = "$filename $url".lowercase()
+    return when {
+        value.contains(".png") -> "image/png"
+        value.contains(".jpg") || value.contains(".jpeg") -> "image/jpeg"
+        value.contains(".webp") -> "image/webp"
+        value.contains(".gif") -> "image/gif"
+        value.contains(".mp4") || value.contains(".m4v") -> "video/mp4"
+        value.contains(".mov") -> "video/quicktime"
+        value.contains(".webm") -> "video/webm"
+        value.contains(".mp3") -> "audio/mpeg"
+        value.contains(".wav") -> "audio/wav"
+        value.contains(".pdf") -> "application/pdf"
+        else -> ""
+    }
 }
 
 private fun extractVisualBlocksFromJson(json: String): List<VisualBlock> {
@@ -636,6 +813,16 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
                 .put("news", "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.")
                 .put("jobs", "Coda Hermes Jobs condivisa con CLI/server.")
                 .put("runs", "Runs operative Hermes.")
+        )
+        .put(
+            "activity_stream",
+            JSONObject()
+                .put("requested", true)
+                .put("include_reasoning", true)
+                .put("include_tool_calls", true)
+                .put("include_tool_results", true)
+                .put("include_intermediate_model_calls", true)
+                .put("client_requires_realtime_visibility", true)
         )
         .put(
             "visual_blocks",

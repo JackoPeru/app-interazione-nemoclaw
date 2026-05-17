@@ -1,5 +1,5 @@
 [Unit]
-Description=Hermes Hub API Gateway
+Description=Hermes Gateway API for Hermes Hub
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,13 @@ Wants=network-online.target
 Type=simple
 Environment=HERMES_API_HOST=0.0.0.0
 Environment=HERMES_API_PORT=8642
+Environment=API_SERVER_KEY=hermes-hub
+Environment=HERMES_INFERENCE_PROVIDER=lm_studio
 Environment=LM_STUDIO_BASE_URL=http://127.0.0.1:1234
+# Final Ubuntu headless/vLLM profile:
+# Environment=HERMES_INFERENCE_PROVIDER=vllm
+# Environment=VLLM_BASE_URL=http://127.0.0.1:8000
+# Environment=HERMES_INFERENCE_MODEL=your-vllm-model-id
 ExecStart=%h/hermes-hub-linux.sh
 Restart=on-failure
 RestartSec=5
