@@ -247,7 +247,7 @@ public static class ChatStreamClient
                                GatewayService.ShouldRetryWithBearerAuth((int)response.StatusCode, body);
                 if (canRetry)
                 {
-                    yield return new StreamStatus("Hermes richiede auth. Riprovo automaticamente...");
+                    yield return new StreamStatus("API key Hermes non accettata. Riprovo automaticamente...");
                     continue;
                 }
                 yield return new StreamError($"{label}: HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {Trim(body)}");

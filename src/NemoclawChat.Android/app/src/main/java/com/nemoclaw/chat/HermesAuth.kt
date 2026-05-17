@@ -9,6 +9,10 @@ internal fun hermesAuthRetryCandidates(apiKey: String?): List<String> {
     return candidates.toList()
 }
 
+internal fun hermesAuthCandidates(apiKey: String?): List<String?> {
+    return hermesAuthRetryCandidates(apiKey) + listOf(null)
+}
+
 internal fun shouldRetryHermesWithBearerAuth(code: Int, body: String): Boolean {
     if (code != 401) return false
     val normalized = body.lowercase()

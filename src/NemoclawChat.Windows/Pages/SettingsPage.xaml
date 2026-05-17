@@ -20,8 +20,9 @@
             Foreground="White"
             Text="Impostazioni" />
         <StackPanel Grid.Row="1" MaxWidth="760" HorizontalAlignment="Left" Spacing="18">
-            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Hermes Hub parla a Hermes Agent API usando solo gli URL configurati, senza API key." />
+            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Hermes Hub invia API key Hermes come Bearer token; default hermes-hub." />
             <TextBox x:Name="GatewayUrlBox" Header="Hermes API URL" PlaceholderText="http://hermes.local:8642/v1" />
+            <PasswordBox x:Name="ApiKeyBox" Header="API key Hermes" PlaceholderText="hermes-hub" />
             <TextBox x:Name="GatewayWsUrlBox" Visibility="Collapsed" />
             <TextBox x:Name="AdminBridgeUrlBox" Visibility="Collapsed" />
             <TextBox x:Name="ProviderBox" Header="Provider" />
@@ -52,7 +53,7 @@
                     Content="Salva"
                     Foreground="White" />
                 <Button Click="TestGateway_Click" Content="Test Hermes" />
-                <Button Click="ClearApiKey_Click" Content="Pulisci vecchia API key" />
+                <Button Click="ResetApiKey_Click" Content="Ripristina API key" />
                 <Button Click="Reset_Click" Content="Reset default" />
             </StackPanel>
         </StackPanel>

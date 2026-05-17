@@ -12,6 +12,9 @@ import android.os.Bundle
 import android.os.StrictMode
 import android.provider.MediaStore
 import android.provider.Settings
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -153,7 +156,12 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.security.KeyStore
 import java.util.concurrent.TimeUnit
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -535,7 +543,7 @@ private fun ChatApp() {
                             settings = reset
                             chatScope.launch(Dispatchers.IO) {
                                 saveSettings(context, reset)
-                                deleteGatewaySecret(context)
+                                saveGatewaySecret(context, HERMES_FALLBACK_API_KEY)
                             }
                         }
                     )
@@ -2150,7 +2158,7 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
             ServerMetric("API lato server", snapshot.inferenceEndpoint, "Il client parla a Hermes API, non direttamente al runtime modello.")
         }
         item {
-            ServerMetric("Sicurezza", snapshot.policy, "Client prova senza auth; se Hermes richiede API key ritenta automaticamente con token tecnico hermes-hub.")
+            ServerMetric("Sicurezza", snapshot.policy, "Client usa API key Bearer salvata; default hermes-hub.")
         }
         item {
             ServerMetric("Cartella video Hermes", snapshot.videoLibraryPath.ifBlank { "In attesa di sync server" }, "Hermes decide path e app lo recepisce da /health/detailed.")
@@ -2583,7 +2591,7 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
             ServerMetric("Archivio locale", "${conversations.size} elementi", "Cronologia e progetti salvati sul dispositivo.")
         }
         item {
-            ServerMetric("Privacy", "Locale-first", "Chat/settings restano sul dispositivo finche' non colleghi Hermes. Nessuna API key richiesta.")
+            ServerMetric("Privacy", "Locale-first", "Chat/settings restano sul dispositivo finche' non colleghi Hermes. API key salvata in Keystore.")
         }
         item {
             ServerMetric("Parita Windows", "Allineata", "Chat, archivio, progetti/recenti, jobs, Hermes server, runs, settings e profilo presenti anche su Android.")
@@ -2732,6 +2740,7 @@ private fun SettingsScreen(
     var accessMode by remember(settings.accessMode) { mutableStateOf(settings.accessMode) }
     var visualBlocksMode by remember(settings.visualBlocksMode) { mutableStateOf(settings.visualBlocksMode) }
     var videoLibraryPath by remember(settings.videoLibraryPath) { mutableStateOf(settings.videoLibraryPath) }
+    var apiKey by remember { mutableStateOf(loadGatewaySecret(context) ?: HERMES_FALLBACK_API_KEY) }
     var fontScale by remember(settings.fontScale) { mutableStateOf(settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)) }
     var demoMode by remember(settings.demoMode) { mutableStateOf(settings.demoMode) }
     var status by remember { mutableStateOf("Pronto.") }
@@ -2762,7 +2771,7 @@ private fun SettingsScreen(
     ) {
         Text("Impostazioni", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(10.dp))
-        Text("Impostazioni salvate sul dispositivo. Hermes Hub prova senza API key; se il server la richiede usa automaticamente il token tecnico hermes-hub.", color = AppColors.Muted)
+        Text("Impostazioni salvate sul dispositivo. Hermes Hub invia API key Hermes come Bearer token; default hermes-hub.", color = AppColors.Muted)
         Spacer(modifier = Modifier.height(18.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
@@ -2776,6 +2785,7 @@ private fun SettingsScreen(
                 )
             }
             item { SettingsField("Hermes API URL", gatewayUrl, { gatewayUrl = it }) }
+            item { SettingsPasswordField("API key Hermes", apiKey, { apiKey = it }) }
             item { SettingsField("Provider", provider, { provider = it }) }
             item { SettingsField("Endpoint API lato server", inferenceEndpoint, { inferenceEndpoint = it }) }
             item { SettingsField("API preferita", preferredApi, { preferredApi = it }) }
@@ -2808,9 +2818,9 @@ private fun SettingsScreen(
                             val candidate = currentSettings()
                             val error = validateSettings(candidate)
                             if (error == null) {
+                                saveGatewaySecret(context, apiKey)
                                 onSave(candidate)
-                                deleteGatewaySecret(context)
-                                status = "Impostazioni salvate. Hermes prova prima senza auth, poi usa hermes-hub solo se server richiede API key."
+                                status = "Impostazioni salvate. Hermes usa API key Bearer salvata."
                             } else {
                                 status = error
                             }
@@ -2826,7 +2836,7 @@ private fun SettingsScreen(
                             }
                         status = "Leggo capabilities Hermes..."
                         scope.launch {
-                            status = runCatching { httpGet("${candidate.gatewayUrl.trimEnd('/')}/capabilities", null) }
+                            status = runCatching { httpGet("${candidate.gatewayUrl.trimEnd('/')}/capabilities", apiKey) }
                                 .getOrElse { "Capabilities non leggibili: ${it.message ?: it.javaClass.simpleName}" }
                         }
                         }) {
@@ -2838,10 +2848,11 @@ private fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(onClick = {
-                            deleteGatewaySecret(context)
-                            status = "Vecchia API key rimossa. Hermes prova senza auth e usa hermes-hub solo se necessario."
+                            apiKey = HERMES_FALLBACK_API_KEY
+                            saveGatewaySecret(context, HERMES_FALLBACK_API_KEY)
+                            status = "API key ripristinata a hermes-hub."
                         }) {
-                            Text("Pulisci vecchia API key")
+                            Text("Ripristina API key")
                         }
                         Button(onClick = {
                             val error = validateHttpUrl(gatewayUrl, "Hermes API URL")
@@ -2853,13 +2864,14 @@ private fun SettingsScreen(
                             val healthUrl = "${hermesRoot(AppSettings(gatewayUrl = gatewayUrl.trim()))}/health"
                             status = "Test: $healthUrl"
                             scope.launch {
-                                status = testGateway(healthUrl, null)
+                                status = testGateway(healthUrl, apiKey)
                             }
                         }) {
                             Text("Test Hermes")
                         }
                         Button(onClick = {
-                            deleteGatewaySecret(context)
+                            saveGatewaySecret(context, HERMES_FALLBACK_API_KEY)
+                            apiKey = HERMES_FALLBACK_API_KEY
                             onReset()
                         }) {
                             Text("Reset")
@@ -3360,18 +3372,25 @@ private suspend fun loadServerSnapshot(context: Context, settings: AppSettings, 
     }
 }
 
-private suspend fun testGateway(healthUrl: String, @Suppress("UNUSED_PARAMETER") apiKey: String?): String = withContext(Dispatchers.IO) {
+private suspend fun testGateway(healthUrl: String, apiKey: String?): String = withContext(Dispatchers.IO) {
     try {
-        val connection = (URL(healthUrl).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 5_000
-            readTimeout = 5_000
-            setRequestProperty("Accept", "application/json")
+        var last: Pair<Int, String>? = null
+        for (token in hermesAuthCandidates(apiKey)) {
+            val response = executeHttpGet(healthUrl, token)
+            last = response
+            if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
+                return@withContext if (response.first in 200..299) {
+                    "Hermes raggiungibile."
+                } else {
+                    "Hermes risponde: HTTP ${response.first}"
+                }
+            }
         }
-
-        connection.use {
-            val code = it.responseCode
-            if (code in 200..299) "Hermes raggiungibile." else "Hermes risponde: HTTP $code"
+        val code = last?.first ?: 0
+        if (code in 200..299) {
+            "Hermes raggiungibile."
+        } else {
+            "Hermes risponde: HTTP $code"
         }
     } catch (ex: Exception) {
         "Hermes non raggiungibile: ${ex.message ?: ex.javaClass.simpleName}"
@@ -3645,21 +3664,16 @@ private fun resolveHermesUrl(settings: AppSettings, path: String): String {
     }
 }
 
-private suspend fun httpGet(url: String, @Suppress("UNUSED_PARAMETER") apiKey: String? = null): String = withContext(Dispatchers.IO) {
-    executeHttpGet(url, null).let { initial ->
-        if (!shouldRetryHermesWithBearerAuth(initial.first, initial.second)) {
-            return@withContext initial.second
+private suspend fun httpGet(url: String, apiKey: String? = null): String = withContext(Dispatchers.IO) {
+    var last: Pair<Int, String>? = null
+    for (token in hermesAuthCandidates(apiKey)) {
+        val response = executeHttpGet(url, token)
+        last = response
+        if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
+            return@withContext response.second
         }
-
-        for (token in hermesAuthRetryCandidates(apiKey)) {
-            val retry = executeHttpGet(url, token)
-            if (!shouldRetryHermesWithBearerAuth(retry.first, retry.second)) {
-                return@withContext retry.second
-            }
-        }
-
-        initial.second
     }
+    last?.second.orEmpty()
 }
 
 private val apiHttpClient: OkHttpClient by lazy {
@@ -3671,20 +3685,16 @@ private val apiHttpClient: OkHttpClient by lazy {
         .build()
 }
 
-private suspend fun postJson(url: String, payload: JSONObject, @Suppress("UNUSED_PARAMETER") apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
-    val initial = executeJsonRequest(url, payload, method, null)
-    if (!shouldRetryHermesWithBearerAuth(initial.first, initial.second)) {
-        return@withContext initial
-    }
-
-    for (token in hermesAuthRetryCandidates(apiKey)) {
-        val retry = executeJsonRequest(url, payload, method, token)
-        if (!shouldRetryHermesWithBearerAuth(retry.first, retry.second)) {
-            return@withContext retry
+private suspend fun postJson(url: String, payload: JSONObject, apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
+    var last: Pair<Int, String>? = null
+    for (token in hermesAuthCandidates(apiKey)) {
+        val response = executeJsonRequest(url, payload, method, token)
+        last = response
+        if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
+            return@withContext response
         }
     }
-
-    initial
+    last ?: (0 to "")
 }
 
 private fun executeHttpGet(url: String, bearerToken: String?): Pair<Int, String> {
@@ -4469,15 +4479,60 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .apply()
 }
 
-private fun loadGatewaySecret(@Suppress("UNUSED_PARAMETER") context: Context): String? {
-    return null
+private fun loadGatewaySecret(context: Context): String? {
+    val stored = context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .getString(GATEWAY_SECRET_PREF_KEY, null)
+        ?: return HERMES_FALLBACK_API_KEY
+
+    return runCatching {
+        val parts = stored.split(':', limit = 2)
+        if (parts.size != 2) {
+            return@runCatching HERMES_FALLBACK_API_KEY
+        }
+
+        val iv = Base64.decode(parts[0], Base64.NO_WRAP)
+        val encrypted = Base64.decode(parts[1], Base64.NO_WRAP)
+        val cipher = Cipher.getInstance(GATEWAY_SECRET_TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateGatewaySecretKey(), GCMParameterSpec(128, iv))
+        cipher.updateAAD(GATEWAY_SECRET_AAD.toByteArray(Charsets.UTF_8))
+        String(cipher.doFinal(encrypted), Charsets.UTF_8).trim().ifBlank { HERMES_FALLBACK_API_KEY }
+    }.getOrDefault(HERMES_FALLBACK_API_KEY)
 }
 
-private fun deleteGatewaySecret(context: Context) {
+private fun saveGatewaySecret(context: Context, secret: String?) {
+    val normalized = secret?.trim().takeUnless { it.isNullOrEmpty() } ?: HERMES_FALLBACK_API_KEY
+    val encoded = runCatching {
+        val cipher = Cipher.getInstance(GATEWAY_SECRET_TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateGatewaySecretKey())
+        cipher.updateAAD(GATEWAY_SECRET_AAD.toByteArray(Charsets.UTF_8))
+        val encrypted = cipher.doFinal(normalized.toByteArray(Charsets.UTF_8))
+        "${Base64.encodeToString(cipher.iv, Base64.NO_WRAP)}:${Base64.encodeToString(encrypted, Base64.NO_WRAP)}"
+    }.getOrDefault(normalized)
+
     context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
         .edit()
-        .remove(GATEWAY_SECRET_PREF_KEY)
+        .putString(GATEWAY_SECRET_PREF_KEY, encoded)
         .apply()
+}
+
+private fun getOrCreateGatewaySecretKey(): SecretKey = synchronized(gatewaySecretKeyLock) {
+    val keyStore = KeyStore.getInstance(GATEWAY_SECRET_KEYSTORE).apply { load(null) }
+    val existing = keyStore.getEntry(GATEWAY_SECRET_ALIAS, null) as? KeyStore.SecretKeyEntry
+    if (existing != null) {
+        return@synchronized existing.secretKey
+    }
+
+    val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, GATEWAY_SECRET_KEYSTORE)
+    val spec = KeyGenParameterSpec.Builder(
+        GATEWAY_SECRET_ALIAS,
+        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+    )
+        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+        .setKeySize(256)
+        .build()
+    generator.init(spec)
+    generator.generateKey()
 }
 
 private fun loadArchiveItems(context: Context): List<ArchiveItem> {
@@ -5071,10 +5126,15 @@ private const val CURRENT_TASKS_PREFS = "chatclaw_tasks"
 private const val LEGACY_TASKS_PREFS = "nemoclaw_tasks"
 private const val CURRENT_WORKSPACE_PREFS = "chatclaw_workspace_requests"
 private const val GATEWAY_SECRET_PREF_KEY = "gatewaySecretCiphertext"
+private const val GATEWAY_SECRET_KEYSTORE = "AndroidKeyStore"
+private const val GATEWAY_SECRET_ALIAS = "HermesHubGatewayApiKey"
+private const val GATEWAY_SECRET_TRANSFORMATION = "AES/GCM/NoPadding"
+private const val GATEWAY_SECRET_AAD = "HermesHub.ApiKey.v1"
 private const val MIN_FONT_SCALE = 0.85f
 private const val MAX_FONT_SCALE = 1.25f
 private const val CHAT_HISTORY_MAX_MESSAGES = 30
 private const val SETTINGS_FIELD_MAX_LENGTH = 2048
+private val gatewaySecretKeyLock = Any()
 
 private object AppDefaults {
     const val gatewayUrl = "http://hermes.local:8642/v1"

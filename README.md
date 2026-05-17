@@ -53,7 +53,7 @@ cd .\src\NemoclawChat.Android
 APK debug:
 
 ```text
-src/NemoclawChat.Android/app/build/outputs/apk/debug/app-debug.apk
+src/NemoclawChat.Android/app/build/outputs/apk/debug/androidApp-debug.apk
 ```
 
 ## Release
@@ -61,7 +61,7 @@ src/NemoclawChat.Android/app/build/outputs/apk/debug/app-debug.apk
 Versione corrente:
 
 ```text
-v0.6.30
+v0.6.31
 ```
 
 Asset attesi dagli updater:

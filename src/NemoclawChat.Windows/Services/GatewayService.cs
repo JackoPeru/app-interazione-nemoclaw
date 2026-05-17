@@ -35,7 +35,7 @@ public sealed record WorkspaceRunResult(string Result, string Source, string Sta
 
 public static class GatewayService
 {
-    internal const string HermesFallbackApiKey = "hermes-hub";
+    internal const string HermesFallbackApiKey = GatewayCredentialStore.DefaultApiKey;
 
     private static readonly HttpClientHandler HttpHandler = new()
     {
@@ -564,8 +564,18 @@ public static class GatewayService
 
     internal static IEnumerable<string?> BuildHermesAuthCandidates()
     {
+        var saved = GatewayCredentialStore.LoadSecret();
+        if (!string.IsNullOrWhiteSpace(saved))
+        {
+            yield return saved.Trim();
+        }
+
+        if (!string.Equals(saved, HermesFallbackApiKey, StringComparison.Ordinal))
+        {
+            yield return HermesFallbackApiKey;
+        }
+
         yield return null;
-        yield return HermesFallbackApiKey;
     }
 
     internal static bool ShouldRetryWithBearerAuth(int statusCode, string body)

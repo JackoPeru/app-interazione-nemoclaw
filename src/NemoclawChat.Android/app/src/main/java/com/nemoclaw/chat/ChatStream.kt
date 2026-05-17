@@ -193,7 +193,7 @@ fun streamChatRequest(
     history: List<ChatMessage>,
     conversationId: String?,
     previousResponseId: String?,
-    @Suppress("UNUSED_PARAMETER") apiKey: String?
+    apiKey: String?
 ): Flow<ChatStreamEvent> = flow {
     val start = System.nanoTime()
     var sawDelta = false
@@ -328,7 +328,7 @@ private suspend inline fun openSseStream(
     }
     return try {
         val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-        val authCandidates = listOf<String?>(null) + hermesAuthRetryCandidates(apiKey)
+        val authCandidates = hermesAuthCandidates(apiKey)
         var lastHttpError: Pair<Int, String>? = null
 
         for ((index, bearerToken) in authCandidates.withIndex()) {
@@ -348,7 +348,7 @@ private suspend inline fun openSseStream(
                     lastHttpError = response.code to text
                     val canRetry = index < authCandidates.lastIndex && shouldRetryHermesWithBearerAuth(response.code, text)
                     if (canRetry) {
-                        onEvent(ChatStreamEvent.Status("Hermes richiede auth. Riprovo automaticamente..."))
+                        onEvent(ChatStreamEvent.Status("API key Hermes non accettata. Riprovo automaticamente..."))
                         return@use
                     }
                     onEvent(ChatStreamEvent.Error("$label HTTP ${response.code}: $text"))

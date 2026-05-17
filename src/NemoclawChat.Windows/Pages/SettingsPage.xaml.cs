@@ -19,6 +19,7 @@ public sealed partial class SettingsPage : Page
     {
         var settings = AppSettingsStore.Load();
         GatewayUrlBox.Text = settings.GatewayUrl;
+        ApiKeyBox.Password = GatewayCredentialStore.LoadSecret();
         GatewayWsUrlBox.Text = settings.GatewayWsUrl;
         AdminBridgeUrlBox.Text = settings.AdminBridgeUrl;
         ProviderBox.Text = settings.Provider;
@@ -42,9 +43,9 @@ public sealed partial class SettingsPage : Page
         }
 
         AppSettingsStore.Save(settings);
-        GatewayCredentialStore.DeleteSecret();
+        GatewayCredentialStore.SaveSecret(ApiKeyBox.Password);
 
-        StatusText.Text = "Impostazioni salvate. Hermes prova prima senza auth, poi usa hermes-hub solo se server richiede API key.";
+        StatusText.Text = "Impostazioni salvate. Hermes usa API key Bearer salvata.";
     }
 
     private async void TestGatewayWs_Click(object sender, RoutedEventArgs e)
@@ -81,15 +82,16 @@ public sealed partial class SettingsPage : Page
     private void Reset_Click(object sender, RoutedEventArgs e)
     {
         AppSettingsStore.Reset();
-        GatewayCredentialStore.DeleteSecret();
+        GatewayCredentialStore.SaveSecret(GatewayCredentialStore.DefaultApiKey);
         LoadSettings();
         StatusText.Text = "Default ripristinati.";
     }
 
-    private void ClearApiKey_Click(object sender, RoutedEventArgs e)
+    private void ResetApiKey_Click(object sender, RoutedEventArgs e)
     {
-        GatewayCredentialStore.DeleteSecret();
-        StatusText.Text = "Vecchia API key rimossa. Hermes prova senza auth e usa hermes-hub solo se necessario.";
+        GatewayCredentialStore.SaveSecret(GatewayCredentialStore.DefaultApiKey);
+        ApiKeyBox.Password = GatewayCredentialStore.DefaultApiKey;
+        StatusText.Text = "API key ripristinata a hermes-hub.";
     }
 
     private AppSettings ReadSettings()

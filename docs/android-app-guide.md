@@ -43,5 +43,5 @@ $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME
 APK:
 
 ```text
-src/NemoclawChat.Android/app/build/outputs/apk/debug/app-debug.apk
+src/NemoclawChat.Android/app/build/outputs/apk/debug/androidApp-debug.apk
 ```
