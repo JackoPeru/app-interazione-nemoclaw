@@ -1109,7 +1109,7 @@ public sealed partial class HomePage : Page
         var panel = new StackPanel { Spacing = 8 };
         foreach (var image in block.Images.Take(12))
         {
-            if (!IsSafeMediaUrl(image.MediaUrl))
+            if (!IsSafeMediaUrl(image.MediaUrl, allowExternalImage: true))
             {
                 panel.Children.Add(new TextBlock
                 {
@@ -1139,10 +1139,11 @@ public sealed partial class HomePage : Page
     private static UIElement RenderMediaFile(VisualBlockRecord block)
     {
         var panel = new StackPanel { Spacing = 10 };
-        var safeMedia = IsSafeMediaUrl(block.MediaUrl);
+        var allowExternalImage = block.MediaKind == "image";
+        var safeMedia = IsSafeMediaUrl(block.MediaUrl, allowExternalImage);
         var previewUrl = block.MediaKind == "image" && safeMedia
             ? block.MediaUrl
-            : IsSafeMediaUrl(block.ThumbnailUrl) ? block.ThumbnailUrl : null;
+            : IsSafeMediaUrl(block.ThumbnailUrl, allowExternalImage) ? block.ThumbnailUrl : null;
 
         if (!string.IsNullOrWhiteSpace(previewUrl))
         {
@@ -1290,7 +1291,7 @@ public sealed partial class HomePage : Page
         };
     }
 
-    private static bool IsSafeMediaUrl(string? value)
+    private static bool IsSafeMediaUrl(string? value, bool allowExternalImage = false)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -1305,6 +1306,11 @@ public sealed partial class HomePage : Page
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
         {
             return false;
+        }
+
+        if (allowExternalImage && uri.Scheme == "https" && !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            return true;
         }
 
         if (uri.Scheme is not ("http" or "https") || !uri.AbsolutePath.StartsWith("/v1/media/", StringComparison.OrdinalIgnoreCase))

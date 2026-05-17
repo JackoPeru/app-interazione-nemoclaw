@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.34 Release Hermes Hub 0.6.34
+v0.6.35 Release Hermes Hub 0.6.35
 ```
 
 ## Regola Memoria
@@ -54,7 +54,7 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.34 (Windows + Android):
+Hermes Hub 0.6.35 (Windows + Android):
 
 Decisione auth client:
 - Hermes Hub usa API key lato app. Default: `hermes-hub`.
@@ -83,17 +83,25 @@ Terminologia gateway:
 - Il comando `hermes-hub` avvia **Hermes Gateway**: servizio ponte/API server che espone Hermes Agent alle app Hermes Hub Windows/Android e inoltra inferenza a LM Studio nei test o vLLM nel setup finale.
 - La versione Linux/headless deve restare aggiornata e funzionante: `scripts/hermes-hub-linux.sh`, `scripts/hermes-hub-linux.service` e `docs/hermes-hub-linux.md` devono supportare Ubuntu headless + vLLM, con API stabile `http://SERVER:8642/v1` e API key default `hermes-hub`.
 
-Release 0.6.34:
+Release 0.6.35:
+- Android e Windows ora leggono davvero gli eventi SSE custom del gateway: `hermes.tool.progress`, `hermes.visual_blocks`, `hermes.reasoning.available`.
+- Chat Completions gateway locale verificato: eventi tool ora includono `arguments` e `result`, quindi app puo' mostrare chiamate tool e output in tempo reale invece di restare su `Sto processando`.
+- Android rileva link immagine HTTPS nel testo risposta e li converte in preview `media_file`; Windows permette preview immagini HTTPS oltre ai proxy `/v1/media/...`.
+- Fix mirato a problema reale visto in app: ragionamento/tool invisibili e immagini esterne rese solo come testo.
+
+## Modifiche non rilasciate
+
+(Nessuna modifica non rilasciata)
+
+## Release 0.6.34
+
+Hermes Hub 0.6.34 (Windows + Android):
 - Android streaming activity mostra piu' stati real-time: timer, percentuale stimata, stato corrente, log eventi, reasoning, tool call, argomenti e risultati tool.
 - Parser Android legge piu' formati SSE per tool/reasoning/result e conserva gli eventi nell'activity panel.
 - Android fallback media converte `MEDIA:[...](...)` in `media_file` invece di mostrare markdown grezzo.
 - Prompt/metadata Android e Windows richiedono esplicitamente proxy media Hermes `/v1/media/...` e stream realtime reasoning/tool/intermediate calls.
 - Linux helper aggiornato per chiamare `hermes-hub` **Hermes Gateway**, con provider configurabile `lm_studio`/`vllm`, API key default `hermes-hub`, service file e documentazione Ubuntu headless/vLLM.
 - Hermes Gateway locale verificato con proxy media: `POST /v1/media/register`, `GET /v1/media/{media_id}`, capabilities media e conversione output `MEDIA:[...](file://...)` in `visual_blocks media_file`. Nota: patch applicata all'install locale `%LOCALAPPDATA%\hermes\hermes-agent\gateway\platforms\api_server.py`; va mantenuta/portata quando si aggiorna Hermes o si passa a Ubuntu/vLLM.
-
-## Modifiche non rilasciate
-
-(Nessuna modifica non rilasciata)
 
 ## Release 0.6.33
 
@@ -439,7 +447,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.34`.
+- Versione app: `0.6.35`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -477,7 +485,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.34`, versionCode `47`.
+- Versione app: `0.6.35`, versionCode `48`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

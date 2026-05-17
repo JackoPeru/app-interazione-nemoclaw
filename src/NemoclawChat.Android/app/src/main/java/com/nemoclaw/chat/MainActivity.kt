@@ -1379,8 +1379,9 @@ private fun GalleryBlock(block: VisualBlock) {
 private fun MediaFileBlock(block: VisualBlock) {
     val context = LocalContext.current
     val settings = remember { loadSettings(context) }
-    val resolvedMediaUrl = remember(settings.gatewayUrl, block.mediaUrl) { resolveMediaUrl(settings, block.mediaUrl) }
-    val previewUrl = remember(settings.gatewayUrl, block.thumbnailUrl) { resolveMediaUrl(settings, block.thumbnailUrl) }
+    val allowExternalImage = block.mediaKind == "image"
+    val resolvedMediaUrl = remember(settings.gatewayUrl, block.mediaUrl, allowExternalImage) { resolveMediaUrl(settings, block.mediaUrl, allowExternalImage) }
+    val previewUrl = remember(settings.gatewayUrl, block.thumbnailUrl, allowExternalImage) { resolveMediaUrl(settings, block.thumbnailUrl, allowExternalImage) }
     val previewSource = when {
         block.mediaKind == "image" && resolvedMediaUrl != null -> block.mediaUrl
         previewUrl != null -> block.thumbnailUrl
@@ -1397,7 +1398,8 @@ private fun MediaFileBlock(block: VisualBlock) {
                     mediaUrl = previewSource,
                     alt = block.alt.ifBlank { block.filename.ifBlank { "Media Hermes" } },
                     caption = ""
-                )
+                ),
+                allowExternalImage = allowExternalImage
             )
         }
 
@@ -1471,8 +1473,8 @@ private fun formatMediaDuration(value: Long?): String {
 }
 
 @Composable
-private fun RemoteGalleryImage(settings: AppSettings, image: VisualGalleryImage) {
-    val resolved = remember(settings.gatewayUrl, image.mediaUrl) { resolveMediaUrl(settings, image.mediaUrl) }
+private fun RemoteGalleryImage(settings: AppSettings, image: VisualGalleryImage, allowExternalImage: Boolean = true) {
+    val resolved = remember(settings.gatewayUrl, image.mediaUrl, allowExternalImage) { resolveMediaUrl(settings, image.mediaUrl, allowExternalImage) }
     if (resolved == null) {
         Text("${image.alt}: media non proxy rifiutato.", color = AppColors.Muted, fontSize = 13.sp)
         return
@@ -1499,7 +1501,7 @@ private fun RemoteGalleryImage(settings: AppSettings, image: VisualGalleryImage)
     )
 }
 
-private fun resolveMediaUrl(settings: AppSettings, value: String): String? {
+private fun resolveMediaUrl(settings: AppSettings, value: String, allowExternalImage: Boolean = false): String? {
     return if (value.startsWith("http://", true) || value.startsWith("https://", true)) {
         try {
             val uri = URI(value)
@@ -1509,6 +1511,14 @@ private fun resolveMediaUrl(settings: AppSettings, value: String): String? {
                 (uri.scheme == "http" || uri.scheme == "https") &&
                 path.startsWith("/v1/media/") &&
                 uri.host.equals(root.host, ignoreCase = true)
+            ) {
+                value
+            } else if (
+                allowExternalImage &&
+                uri.scheme == "https" &&
+                !uri.host.isNullOrBlank() &&
+                !value.startsWith("file:", ignoreCase = true) &&
+                !value.startsWith("data:", ignoreCase = true)
             ) {
                 value
             } else {

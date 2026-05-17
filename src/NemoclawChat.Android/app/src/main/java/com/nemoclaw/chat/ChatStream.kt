@@ -456,6 +456,30 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
     val t = type.lowercase()
 
     when {
+        t.contains("hermes.visual_blocks") || t.contains("visual_blocks") -> {
+            val blocks = extractVisualBlocksFromJson(obj.toString())
+            if (blocks.isNotEmpty()) out += ChatStreamEvent.VisualBlocks(blocks, VISUAL_BLOCKS_VERSION)
+            return out
+        }
+        t.contains("hermes.tool.progress") || t.contains("tool.progress") -> {
+            val id = obj.optString("toolCallId", obj.optString("call_id", obj.optString("id", "tool")))
+            val name = obj.optString("tool", obj.optString("name", "tool"))
+            val status = obj.optString("status", "").lowercase()
+            val label = obj.optString("label", "")
+            out += ChatStreamEvent.ToolCallStart(id, name)
+            if (label.isNotBlank() && label != name) out += ChatStreamEvent.ToolCallArgs(id, label)
+            val result = extractToolOutput(obj)
+            if (result.isNotBlank()) out += ChatStreamEvent.ToolResult(id, name, result)
+            if (status.contains("complete") || status.contains("done") || status.contains("success") || status.contains("failed") || status.contains("error")) {
+                out += ChatStreamEvent.ToolCallEnd(id)
+            }
+            return out
+        }
+        t.contains("reasoning.available") -> {
+            val reasoning = obj.optString("reasoning", obj.optString("summary", obj.optString("text", obj.optString("preview", ""))))
+            if (reasoning.isNotBlank()) out += ChatStreamEvent.ThinkingDelta(reasoning)
+            return out
+        }
         t.contains("output_text") && t.contains("delta") -> {
             val delta = obj.optString("delta", obj.optString("text", ""))
             if (delta.isNotEmpty()) out += ChatStreamEvent.TextDelta(delta)
@@ -477,9 +501,11 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
             if (item != null) {
                 val itype = item.optString("type", "")
                 if (itype.contains("function", ignoreCase = true) || itype.contains("tool", ignoreCase = true)) {
-                    val id = item.optString("id", "tool")
+                    val id = item.optString("call_id", item.optString("id", "tool"))
                     val name = item.optString("name", "tool")
                     out += ChatStreamEvent.ToolCallStart(id, name)
+                    val args = item.optString("arguments", "")
+                    if (args.isNotBlank()) out += ChatStreamEvent.ToolCallArgs(id, args)
                 }
             }
             return out
@@ -494,7 +520,7 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
                     val output = extractToolOutput(item)
                     if (output.isNotBlank()) out += ChatStreamEvent.ToolResult(id, name.ifBlank { null }, output)
                 } else if (itemType.contains("function", ignoreCase = true) || itemType.contains("tool", ignoreCase = true)) {
-                    val id = item.optString("id", "tool")
+                    val id = item.optString("call_id", item.optString("id", "tool"))
                     val name = item.optString("name", "tool")
                     if (name.isNotBlank()) out += ChatStreamEvent.ToolCallStart(id, name)
                     val args = item.optString("arguments", "")
@@ -716,14 +742,32 @@ private fun parseFullBody(body: String): List<ChatStreamEvent> {
 }
 
 private val INLINE_MEDIA_REGEX = Regex("""(?is)MEDIA\s*:\s*\[([^\]]{1,500})]\(([^)\s]{1,1200})\)|!\[([^\]]{1,500})]\(([^)\s]{1,1200})\)""")
+private val RAW_IMAGE_URL_REGEX = Regex("""(?i)\bhttps://[^\s<>)"']{6,1200}""")
 
 private fun extractInlineMediaBlocks(text: String): List<VisualBlock> {
-    return INLINE_MEDIA_REGEX.findAll(text).take(12).mapIndexed { index, match ->
+    val explicit = INLINE_MEDIA_REGEX.findAll(text).take(12).mapIndexed { index, match ->
         val label = (match.groups[1]?.value ?: match.groups[3]?.value ?: "Media Hermes").trim()
         val url = (match.groups[2]?.value ?: match.groups[4]?.value ?: "").trim()
+        createInlineMediaBlock(index, label, url, explicit = true)
+    }.toList()
+
+    val seen = explicit.map { it.mediaUrl }.toMutableSet()
+    val raw = RAW_IMAGE_URL_REGEX.findAll(text)
+        .map { it.value.trimEnd('.', ',', ';', ':') }
+        .filter { it !in seen && isLikelyRemoteImageUrl(it) }
+        .take(12 - explicit.size)
+        .mapIndexed { index, url ->
+            seen += url
+            createInlineMediaBlock(index + explicit.size, inferMediaFilename("immagine", url).ifBlank { "Immagine" }, url, explicit = false)
+        }
+        .toList()
+    return explicit + raw
+}
+
+private fun createInlineMediaBlock(index: Int, label: String, url: String, explicit: Boolean): VisualBlock {
         val filename = inferMediaFilename(label, url)
         val kind = inferMediaKind(filename, url)
-        VisualBlock(
+        return VisualBlock(
             id = "inline-media-${stableInlineId(url, index)}",
             type = "media_file",
             title = filename.ifBlank { "File multimediale" },
@@ -735,11 +779,12 @@ private fun extractInlineMediaBlocks(text: String): List<VisualBlock> {
             alt = label.ifBlank { filename.ifBlank { "Media Hermes" } },
             caption = if (url.startsWith("file://", ignoreCase = true) || url.contains(":\\") || label.contains(":\\")) {
                 "Hermes ha restituito un path locale. Per mostrarlo su Android deve pubblicarlo tramite proxy /v1/media/..."
+            } else if (!explicit) {
+                "Immagine rilevata da link HTTPS nella risposta Hermes."
             } else {
                 "Media rilevato dal testo Hermes."
             }
         )
-    }.toList()
 }
 
 private fun stripInlineMediaMarkup(text: String): String {
@@ -760,6 +805,7 @@ private fun inferMediaKind(filename: String, url: String): String {
     val value = "$filename $url".lowercase()
     return when {
         listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp").any { value.contains(it) } -> "image"
+        isLikelyRemoteImageUrl(url) -> "image"
         listOf(".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi").any { value.contains(it) } -> "video"
         listOf(".mp3", ".wav", ".m4a", ".flac", ".ogg").any { value.contains(it) } -> "audio"
         else -> "document"
@@ -773,6 +819,7 @@ private fun inferMimeType(filename: String, url: String): String {
         value.contains(".jpg") || value.contains(".jpeg") -> "image/jpeg"
         value.contains(".webp") -> "image/webp"
         value.contains(".gif") -> "image/gif"
+        isLikelyRemoteImageUrl(url) -> "image/*"
         value.contains(".mp4") || value.contains(".m4v") -> "video/mp4"
         value.contains(".mov") -> "video/quicktime"
         value.contains(".webm") -> "video/webm"
@@ -781,6 +828,13 @@ private fun inferMimeType(filename: String, url: String): String {
         value.contains(".pdf") -> "application/pdf"
         else -> ""
     }
+}
+
+private fun isLikelyRemoteImageUrl(url: String): Boolean {
+    val value = url.lowercase()
+    if (!value.startsWith("https://")) return false
+    return listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp").any { value.substringBefore('?').substringBefore('#').endsWith(it) } ||
+        listOf("picsum.photos", "images.unsplash.com", "unsplash.com", "pexels.com", "pixabay.com", "cloudinary.com", "image", "photo").any { value.contains(it) }
 }
 
 private fun extractVisualBlocksFromJson(json: String): List<VisualBlock> {
