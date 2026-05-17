@@ -28,8 +28,8 @@
             <TextBox x:Name="ProviderBox" Header="Provider" />
             <TextBox x:Name="InferenceEndpointBox" Header="Endpoint API lato server" />
             <ComboBox x:Name="PreferredApiBox" Header="API preferita" SelectedIndex="0">
-                <ComboBoxItem Content="openai-responses" />
                 <ComboBoxItem Content="openai-completions" />
+                <ComboBoxItem Content="openai-responses" />
             </ComboBox>
             <TextBox x:Name="ModelBox" Header="Modello" />
             <TextBox x:Name="VideoLibraryPathBox" Header="Cartella video Hermes (sync server)" IsReadOnly="True" PlaceholderText="In attesa di sync da Hermes /health/detailed" />

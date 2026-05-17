@@ -1,4 +1,4 @@
-# AGENTS.md
+﻿# AGENTS.md
 
 ## Obiettivo
 
@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.31 Release Hermes Hub 0.6.31
+v0.6.32 Release Hermes Hub 0.6.32
 ```
 
 ## Regola Memoria
@@ -54,13 +54,19 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.31 (Windows + Android):
+Hermes Hub 0.6.32 (Windows + Android):
 
 Decisione auth client:
 - Hermes Hub usa API key lato app. Default: `hermes-hub`.
 - Android e Windows inviano prima `Authorization: Bearer <API key salvata>`; se Hermes risponde `401 invalid_api_key`, provano `hermes-hub` e poi no-auth solo come fallback compat.
 - Settings espone campo `API key Hermes` e azione `Ripristina API key`.
 - I segreti provider/modello restano lato Hermes/server. AdminBridge resta separato e puo' continuare a usare `CHATCLAW_ADMIN_TOKEN`.
+
+Decisione latenza Chat:
+- Modalita `Chat` su Windows e Android parte direttamente da Hermes Chat Completions invece di provare prima `/v1/responses`.
+- Default `API preferita` e' `openai-completions`.
+- Modalita `Agente` puo' ancora usare Responses-first se `API preferita=openai-responses`.
+- Android Responses fallback ridotto a 2 tentativi con pausa 500ms.
 
 Decisione ingest Video:
 - Sezione Video passa a modello `watched-folder`: cartella non viene decisa dal client ma da Hermes, che la annuncia via payload server (`/health/detailed`, campo tipo `video_library_path`).
@@ -131,7 +137,7 @@ Critici:
 
 High:
 - Android ChatStreamUi `validBlocks.forEach` e `toolCalls.forEach` ora avvolti in `androidx.compose.runtime.key(id)`. Compose recomposition stabile.
-- Android `"%.1f".format(...)` → `String.format(java.util.Locale.US, "%.1f", ...)` su ChatStreamUi. Locale IT non corrompe piu' decimali stats/timings (era asimmetrico con MainActivity gia' corretto).
+- Android `"%.1f".format(...)` â†’ `String.format(java.util.Locale.US, "%.1f", ...)` su ChatStreamUi. Locale IT non corrompe piu' decimali stats/timings (era asimmetrico con MainActivity gia' corretto).
 - Android `Tab.entries.filterNot{...}` ora `remember`-ato nella NavigationBar. No alloc per recompose.
 - Windows `WorkspaceRequestStore` e `AgentTaskStore` ora con cache statico `List<...>?` + `lock` + invalidate su SaveAll. Parita' con `ChatArchiveStore`.
 
@@ -143,13 +149,13 @@ Med:
 - Windows `App.UnhandledException`/domain/task ora con tag marker `telemetry/...` + stack trace + IsTerminating flag. Pronto per hookup futuro telemetry.
 
 Low:
-- Android `Modifier.widthIn(min=3.dp, max=3.dp)` → `Modifier.width(3.dp)` (CalloutBlock).
+- Android `Modifier.widthIn(min=3.dp, max=3.dp)` â†’ `Modifier.width(3.dp)` (CalloutBlock).
 - Android `allowBackup` verificato gia' `false` in AndroidManifest.
 - Android ShimmerText/InfiniteTransition conditional: deferred (refactor lifecycle).
 
 ## Release 0.6.24
 
-Audit round 5 — focus UI + code. Tutti i fix in `docs/audit-0.6.24.md`.
+Audit round 5 â€” focus UI + code. Tutti i fix in `docs/audit-0.6.24.md`.
 
 Critici:
 - Android `AppColors.Muted` da `#A2ADBF` (3.8:1) a `#C8D2E0` (~6.5:1 su Background). Conformita' WCAG AA per testo secondario. Faint da `#6B7585` a `#8892A2`.
@@ -172,7 +178,7 @@ Med:
 - Windows HomePage track `_currentStreamingBubble`, `Unloaded` stop shimmer su navigation away.
 
 Low:
-- Windows `AppUpdateService.HttpClient.Timeout` 5min → 30min (asset > 100MB su conn lenta).
+- Windows `AppUpdateService.HttpClient.Timeout` 5min â†’ 30min (asset > 100MB su conn lenta).
 - Windows sidebar dynamic buttons: `ToolTipService.SetToolTip` + `AutomationProperties.SetName` per accessibility.
 
 Esclusi (scope troppo grande):
@@ -190,7 +196,7 @@ Critici:
 - AdminBridge `CHATCLAW_ADMIN_TIMEOUT`/`MAX_READ_BYTES`/`MAX_REQUEST_BYTES`/`MAX_WRITE_CHARS` clampati con `Math.Max`. Niente piu' `ArgumentOutOfRangeException` su env var negativo.
 - AdminBridge `Process.Kill(true)` in try-catch (`InvalidOperationException`, `Win32Exception`). stdin/stdout read fault-tolerant via try-catch su `await stdoutTask`/`await stderrTask`.
 - Windows ChatStream SSE `dataBuilder` cap 10MB per evento. Server malevolo non puo' piu' OOM stream loop.
-- Windows `GatewayService.HttpClient.Timeout` 20s → 5min. Chat non-streaming su modelli grandi non si abortisce piu' a meta'.
+- Windows `GatewayService.HttpClient.Timeout` 20s â†’ 5min. Chat non-streaming su modelli grandi non si abortisce piu' a meta'.
 
 High:
 - Android `chatState.draft` persistito via `rememberSaveable savedDraft` + `LaunchedEffect` sync. Process death non perde piu' draft.
@@ -257,7 +263,7 @@ High:
 Med:
 - Android stream: `accumText`/`accumThink` cap 2_000_000 char con truncate marker. Niente piu' OOM su risposta gigante.
 - Android send button: pre-guard `state.activeStreamJob == null` + flag `sending` settato prima di append/state mutation, riduce finestra double-send.
-- Android markdown inline parser: cap 200KB input + max 500 stili inline per blocco, blocca pattern adversarial O(n²).
+- Android markdown inline parser: cap 200KB input + max 500 stili inline per blocco, blocca pattern adversarial O(nÂ²).
 - Android OkHttp: `HttpLoggingInterceptor` (HEADERS) attivo solo in build debug via reflection (no dep release).
 - Android settings: gateway/admin/inference URL ora trimmati e senza trailing slash su save (`normalizeUrl`).
 - Windows ChatStream: `catch (JsonException)` ora logga in `Debug.WriteLine` invece di swallow silenzioso.
@@ -268,7 +274,7 @@ Med:
 Audit + hardening post-0.6.19. Tutti i fix elencati in `docs/audit-0.6.20.md`.
 
 Critici risolti:
-- Android `OkHttpClient` ora singleton modulo (era new per request → fd waste + zero connection pool).
+- Android `OkHttpClient` ora singleton modulo (era new per request â†’ fd waste + zero connection pool).
 - Android `LazyColumn` messaggi con `key=` stabile via `itemsIndexed` (no recomposition mismatch su append).
 - Android UI state rotation/process-death safe: `selectedTab`, `pendingPrompt`, `pendingConversationId`, `sidebarOpen` via `rememberSaveable`.
 - AdminBridge: limite body request Kestrel (`CHATCLAW_ADMIN_MAX_REQUEST_BYTES`, default 4MB) + check `MaxWriteChars` su `/v1/files/write` + check size su `/v1/logs/tail` + fail-fast se `CHATCLAW_ADMIN_TOKEN` non set.
@@ -290,15 +296,15 @@ UX:
 Esclusi (richiedono input/refactor pervasivo):
 - Signing keystore release dedicato (necessita keystore vero non in repo).
 - ProGuard/R8 minify (rischio rottura senza test su device).
-- Refactor MainActivity.kt 5000+ righe → moduli.
-- Migrazione AppColors → `MaterialTheme.colorScheme`.
+- Refactor MainActivity.kt 5000+ righe â†’ moduli.
+- Migrazione AppColors â†’ `MaterialTheme.colorScheme`.
 
 ## Release 0.6.19
 
 Hermes Hub 0.6.19 (Windows + Android):
 
 - Android composer: rimosso gap residuo tra textbox e tastiera (padding bottom del Row composer passato da 6.dp a 0.dp), input flush sopra IME.
-- Android streaming activity: rimossa percentuale fittizia animata (`activityProgressPercent`, basata solo su una fase 0→1 su 90s, mostrava 42% appena partita e non riflette il vero prompt processing di LM Studio). Sostituita con indicatore reale derivato dallo stato stream: `prompt…` shimmer in attesa del primo token, `reasoning N tok` durante reasoning, `N tok` durante generazione, `tool…` per tool pending, `Completato` a fine. Etichetta `Fase` non mostra piu' la percentuale.
+- Android streaming activity: rimossa percentuale fittizia animata (`activityProgressPercent`, basata solo su una fase 0â†’1 su 90s, mostrava 42% appena partita e non riflette il vero prompt processing di LM Studio). Sostituita con indicatore reale derivato dallo stato stream: `promptâ€¦` shimmer in attesa del primo token, `reasoning N tok` durante reasoning, `N tok` durante generazione, `toolâ€¦` per tool pending, `Completato` a fine. Etichetta `Fase` non mostra piu' la percentuale.
 
 ## Release 0.6.18
 
@@ -373,10 +379,10 @@ Hermes Hub 0.6.10 (Windows + Android):
 
 Hermes Hub 0.6.9 (Windows + Android):
 
-- Header `Sto pensando` con shimmer mostrato sempre durante streaming finché non arriva il primo token di testo, anche quando il server non emette eventi `reasoning`. Si congela in `Pensato per Xs` solo se reasoning è stato ricevuto, altrimenti viene nascosto.
+- Header `Sto pensando` con shimmer mostrato sempre durante streaming finchÃ© non arriva il primo token di testo, anche quando il server non emette eventi `reasoning`. Si congela in `Pensato per Xs` solo se reasoning Ã¨ stato ricevuto, altrimenti viene nascosto.
 - Rendering markdown del messaggio assistente (testo finale + delta streaming) su Android (`MarkdownText` con `parseMarkdownBlocks` + `renderInlineMarkdown` su `AnnotatedString`) e Windows (`Pages/MarkdownRenderer.cs` con `TextBlock` + `Inlines/Run`). Supporta `# ## ###` headers, `**bold**`, `*italic*` / `_italic_`, `` `inline code` ``, fenced ``` code blocks ``` con language hint, bullet `- ` / `* `.
 - Tool call ora dentro `Expander` (Windows) / collapsible `Surface` (Android): header con icona di stato (in corso / riuscito / fallito), nome tool, status; espandendo si vedono `Argomenti` e `Risultato` formattati come JSON pretty-printed (`JsonSerializer.Serialize(WriteIndented=true)` Windows, `org.json.JSONObject/JSONArray.toString(2)` Android) e una riga `Esito: in corso / riuscito / fallito`.
-- Inferenza esito tool: `"error"` nel payload del risultato → fallito; status `completato`/`risultato pronto`/`done`/`success` o presenza di `result` → riuscito; altrimenti in corso.
+- Inferenza esito tool: `"error"` nel payload del risultato â†’ fallito; status `completato`/`risultato pronto`/`done`/`success` o presenza di `result` â†’ riuscito; altrimenti in corso.
 
 ## Release 0.6.8
 
@@ -384,7 +390,7 @@ Hermes Hub 0.6.8 (Windows + Android):
 
 - Stato chat persistente cross-tab: `ChatStateHolder` con `messages`, `draft`, `mode`, `activeConversationId`, `previousResponseId`, `streamingState`, `sending` vive in `ChatApp`; switch verso Archive/Server/Settings/etc non resetta la chat. `chatScope` rememberCoroutineScope sale a `ChatApp` per non interrompere lo streaming durante navigazione.
 - Bottone `Nuova` accanto al chip mode (Android + Windows): chiama `resetForNewChat()` Android / svuota `MessagesPanel` + `_messageHistory` su Windows.
-- Composer Android non più coperto da tastiera: manifest `android:windowSoftInputMode="adjustResize"`, `WindowCompat.setDecorFitsSystemWindows(window, false)` in onCreate, `Modifier.imePadding()` sulla Column chat + `statusBarsPadding` sulla TopBar.
+- Composer Android non piÃ¹ coperto da tastiera: manifest `android:windowSoftInputMode="adjustResize"`, `WindowCompat.setDecorFitsSystemWindows(window, false)` in onCreate, `Modifier.imePadding()` sulla Column chat + `statusBarsPadding` sulla TopBar.
 - Auto-scroll Android: `LazyListState.animateScrollToItem(last)` lanciato in `LaunchedEffect` sui cambiamenti di `messages.size` e `streamingState.text.length` per spostare la chat sempre sull'ultimo messaggio anche durante streaming.
 - Windows `HomePage` con `NavigationCacheMode="Required"`: navigando ad altre pagine il Frame riusa la stessa istanza e mantiene history/conversation.
 
@@ -406,7 +412,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.31`.
+- Versione app: `0.6.32`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -444,7 +450,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.31`, versionCode `44`.
+- Versione app: `0.6.32`, versionCode `45`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.
@@ -473,7 +479,7 @@ Android:
 - Settings: validazione URL/campi obbligatori, salvataggio locale, reset default, test Hermes `/health`.
 - Android consente cleartext HTTP verso Hermes locale/Tailscale/LAN tramite `network_security_config`, necessario per `http://<ip-pc>:8642/v1`.
 - Android chat HTTP usa timeout lungo per richieste Hermes lente: connect 15s, write 60s, read/call 60 minuti. Serve per modelli LM Studio locali che continuano a generare oltre il timeout breve OkHttp default.
-- Setup locale Matteo: `%LOCALAPPDATA%\hermes\.env` contiene default Hermes API Server + LM Studio; comando PATH `hermes-hub.cmd` avvia `hermes-hub.ps1`, legge il modello LLM attualmente caricato da LM Studio via `/api/v1/models` (`loaded_instances`), aggiorna `model.default/provider/base_url` in `%LOCALAPPDATA%\hermes\config.yaml`, forza `terminal.cwd=C:/Users/Matteo`, disattiva Tirith se non installato (`TIRITH_ENABLED=false`/`security.tirith_enabled=false`), poi avvia `hermes gateway run --replace`. Su Ubuntu/Linux usare `scripts/hermes-hub-linux.sh` o il servizio user systemd `scripts/hermes-hub-linux.service` per esporre API su `0.0.0.0:8642` con modello LM Studio caricato. Serve perché Hermes dà precedenza al config model rispetto a `HERMES_INFERENCE_MODEL` e per ridurre warning Windows non fatali.
+- Setup locale Matteo: `%LOCALAPPDATA%\hermes\.env` contiene default Hermes API Server + LM Studio; `API_SERVER_KEY` deve essere `hermes-hub` per combaciare con app Windows/Android. Comando PATH `hermes-hub.cmd` avvia `hermes-hub.ps1`, forza `API_SERVER_KEY=hermes-hub`, legge il modello LLM attualmente caricato da LM Studio via `/api/v1/models` (`loaded_instances`), aggiorna `model.default/provider/base_url` in `%LOCALAPPDATA%\hermes\config.yaml`, forza `terminal.cwd=C:/Users/Matteo`, disattiva Tirith se non installato (`TIRITH_ENABLED=false`/`security.tirith_enabled=false`), poi avvia `hermes gateway run --replace`. Su Ubuntu/Linux usare `scripts/hermes-hub-linux.sh` o il servizio user systemd `scripts/hermes-hub-linux.service` per esporre API su `0.0.0.0:8642` con modello LM Studio caricato. Serve perché Hermes dà precedenza al config model rispetto a `HERMES_INFERENCE_MODEL` e per ridurre warning Windows non fatali.
 - Settings salvate in `SharedPreferences` `chatclaw_settings` con migrazione automatica da `nemoclaw_settings`.
 - Conversazioni/progetti salvati in `SharedPreferences` `chatclaw_archive` con migrazione automatica da `nemoclaw_archive`.
 - Task salvati in `SharedPreferences` `chatclaw_tasks`.

@@ -3097,7 +3097,7 @@ private suspend fun sendChatRequest(
 ): GatewayChatResult = withContext(Dispatchers.IO) {
     var lastError = "errore sconosciuto"
 
-    if (supportsResponsesApi(settings, apiKey)) {
+    if (shouldUseResponsesFirst(settings, mode) && supportsResponsesApi(settings, apiKey)) {
         try {
             val payload = JSONObject()
                 .put("model", settings.model)
@@ -5142,7 +5142,7 @@ private object AppDefaults {
     const val adminBridgeUrl = "http://hermes.local:8642"
     const val provider = "hermes-agent"
     const val inferenceEndpoint = "http://hermes.local:8642/v1"
-    const val preferredApi = "openai-responses"
+    const val preferredApi = "openai-completions"
     const val model = "hermes-agent"
     const val accessMode = "Tailscale/LAN"
     const val visualBlocksMode = "auto"

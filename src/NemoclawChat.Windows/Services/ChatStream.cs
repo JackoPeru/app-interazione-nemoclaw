@@ -53,60 +53,63 @@ public static class ChatStreamClient
         bool sawAnyDelta = false;
         string? lastError = null;
 
-        var responsesPayload = JsonSerializer.Serialize(new
+        if (GatewayService.ShouldUseResponsesFirst(settings, mode))
         {
-            model = settings.Model,
-            input = prompt,
-            instructions = HermesHubProtocol.Instructions(mode),
-            store = true,
-            stream = true,
-            conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
-            previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
-            metadata = HermesHubProtocol.Metadata(settings)
-        });
-
-        var responsesUrl = $"{settings.GatewayUrl.TrimEnd('/')}/responses";
-        await foreach (var ev in OpenStreamAsync(responsesUrl, responsesPayload, "Hermes Responses API stream", cancellationToken))
-        {
-            if (ev is StreamError err)
+            var responsesPayload = JsonSerializer.Serialize(new
             {
-                lastError = err.Message;
-                break;
-            }
+                model = settings.Model,
+                input = prompt,
+                instructions = HermesHubProtocol.Instructions(mode),
+                store = true,
+                stream = true,
+                conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
+                previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
+                metadata = HermesHubProtocol.Metadata(settings)
+            });
 
-            if (ev is StreamTextDelta td)
+            var responsesUrl = $"{settings.GatewayUrl.TrimEnd('/')}/responses";
+            await foreach (var ev in OpenStreamAsync(responsesUrl, responsesPayload, "Hermes Responses API stream", cancellationToken))
             {
-                if (!sawAnyDelta)
+                if (ev is StreamError err)
                 {
-                    ttft = stopwatch.Elapsed.TotalMilliseconds;
-                    sawAnyDelta = true;
+                    lastError = err.Message;
+                    break;
                 }
-                accumulatedText.Append(td.Delta);
-            }
-            else if (ev is StreamThinkingDelta th)
-            {
-                if (!sawAnyDelta)
-                {
-                    ttft = stopwatch.Elapsed.TotalMilliseconds;
-                    sawAnyDelta = true;
-                }
-                accumulatedThinking.Append(th.Delta);
-            }
-            else if (ev is StreamResponseId rid)
-            {
-                responseId = rid.Id;
-            }
-            else if (ev is StreamVisualBlocks vb)
-            {
-                visualBlocks = vb.Blocks;
-            }
-            else if (ev is StreamUsage u)
-            {
-                promptTokens = u.PromptTokens;
-                completionTokens = u.CompletionTokens;
-            }
 
-            yield return ev;
+                if (ev is StreamTextDelta td)
+                {
+                    if (!sawAnyDelta)
+                    {
+                        ttft = stopwatch.Elapsed.TotalMilliseconds;
+                        sawAnyDelta = true;
+                    }
+                    accumulatedText.Append(td.Delta);
+                }
+                else if (ev is StreamThinkingDelta th)
+                {
+                    if (!sawAnyDelta)
+                    {
+                        ttft = stopwatch.Elapsed.TotalMilliseconds;
+                        sawAnyDelta = true;
+                    }
+                    accumulatedThinking.Append(th.Delta);
+                }
+                else if (ev is StreamResponseId rid)
+                {
+                    responseId = rid.Id;
+                }
+                else if (ev is StreamVisualBlocks vb)
+                {
+                    visualBlocks = vb.Blocks;
+                }
+                else if (ev is StreamUsage u)
+                {
+                    promptTokens = u.PromptTokens;
+                    completionTokens = u.CompletionTokens;
+                }
+
+                yield return ev;
+            }
         }
 
         if (!sawAnyDelta && lastError is null)

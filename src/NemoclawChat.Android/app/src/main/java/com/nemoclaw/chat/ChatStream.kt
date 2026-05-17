@@ -235,46 +235,48 @@ fun streamChatRequest(
         return false
     }
 
-    emit(ChatStreamEvent.Status("Invio diretto a Hermes Responses API..."))
-    val responsePayload = JSONObject()
-        .put("model", settings.model)
-        .put("input", prompt)
-        .put(
-            "instructions",
-            if (mode.equals("Agente", ignoreCase = true))
-                hermesHubAgentInstructions()
-            else
-                hermesHubChatInstructions()
-        )
-        .put("store", true)
-        .put("stream", true)
-        .put("conversation", conversationId ?: JSONObject.NULL)
-        .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
-        .put("metadata", visualBlocksMetadataJson(settings))
+    if (shouldUseResponsesFirst(settings, mode)) {
+        emit(ChatStreamEvent.Status("Invio diretto a Hermes Responses API..."))
+        val responsePayload = JSONObject()
+            .put("model", settings.model)
+            .put("input", prompt)
+            .put(
+                "instructions",
+                if (mode.equals("Agente", ignoreCase = true))
+                    hermesHubAgentInstructions()
+                else
+                    hermesHubChatInstructions()
+            )
+            .put("store", true)
+            .put("stream", true)
+            .put("conversation", conversationId ?: JSONObject.NULL)
+            .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
+            .put("metadata", visualBlocksMetadataJson(settings))
 
-    val responseUrl = "${settings.gatewayUrl.trimEnd('/')}/responses"
-    var responsesAttempt = 0
-    while (responsesAttempt < 3 && !sawDelta) {
-        responsesAttempt++
-        lastError = null
-        val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey) { ev ->
-            emitAndTrack(ev)
+        val responseUrl = "${settings.gatewayUrl.trimEnd('/')}/responses"
+        var responsesAttempt = 0
+        while (responsesAttempt < 2 && !sawDelta) {
+            responsesAttempt++
+            lastError = null
+            val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey) { ev ->
+                emitAndTrack(ev)
+            }
+            if (!terminated || sawDelta) {
+                break
+            }
+            if (lastError != null && responsesAttempt < 2) {
+                kotlinx.coroutines.delay(500L)
+                emit(ChatStreamEvent.Status("Riconnessione Hermes (tentativo ${responsesAttempt + 1})..."))
+            }
         }
-        if (!terminated || sawDelta) {
-            break
+        if (lastError != null && !sawDelta) {
+            Log.w("ChatStream", "Responses API fallback: $lastError")
+            emit(ChatStreamEvent.Status("Responses API non disponibile, fallback rapido a Chat Completions..."))
         }
-        if (lastError != null && responsesAttempt < 3) {
-            kotlinx.coroutines.delay(1000L * (1 shl (responsesAttempt - 1)))
-            emit(ChatStreamEvent.Status("Riconnessione Hermes (tentativo ${responsesAttempt + 1})..."))
-        }
-    }
-    if (lastError != null && !sawDelta) {
-        Log.w("ChatStream", "Responses API fallback: $lastError")
-        emit(ChatStreamEvent.Status("Responses API non disponibile, fallback rapido a Chat Completions..."))
     }
 
     if (!sawDelta) {
-        emit(ChatStreamEvent.Status("Fallback a Hermes Chat Completions..."))
+        emit(ChatStreamEvent.Status("Invio diretto a Hermes Chat Completions..."))
         val payload = JSONObject()
             .put("model", settings.model)
             .put("stream", true)

@@ -13,6 +13,11 @@ internal fun hermesAuthCandidates(apiKey: String?): List<String?> {
     return hermesAuthRetryCandidates(apiKey) + listOf(null)
 }
 
+internal fun shouldUseResponsesFirst(settings: AppSettings, mode: String): Boolean {
+    return settings.preferredApi.equals("openai-responses", ignoreCase = true) &&
+        mode.equals("Agente", ignoreCase = true)
+}
+
 internal fun shouldRetryHermesWithBearerAuth(code: Int, body: String): Boolean {
     if (code != 401) return false
     val normalized = body.lowercase()

@@ -65,7 +65,7 @@ public static class GatewayService
     {
         string? lastError = null;
 
-        if (await SupportsResponsesAsync(settings))
+        if (ShouldUseResponsesFirst(settings, mode) && await SupportsResponsesAsync(settings))
         {
             try
             {
@@ -517,6 +517,12 @@ public static class GatewayService
         {
             return true;
         }
+    }
+
+    internal static bool ShouldUseResponsesFirst(AppSettings settings, string mode)
+    {
+        return string.Equals(settings.PreferredApi, "openai-responses", StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(mode, "Agente", StringComparison.OrdinalIgnoreCase);
     }
 
     public static async Task<string> SendHermesRequestAsync(AppSettings settings, HttpMethod method, string path, string? jsonPayload = null)
