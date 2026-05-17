@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.32 Release Hermes Hub 0.6.32
+v0.6.33 Release Hermes Hub 0.6.33
 ```
 
 ## Regola Memoria
@@ -54,7 +54,7 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.32 (Windows + Android):
+Hermes Hub 0.6.33 (Windows + Android):
 
 Decisione auth client:
 - Hermes Hub usa API key lato app. Default: `hermes-hub`.
@@ -73,6 +73,11 @@ Decisione ingest Video:
 - Windows Video page ora legge automaticamente i file video locali da quella cartella e li mostra come feed/player con UI piu' vicina a YouTube.
 - Feedback video diventa per-file: utente puo' lasciare note rapide/editoriali; app le salva localmente e le invia a Hermes chiedendo di trattarle come memoria editoriale condivisa quando appropriato.
 - Windows e Android sincronizzano automaticamente `Cartella video Hermes` dal server quando Hermes la espone; finche' manca, UI mostra stato "in attesa di sync server".
+
+Decisione media chat:
+- Visual Blocks v1 esteso con `media_file`: Hermes Agent puo' condividere singoli file multimediali in chat (`image`, `video`, `audio`, `document`) tramite proxy sicuro `/v1/media/...`, con `thumbnail_url`, filename, MIME, dimensione e durata quando disponibili.
+- Android e Windows hanno UI dedicata per `media_file`: anteprima immagine/thumbnail, metadata compatti, azione `Apri` e `Copia link`; URL non proxy (`file://`, `data:`, path locali diretti o host non sicuri) vengono rifiutati.
+- Istruzioni/metadata client aggiornati per chiedere all'agente `image_gallery` per gallerie immagini e `media_file` per asset singoli multimediali.
 
 ## Modifiche non rilasciate
 
@@ -412,7 +417,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.32`.
+- Versione app: `0.6.33`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -421,7 +426,7 @@ Windows:
 - Recenti sidebar: letti dallo store locale e aggiornati quando cambia archivio; nessun elemento seed finto.
 - Chat: prova prima Hermes `POST /v1/responses` con `store`, `conversation` e `previous_response_id`; fallback reale `POST /v1/chat/completions`; fallback locale solo se abilitato.
 - Chat/Hermes memory contract: app invia istruzioni e metadata che dichiarano Hermes Hub come client operativo dello stesso Hermes Agent usato dalla CLI. Preferenze stabili, feedback Video/News e regole di lavoro devono usare memoria agente condivisa lato Hermes quando disponibile, non memoria separata solo app. Chat Completions fallback include system message con lo stesso contesto.
-- Visual Blocks v1 implementato lato client: chat puo' ricevere `output_text` autosufficiente + `visual_blocks_version: 1` + blocchi tipizzati statici (`markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `callout`). Contratto in `docs/visual-blocks-schema.md` e schema in `config/visual-blocks.schema.json`.
+- Visual Blocks v1 implementato lato client: chat puo' ricevere `output_text` autosufficiente + `visual_blocks_version: 1` + blocchi tipizzati statici (`markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `media_file`, `callout`). Contratto in `docs/visual-blocks-schema.md` e schema in `config/visual-blocks.schema.json`.
 - Jobs: coda persistente su disco, tentativo reale su Hermes Jobs API (`/api/jobs`), `run`/`pause`/`delete` con sync Hermes se disponibile e fallback locale se no.
 - Server: dashboard Hermes con `/health`, `/health/detailed`, `/v1/models`, `/v1/capabilities`.
 - Runs: pagina dedicata con preset HTTP reali per health, models, capabilities, `POST /v1/runs`, `GET/POST /api/jobs`.
@@ -450,7 +455,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.32`, versionCode `45`.
+- Versione app: `0.6.33`, versionCode `46`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.

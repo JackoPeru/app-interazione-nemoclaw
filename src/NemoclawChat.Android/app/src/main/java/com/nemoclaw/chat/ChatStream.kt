@@ -644,5 +644,6 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
                 .put("max_supported_version", VISUAL_BLOCKS_VERSION)
                 .put("mode", settings.visualBlocksMode)
                 .put("image_gallery", "supported via /v1/media proxy URLs only")
+                .put("media_file", "supported for image/video/audio/document via safe proxy URLs; include media_kind, mime_type, filename, size_bytes, duration_ms, thumbnail_url when known")
         )
 }

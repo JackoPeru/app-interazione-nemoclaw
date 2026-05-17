@@ -26,6 +26,7 @@
         { "$ref": "#/$defs/chart_block" },
         { "$ref": "#/$defs/diagram_block" },
         { "$ref": "#/$defs/image_gallery_block" },
+        { "$ref": "#/$defs/media_file_block" },
         { "$ref": "#/$defs/callout_block" }
       ]
     },
@@ -206,6 +207,30 @@
         "caption": { "$ref": "#/$defs/plain300" }
       },
       "additionalProperties": false
+    },
+    "media_file_block": {
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "required": ["id", "type", "media_url", "media_kind", "alt"],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "type": { "const": "media_file" },
+            "title": { "$ref": "#/$defs/plain120" },
+            "caption": { "$ref": "#/$defs/plain300" },
+            "media_url": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "media_kind": { "enum": ["image", "video", "audio", "document"] },
+            "mime_type": { "type": "string", "maxLength": 120 },
+            "filename": { "type": "string", "maxLength": 160 },
+            "size_bytes": { "type": "integer", "minimum": 0, "maximum": 2147483648 },
+            "duration_ms": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+            "thumbnail_url": { "type": "string", "maxLength": 1000 },
+            "alt": { "type": "string", "minLength": 1, "maxLength": 300 }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "callout_block": {
       "allOf": [

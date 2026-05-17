@@ -870,6 +870,7 @@ public sealed partial class HomePage : Page
             "chart" => RenderChart(block),
             "diagram" => RenderDiagram(block),
             "image_gallery" => RenderGallery(block),
+            "media_file" => RenderMediaFile(block),
             "callout" => RenderCallout(block),
             _ => new TextBlock { Text = block.Caption ?? "Blocco visuale non supportato.", Foreground = (Brush)Application.Current.Resources["MutedTextBrush"] }
         });
@@ -1133,6 +1134,142 @@ public sealed partial class HomePage : Page
         }
 
         return panel;
+    }
+
+    private static UIElement RenderMediaFile(VisualBlockRecord block)
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        var safeMedia = IsSafeMediaUrl(block.MediaUrl);
+        var previewUrl = block.MediaKind == "image" && safeMedia
+            ? block.MediaUrl
+            : IsSafeMediaUrl(block.ThumbnailUrl) ? block.ThumbnailUrl : null;
+
+        if (!string.IsNullOrWhiteSpace(previewUrl))
+        {
+            panel.Children.Add(new Image
+            {
+                Source = CreateBoundedBitmap(ResolveMediaUri(previewUrl), 720),
+                MaxHeight = 260,
+                MaxWidth = 720,
+                Stretch = Stretch.Uniform
+            });
+        }
+
+        var meta = new StackPanel { Spacing = 6 };
+        meta.Children.Add(new TextBlock
+        {
+            Text = FirstNonBlank(block.Filename, block.Title, block.Alt, "Media Hermes"),
+            Foreground = new SolidColorBrush(Colors.White),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.WrapWholeWords
+        });
+        meta.Children.Add(new TextBlock
+        {
+            Text = string.Join(" · ", new[]
+            {
+                FirstNonBlank(block.MediaKind, "media"),
+                block.MimeType,
+                FormatMediaBytes(block.SizeBytes),
+                FormatMediaDuration(block.DurationMs)
+            }.Where(value => !string.IsNullOrWhiteSpace(value))),
+            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
+            FontSize = 12,
+            TextWrapping = TextWrapping.WrapWholeWords
+        });
+
+        if (!safeMedia)
+        {
+            meta.Children.Add(new TextBlock
+            {
+                Text = "media non proxy rifiutato.",
+                Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
+                FontSize = 12,
+                TextWrapping = TextWrapping.WrapWholeWords
+            });
+        }
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var open = new Button
+        {
+            Content = "Apri",
+            IsEnabled = safeMedia,
+            Padding = new Thickness(12, 4, 12, 4)
+        };
+        open.Click += async (_, _) =>
+        {
+            if (block.MediaUrl is { Length: > 0 } value && IsSafeMediaUrl(value))
+            {
+                await Launcher.LaunchUriAsync(ResolveMediaUri(value));
+            }
+        };
+        actions.Children.Add(open);
+
+        var copy = new Button
+        {
+            Content = "Copia link",
+            IsEnabled = safeMedia,
+            Padding = new Thickness(12, 4, 12, 4)
+        };
+        copy.Click += (_, _) =>
+        {
+            if (block.MediaUrl is not { Length: > 0 } value || !IsSafeMediaUrl(value))
+            {
+                return;
+            }
+
+            var package = new DataPackage();
+            package.SetText(ResolveMediaUri(value).ToString());
+            Clipboard.SetContent(package);
+        };
+        actions.Children.Add(copy);
+        meta.Children.Add(actions);
+
+        panel.Children.Add(new Border
+        {
+            Padding = new Thickness(10),
+            Background = (Brush)Application.Current.Resources["ComposerBrush"],
+            CornerRadius = new CornerRadius(10),
+            Child = meta
+        });
+
+        return panel;
+    }
+
+    private static string FirstNonBlank(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+    }
+
+    private static string FormatMediaBytes(long? value)
+    {
+        if (value is null or <= 0)
+        {
+            return string.Empty;
+        }
+
+        var amount = (double)value.Value;
+        string[] units = ["B", "KB", "MB", "GB"];
+        var unit = 0;
+        while (amount >= 1024 && unit < units.Length - 1)
+        {
+            amount /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{value.Value} B" : $"{amount:0.0} {units[unit]}";
+    }
+
+    private static string FormatMediaDuration(long? value)
+    {
+        if (value is null or <= 0)
+        {
+            return string.Empty;
+        }
+
+        var totalSeconds = value.Value / 1000;
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+        return minutes > 0 ? $"{minutes}m {seconds}s" : $"{seconds}s";
     }
 
     private static UIElement RenderCallout(VisualBlockRecord block)

@@ -38,7 +38,7 @@ Hermes Visual Blocks e' il contratto per spiegazioni visuali sicure dentro Herme
   "visual_blocks": {
     "min_supported_version": 1,
     "max_supported_version": 1,
-    "types": ["markdown", "code", "table", "chart", "diagram", "image_gallery", "callout"],
+    "types": ["markdown", "code", "table", "chart", "diagram", "image_gallery", "media_file", "callout"],
     "max_blocks": 20,
     "max_payload_kb": 500,
     "max_table_columns": 12,
@@ -134,6 +134,27 @@ Il client renderizza solo media proxy Hermes `png/jpeg/webp`. Se il media manca 
 
 Solo media proxy Hermes. Max 12 immagini. `alt` obbligatorio.
 
+### media_file
+
+```json
+{
+  "id": "b7",
+  "type": "media_file",
+  "title": "Clip finale",
+  "media_url": "/v1/media/clip-finale.mp4",
+  "media_kind": "video",
+  "mime_type": "video/mp4",
+  "filename": "clip-finale.mp4",
+  "size_bytes": 48234421,
+  "duration_ms": 94000,
+  "thumbnail_url": "/v1/media/clip-finale-thumb.webp",
+  "alt": "Video finale generato da Hermes",
+  "caption": "Pronto per revisione."
+}
+```
+
+Serve per un singolo asset condiviso in chat: `image`, `video`, `audio` o `document`. `media_url` e `thumbnail_url` devono essere proxy Hermes o URL same-host ammessi dal client. Il client mostra preview se possibile e azioni apri/scarica/copia link.
+
 ### callout
 
 ```json
@@ -151,7 +172,7 @@ Ordine raccomandato: structured output con JSON Schema enforcement; tool interno
 I tipi C# e Kotlin devono derivare da `config/visual-blocks.schema.json`. Dopo ogni generazione quicktype va controllato che i discriminator e gli enum restino semanticamente uguali su entrambe le piattaforme:
 
 - discriminator blocchi: `type`;
-- valori `type`: `markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `callout`;
+- valori `type`: `markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `media_file`, `callout`;
 - enum chart: `bar`, `line`;
 - enum callout: `info`, `warning`, `error`, `success`;
 - enum visual mode: `auto`, `always`, `never`.
@@ -168,8 +189,9 @@ Verifica locale:
 
 - No HTML, no JS, no SVG client-side.
 - Diagrammi: Mermaid source + media proxy pre-renderizzato.
-- Client blocca `file://`, `data:`, URL assoluti esterni non proxy.
+- Client blocca `file://`, `data:`, URL assoluti esterni non proxy/same-host.
 - Media proxy controlla content-type, max byte, timeout e redirect limit.
+- Video/audio/documenti vanno esposti come URL scaricabili via Hermes, non come path filesystem locali.
 - Diagram max 500 KB; gallery image default max 2 MB.
 
 ## Golden screenshot

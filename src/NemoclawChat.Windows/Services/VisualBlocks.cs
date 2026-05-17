@@ -86,6 +86,24 @@ public sealed record VisualBlockRecord
     [JsonPropertyName("images")]
     public List<VisualGalleryImage> Images { get; init; } = [];
 
+    [JsonPropertyName("media_url")]
+    public string? MediaUrl { get; init; }
+
+    [JsonPropertyName("media_kind")]
+    public string? MediaKind { get; init; }
+
+    [JsonPropertyName("mime_type")]
+    public string? MimeType { get; init; }
+
+    [JsonPropertyName("size_bytes")]
+    public long? SizeBytes { get; init; }
+
+    [JsonPropertyName("duration_ms")]
+    public long? DurationMs { get; init; }
+
+    [JsonPropertyName("thumbnail_url")]
+    public string? ThumbnailUrl { get; init; }
+
     [JsonPropertyName("variant")]
     public string? Variant { get; init; }
 }
@@ -158,6 +176,7 @@ public static class VisualBlockParser
         "chart",
         "diagram",
         "image_gallery",
+        "media_file",
         "callout"
     };
 
@@ -234,6 +253,9 @@ public static class VisualBlockParser
                          !string.IsNullOrWhiteSpace(block.Alt),
             "image_gallery" => block.Images.Count is > 0 and <= 12 &&
                                block.Images.All(image => !string.IsNullOrWhiteSpace(image.MediaUrl) && !string.IsNullOrWhiteSpace(image.Alt)),
+            "media_file" => block.MediaKind is "image" or "video" or "audio" or "document" &&
+                            !string.IsNullOrWhiteSpace(block.MediaUrl) &&
+                            !string.IsNullOrWhiteSpace(block.Alt),
             "callout" => block.Variant is "info" or "warning" or "error" or "success" &&
                          !string.IsNullOrWhiteSpace(block.Text),
             _ => false
@@ -404,6 +426,21 @@ public static class VisualBlockFixtures
                 [
                     new VisualGalleryImage { MediaUrl = "/v1/media/example.webp", Alt = "Esempio asset da proxy Hermes", Caption = "Placeholder proxy" }
                 ]
+            },
+            new VisualBlockRecord
+            {
+                Id = "fixture-media",
+                Type = "media_file",
+                Title = "File multimediale",
+                MediaUrl = "/v1/media/video-demo.mp4",
+                MediaKind = "video",
+                MimeType = "video/mp4",
+                Filename = "video-demo.mp4",
+                SizeBytes = 1048576,
+                DurationMs = 12000,
+                ThumbnailUrl = "/v1/media/video-demo-thumb.webp",
+                Alt = "Anteprima video demo",
+                Caption = "Video condiviso dall'agente via proxy Hermes"
             },
             new VisualBlockRecord
             {

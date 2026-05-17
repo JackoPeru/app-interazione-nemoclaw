@@ -21,7 +21,7 @@ function Read-Json($Path) {
 $schema = Read-Json $SchemaPath
 $fixture = Read-Json $FixturePath
 
-$expectedTypes = @("markdown", "code", "table", "chart", "diagram", "image_gallery", "callout")
+$expectedTypes = @("markdown", "code", "table", "chart", "diagram", "image_gallery", "media_file", "callout")
 $expectedChartTypes = @("bar", "line")
 $expectedCallouts = @("info", "warning", "error", "success")
 $expectedModes = @("auto", "always", "never")

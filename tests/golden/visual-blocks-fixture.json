@@ -69,6 +69,20 @@
       ]
     },
     {
+      "id": "fixture-media",
+      "type": "media_file",
+      "title": "File multimediale",
+      "media_url": "/v1/media/video-demo.mp4",
+      "media_kind": "video",
+      "mime_type": "video/mp4",
+      "filename": "video-demo.mp4",
+      "size_bytes": 1048576,
+      "duration_ms": 12000,
+      "thumbnail_url": "/v1/media/video-demo-thumb.webp",
+      "alt": "Anteprima video demo",
+      "caption": "Video condiviso dall'agente via proxy Hermes"
+    },
+    {
       "id": "fixture-callout",
       "type": "callout",
       "variant": "info",
@@ -77,4 +91,3 @@
     }
   ]
 }
-

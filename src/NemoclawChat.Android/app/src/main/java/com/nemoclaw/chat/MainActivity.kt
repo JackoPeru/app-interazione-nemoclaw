@@ -236,6 +236,12 @@ data class VisualBlock(
     val sourceFormat: String = "",
     val source: String = "",
     val renderedMediaUrl: String = "",
+    val mediaUrl: String = "",
+    val mediaKind: String = "",
+    val mimeType: String = "",
+    val sizeBytes: Long? = null,
+    val durationMs: Long? = null,
+    val thumbnailUrl: String = "",
     val alt: String = "",
     val layout: String = "",
     val images: List<VisualGalleryImage> = emptyList(),
@@ -1235,6 +1241,7 @@ internal fun VisualBlockView(block: VisualBlock) {
                 "chart" -> ChartBlock(block)
                 "diagram" -> DiagramBlock(block)
                 "image_gallery" -> GalleryBlock(block)
+                "media_file" -> MediaFileBlock(block)
                 "callout" -> CalloutBlock(block)
             }
             if (block.caption.isNotBlank()) {
@@ -1369,6 +1376,101 @@ private fun GalleryBlock(block: VisualBlock) {
 }
 
 @Composable
+private fun MediaFileBlock(block: VisualBlock) {
+    val context = LocalContext.current
+    val settings = remember { loadSettings(context) }
+    val resolvedMediaUrl = remember(settings.gatewayUrl, block.mediaUrl) { resolveMediaUrl(settings, block.mediaUrl) }
+    val previewUrl = remember(settings.gatewayUrl, block.thumbnailUrl) { resolveMediaUrl(settings, block.thumbnailUrl) }
+    val previewSource = when {
+        block.mediaKind == "image" && resolvedMediaUrl != null -> block.mediaUrl
+        previewUrl != null -> block.thumbnailUrl
+        else -> ""
+    }
+    val clipboard = remember(context) { context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager }
+    val canOpen = resolvedMediaUrl != null
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (previewSource.isNotBlank()) {
+            RemoteGalleryImage(
+                settings,
+                VisualGalleryImage(
+                    mediaUrl = previewSource,
+                    alt = block.alt.ifBlank { block.filename.ifBlank { "Media Hermes" } },
+                    caption = ""
+                )
+            )
+        }
+
+        Surface(color = AppColors.Composer, shape = RoundedCornerShape(10.dp)) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = block.filename.ifBlank { block.title.ifBlank { block.alt } },
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = listOf(
+                        block.mediaKind.ifBlank { "media" },
+                        block.mimeType,
+                        formatMediaBytes(block.sizeBytes),
+                        formatMediaDuration(block.durationMs)
+                    ).filter { it.isNotBlank() }.joinToString(" · "),
+                    color = AppColors.Muted,
+                    fontSize = 12.sp
+                )
+                if (!canOpen) {
+                    Text("media non proxy rifiutato.", color = AppColors.Muted, fontSize = 12.sp)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        enabled = canOpen,
+                        onClick = {
+                            val url = resolvedMediaUrl ?: return@Button
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            if (block.mimeType.isNotBlank()) {
+                                intent.setDataAndType(Uri.parse(url), block.mimeType)
+                            }
+                            openAndroidIntent(context, intent)
+                        }
+                    ) { Text("Apri") }
+                    Button(
+                        enabled = canOpen,
+                        onClick = {
+                            val url = resolvedMediaUrl ?: return@Button
+                            clipboard.setPrimaryClip(ClipData.newPlainText("hermes-media-url", url))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Elevated)
+                    ) { Text("Copia link") }
+                }
+            }
+        }
+    }
+}
+
+private fun formatMediaBytes(value: Long?): String {
+    val bytes = value?.takeIf { it > 0 } ?: return ""
+    val units = listOf("B", "KB", "MB", "GB")
+    var amount = bytes.toDouble()
+    var unit = 0
+    while (amount >= 1024.0 && unit < units.lastIndex) {
+        amount /= 1024.0
+        unit++
+    }
+    return if (unit == 0) "${bytes} B" else String.format(java.util.Locale.US, "%.1f %s", amount, units[unit])
+}
+
+private fun formatMediaDuration(value: Long?): String {
+    val millis = value?.takeIf { it > 0 } ?: return ""
+    val totalSeconds = millis / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return if (minutes > 0) "${minutes}m ${seconds}s" else "${seconds}s"
+}
+
+@Composable
 private fun RemoteGalleryImage(settings: AppSettings, image: VisualGalleryImage) {
     val resolved = remember(settings.gatewayUrl, image.mediaUrl) { resolveMediaUrl(settings, image.mediaUrl) }
     if (resolved == null) {
@@ -1398,10 +1500,25 @@ private fun RemoteGalleryImage(settings: AppSettings, image: VisualGalleryImage)
 }
 
 private fun resolveMediaUrl(settings: AppSettings, value: String): String? {
-    if (!isSafeMediaUrl(value)) return null
     return if (value.startsWith("http://", true) || value.startsWith("https://", true)) {
-        value
+        try {
+            val uri = URI(value)
+            val root = URI(hermesRoot(settings))
+            val path = uri.path.orEmpty()
+            if (
+                (uri.scheme == "http" || uri.scheme == "https") &&
+                path.startsWith("/v1/media/") &&
+                uri.host.equals(root.host, ignoreCase = true)
+            ) {
+                value
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
     } else {
+        if (!isSafeMediaUrl(value)) return null
         "${hermesRoot(settings).trimEnd('/')}${if (value.startsWith('/')) value else "/$value"}"
     }
 }
@@ -3082,7 +3199,8 @@ internal fun hermesHubSharedContext(): String {
         - News: feed personale di articoli/briefing con fonti e feedback utente.
         - Jobs/Runs: coda operativa Hermes e lavori programmati.
         - Archivio: storico locale dell'app, non memoria agente principale.
-        Immagini in chat: usa visual_blocks image_gallery con media_url dal proxy Hermes /v1/media/...; vietati file://, data: e URL esterni diretti.
+        File multimediali in chat: usa visual_blocks image_gallery per piu' immagini o media_file per singoli asset image/video/audio/document.
+        media_url e thumbnail_url devono puntare a proxy Hermes/same-host tipo /v1/media/...; vietati file://, data: e path locali diretti.
     """.trimIndent()
 }
 
@@ -3229,6 +3347,7 @@ private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
                 .put("max_supported_version", VISUAL_BLOCKS_VERSION)
                 .put("mode", settings.visualBlocksMode)
                 .put("image_gallery", "supported via /v1/media proxy URLs only")
+                .put("media_file", "supported for image/video/audio/document via safe proxy URLs; include media_kind, mime_type, filename, size_bytes, duration_ms, thumbnail_url when known")
         )
 }
 
@@ -3913,6 +4032,12 @@ private fun readVisualBlock(obj: JSONObject): VisualBlock {
         sourceFormat = obj.optString("source_format"),
         source = obj.optString("source"),
         renderedMediaUrl = obj.optString("rendered_media_url"),
+        mediaUrl = obj.optString("media_url"),
+        mediaKind = obj.optString("media_kind"),
+        mimeType = obj.optString("mime_type"),
+        sizeBytes = obj.optLongOrNull("size_bytes"),
+        durationMs = obj.optLongOrNull("duration_ms"),
+        thumbnailUrl = obj.optString("thumbnail_url"),
         alt = obj.optString("alt"),
         layout = obj.optString("layout"),
         images = readVisualImages(obj.optJSONArray("images") ?: JSONArray()),
@@ -3983,6 +4108,7 @@ internal fun VisualBlock.isValidVisualBlock(): Boolean {
         "chart" -> chartType in setOf("bar", "line") && summary.isNotBlank() && series.isNotEmpty() && series.size <= 8 && series.all { it.points.isNotEmpty() && it.points.size <= 200 }
         "diagram" -> sourceFormat == "mermaid" && source.isNotBlank() && alt.isNotBlank()
         "image_gallery" -> images.isNotEmpty() && images.size <= 12 && images.all { it.mediaUrl.isNotBlank() && it.alt.isNotBlank() }
+        "media_file" -> mediaKind in setOf("image", "video", "audio", "document") && mediaUrl.isNotBlank() && alt.isNotBlank()
         "callout" -> variant in setOf("info", "warning", "error", "success") && text.isNotBlank()
         else -> false
     }
@@ -4073,6 +4199,20 @@ private fun visualBlockFixtures(): List<VisualBlock> {
             images = listOf(VisualGalleryImage("/v1/media/example.webp", "Esempio asset da proxy Hermes", "Placeholder proxy"))
         ),
         VisualBlock(
+            id = "fixture-media",
+            type = "media_file",
+            title = "File multimediale",
+            mediaUrl = "/v1/media/video-demo.mp4",
+            mediaKind = "video",
+            mimeType = "video/mp4",
+            filename = "video-demo.mp4",
+            sizeBytes = 1_048_576,
+            durationMs = 12_000,
+            thumbnailUrl = "/v1/media/video-demo-thumb.webp",
+            alt = "Anteprima video demo",
+            caption = "Video condiviso dall'agente via proxy Hermes"
+        ),
+        VisualBlock(
             id = "fixture-callout",
             type = "callout",
             variant = "info",
@@ -4147,6 +4287,11 @@ private fun JSONObject.extractString(key: String): String? {
 
 private fun JSONObject.extractNestedString(parentKey: String, childKey: String): String? {
     return optJSONObject(parentKey)?.extractString(childKey)
+}
+
+private fun JSONObject.optLongOrNull(key: String): Long? {
+    if (!has(key) || isNull(key)) return null
+    return try { getLong(key) } catch (_: Exception) { null }
 }
 
 private fun buildFallbackReply(settings: AppSettings, mode: String, reason: String): String {
@@ -5015,6 +5160,7 @@ private fun writeVisualBlocks(blocks: List<VisualBlock>): JSONArray {
             "chart" -> obj.put("chart_type", block.chartType).put("x_label", block.xLabel).put("y_label", block.yLabel).put("unit", block.unit).put("summary", block.summary).put("series", JSONArray(block.series.map { series -> JSONObject().put("name", series.name).put("points", JSONArray(series.points.map { point -> JSONObject().put("x", point.x).put("y", point.y) })) }))
             "diagram" -> obj.put("source_format", block.sourceFormat).put("source", block.source).put("rendered_media_url", block.renderedMediaUrl).put("alt", block.alt)
             "image_gallery" -> obj.put("layout", block.layout).put("images", JSONArray(block.images.map { image -> JSONObject().put("media_url", image.mediaUrl).put("alt", image.alt).put("caption", image.caption) }))
+            "media_file" -> obj.put("media_url", block.mediaUrl).put("media_kind", block.mediaKind).put("mime_type", block.mimeType).put("filename", block.filename).put("size_bytes", block.sizeBytes ?: JSONObject.NULL).put("duration_ms", block.durationMs ?: JSONObject.NULL).put("thumbnail_url", block.thumbnailUrl).put("alt", block.alt)
             "callout" -> obj.put("variant", block.variant).put("text", block.text)
         }
         array.put(obj)

@@ -13,7 +13,7 @@ public static class HermesHubProtocol
             - News: feed personale di articoli/briefing con fonti e feedback utente.
             - Jobs/Runs: coda operativa Hermes e lavori programmati.
             - Archivio: storico locale dell'app, non memoria agente principale.
-            Immagini in chat: usa visual_blocks image_gallery con media_url dal proxy Hermes /v1/media/...; vietati file://, data: e URL esterni diretti.
+            File multimediali in chat: usa visual_blocks image_gallery per piu' immagini o media_file per singoli asset image/video/audio/document. media_url e thumbnail_url devono puntare a proxy Hermes/same-host tipo /v1/media/...; vietati file://, data: e path locali diretti.
             """;
 
         if (mode.Equals("Agente", StringComparison.OrdinalIgnoreCase))
@@ -70,7 +70,8 @@ public static class HermesHubProtocol
                 min_supported_version = VisualBlocksContract.Version,
                 max_supported_version = VisualBlocksContract.Version,
                 mode = settings.VisualBlocksMode,
-                image_gallery = "supported via /v1/media proxy URLs only"
+                image_gallery = "supported via /v1/media proxy URLs only",
+                media_file = "supported for image/video/audio/document via safe proxy URLs; include media_kind, mime_type, filename, size_bytes, duration_ms, thumbnail_url when known"
             }
         };
     }

@@ -15,7 +15,7 @@ Client Windows + Android per parlare con Hermes Agent su home-server.
 - Windows WinUI 3: UI dark stile ChatGPT, sidebar, chat, archivio, jobs, Hermes server, runs, settings, profilo e updater.
 - Android Compose: UI mobile dark stile ChatGPT, composer, menu `+`, archivio, jobs, Hermes server, runs, settings, profilo e updater in-app.
 - Chat: `POST /v1/responses` primario con `store`, `conversation`, `previous_response_id`; fallback `POST /v1/chat/completions`.
-- Visual Blocks v1: spiegazioni visuali statiche sicure nella chat (`markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `callout`) con fallback testuale.
+- Visual Blocks v1: spiegazioni visuali statiche sicure nella chat (`markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `media_file`, `callout`) con fallback testuale.
 - Jobs: task persistenti, sync reale su Hermes Jobs API `/api/jobs`, azioni `run`, `pause`, `delete`.
 - Server: dashboard Hermes con `/health`, `/health/detailed`, `/v1/models`, `/v1/capabilities`.
 - Runs: endpoint manuale e preset reali per health, models, capabilities, runs e jobs.
@@ -61,7 +61,7 @@ src/NemoclawChat.Android/app/build/outputs/apk/debug/androidApp-debug.apk
 Versione corrente:
 
 ```text
-v0.6.32
+v0.6.33
 ```
 
 Asset attesi dagli updater:
