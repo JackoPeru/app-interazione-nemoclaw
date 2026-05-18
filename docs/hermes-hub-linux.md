@@ -18,6 +18,8 @@ Provider: lm_studio
 Inference: http://127.0.0.1:1234/v1
 Config: ~/.hermes/config.yaml
 Env: ~/.hermes/.env
+Media roots: $HERMES_TERMINAL_CWD, ~/.hermes/cache, ~/.hermes/media
+Video library: ~/.hermes/media/video
 ```
 
 Il launcher prova a leggere il modello attualmente caricato in LM Studio da `/api/v1/models` e poi `/v1/models`.
@@ -59,6 +61,14 @@ Environment=HERMES_INFERENCE_MODEL=nome-modello-vllm
 
 Il servizio deve esporre sempre `http://SERVER:8642/v1` verso Hermes Hub e usare `API_SERVER_KEY=hermes-hub`, cosi' Android/Windows non cambiano configurazione quando si passa da Windows test a Ubuntu/vLLM.
 
+La sezione Video usa una cartella watched-folder ufficiale esposta da `/health/detailed`:
+
+```text
+video_library_path=~/.hermes/media/video
+```
+
+Quando Hermes crea/scarica/renderizza un video destinato a Hermes Hub, il file finale deve essere salvato dentro `HERMES_VIDEO_LIBRARY_PATH`. Android/Windows sincronizzano quel path da `/health/detailed`; Windows puo' leggere la cartella locale, Android usa metadata e media proxy `/v1/media/...`.
+
 Verifica media proxy:
 
 ```bash
@@ -66,3 +76,11 @@ curl -H "Authorization: Bearer hermes-hub" http://SERVER:8642/v1/capabilities
 ```
 
 Per chat con file multimediali, `features` deve includere `media_proxy`, `media_register` e `visual_blocks_media_file`. Se una build Hermes non li espone ancora, portare la patch gateway usata nei test Windows prima di usare Ubuntu/vLLM in produzione.
+
+Per permettere all'agente di mostrare file locali in Android/Windows, il gateway deve poterli pubblicare tramite proxy `/v1/media/...`. Configura `HERMES_MEDIA_ROOTS` con le cartelle da cui Hermes puo' condividere media. Il launcher Linux usa di default:
+
+```bash
+HERMES_MEDIA_ROOTS="$HERMES_TERMINAL_CWD:$HOME/.hermes/cache:$HOME/.hermes/media:$HOME/.hermes/media/video"
+```
+
+Se l'agente scrive `File: immagine.png` e il file esiste dentro una root media, il gateway deve convertirlo in `visual_blocks media_file` con `media_url=/v1/media/...`, non lasciare path locali nel testo.

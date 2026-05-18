@@ -143,11 +143,7 @@ internal fun HermesActivityExpander(state: StreamingState) {
         }
 
         if (state.toolCalls.isNotEmpty()) {
-            state.toolCalls.forEach { tool ->
-                androidx.compose.runtime.key(tool.id) {
-                    ToolActivityRow(tool)
-                }
-            }
+            ToolGroupExpander(state.toolCalls)
         }
 
         if (active && state.text.isNotBlank()) {
@@ -156,6 +152,56 @@ internal fun HermesActivityExpander(state: StreamingState) {
                 value = activityIndicator(state),
                 shimmer = true
             )
+        }
+    }
+}
+
+@Composable
+internal fun ToolGroupExpander(tools: List<ToolCallState>) {
+    var expanded by remember { mutableStateOf(false) }
+    val pending = tools.count { inferToolOutcome(it) == ToolOutcome.Pending }
+    val failed = tools.count { inferToolOutcome(it) == ToolOutcome.Error }
+    val completed = tools.size - pending - failed
+    val status = when {
+        pending > 0 -> "$pending in corso"
+        failed > 0 -> "$failed falliti"
+        else -> "$completed completati"
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (pending > 0) {
+                ShimmerText("Tool")
+            } else {
+                Text(text = "Tool", color = AppColors.Muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+            Text(text = "${tools.size}", color = AppColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.weight(1f))
+            Text(text = status, color = AppColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Chiudi tool" else "Mostra tool",
+                tint = AppColors.Muted,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier.padding(start = 2.dp, end = 4.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                tools.forEach { tool ->
+                    androidx.compose.runtime.key(tool.id) {
+                        ToolActivityRow(tool)
+                    }
+                }
+            }
         }
     }
 }

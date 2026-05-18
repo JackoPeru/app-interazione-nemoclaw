@@ -9,10 +9,11 @@ public static class HermesHubProtocol
             Hermes Hub non e' un modello separato: deve usare la stessa memoria agente, gli stessi jobs e lo stesso profilo operativo disponibili anche da CLI Hermes.
             Sezioni app:
             - Chat: conversazione principale.
-            - Video: feed personale di video generati su PC/Hermes; il telefono riceve stream_url/download_url, non file locali diretti.
+            - Video: feed personale di video generati su PC/Hermes. Esiste una Video Library ufficiale annunciata dal gateway in video_library_path. Se l'utente chiede di creare, scaricare, montare o preparare un video, salva/registra il file finale in quella cartella, cosi la sezione Video lo vede. Il telefono riceve stream_url/download_url o media proxy, non file locali diretti.
             - News: feed personale di articoli/briefing con fonti e feedback utente.
             - Jobs/Runs: coda operativa Hermes e lavori programmati.
             - Archivio: storico locale dell'app, non memoria agente principale.
+            Video Library: non ignorare la sezione Video. Ogni output video finale destinato all'utente deve finire in video_library_path/HERMES_VIDEO_LIBRARY_PATH e, se lo mostri in chat, anche in visual_blocks media_file con media_url proxy /v1/media/...
             File multimediali in chat: usa visual_blocks image_gallery per piu' immagini o media_file per singoli asset image/video/audio/document. media_url e thumbnail_url devono puntare a proxy Hermes/same-host tipo /v1/media/...; vietati file://, data: e path locali diretti.
             Non scrivere mai markdown MEDIA:[path](file://...) o path Windows/Linux nel testo finale. Se un tool produce un file locale, pubblicalo prima tramite proxy Hermes e restituisci solo /v1/media/... dentro visual_blocks. Se non puoi pubblicarlo, dillo esplicitamente invece di inviare path locali.
             Durante lavori agente lunghi, inoltra eventi realtime per reasoning, tool call, argomenti tool, risultati tool e chiamate modello intermedie quando il gateway li supporta: Hermes Hub deve mostrare all'utente cosa stai facendo.
@@ -56,7 +57,7 @@ public static class HermesHubProtocol
             hub_sections = new
             {
                 chat = "Conversazione principale Hermes Hub.",
-                video = "Feed personale video: Hermes monitora cartella video nota e app desktop mostra automaticamente file video locali con feedback.",
+                video = "Feed personale video: Hermes conosce video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni video creato/scaricato per Matteo deve essere salvato o registrato li, desktop mostra file locali, app salva feedback e metadata.",
                 news = "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.",
                 jobs = "Coda Hermes Jobs condivisa con CLI/server.",
                 runs = "Runs operative Hermes."
@@ -65,7 +66,8 @@ public static class HermesHubProtocol
             {
                 mode = "watched-folder",
                 folder_path = settings.VideoLibraryPath,
-                behavior = "Ogni file video messo in cartella deve apparire nel feed Video desktop."
+                behavior = "Ogni file video messo in cartella deve apparire nel feed Video desktop.",
+                required_behavior = "When the user asks for video creation/download/editing, store the final video file in video_library_path/HERMES_VIDEO_LIBRARY_PATH and expose it through media proxy if referenced in chat."
             },
             activity_stream = new
             {

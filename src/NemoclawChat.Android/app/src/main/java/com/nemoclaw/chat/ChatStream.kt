@@ -884,7 +884,7 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
             "hub_sections",
             JSONObject()
                 .put("chat", "Conversazione principale Hermes Hub.")
-                .put("video", "Feed personale video: Hermes conosce cartella monitorata, desktop mostra file locali, app salva feedback e metadata.")
+                .put("video", "Feed personale video: Hermes conosce video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni video creato/scaricato per Matteo deve essere salvato o registrato li, desktop mostra file locali, app salva feedback e metadata.")
                 .put("news", "Feed personale articoli: Hermes produce articoli con fonti, app salva feedback.")
                 .put("jobs", "Coda Hermes Jobs condivisa con CLI/server.")
                 .put("runs", "Runs operative Hermes.")
@@ -898,6 +898,14 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
                 .put("include_tool_results", true)
                 .put("include_intermediate_model_calls", true)
                 .put("client_requires_realtime_visibility", true)
+        )
+        .put("video_library_path", settings.videoLibraryPath)
+        .put(
+            "video_contract",
+            JSONObject()
+                .put("mode", "watched-folder")
+                .put("library_path", settings.videoLibraryPath)
+                .put("required_behavior", "When the user asks for video creation/download/editing, store the final video file in video_library_path/HERMES_VIDEO_LIBRARY_PATH and expose it through media proxy if referenced in chat.")
         )
         .put(
             "visual_blocks",
