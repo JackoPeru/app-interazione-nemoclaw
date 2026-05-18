@@ -1,6 +1,7 @@
 using System.Net.Http;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using NemoclawChat_Windows.Services;
 
 namespace NemoclawChat_Windows.Pages;
@@ -48,6 +49,39 @@ public sealed partial class ServerPage : Page
             "POST /v1/runs -> crea run agente\n" +
             "GET /api/jobs -> lista jobs\n" +
             "POST /api/jobs -> crea job";
+    }
+
+    private async void RunDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        DiagnosticsPanel.Children.Clear();
+        DiagnosticsPanel.Children.Add(new TextBlock
+        {
+            Text = "Diagnostica in corso...",
+            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
+        });
+        var results = await GatewayService.RunDiagnosticsAsync(_settings);
+        DiagnosticsPanel.Children.Clear();
+        foreach (var item in results)
+        {
+            var border = new Border
+            {
+                Padding = new Thickness(12),
+                CornerRadius = new CornerRadius(10),
+                Background = (Brush)Application.Current.Resources["AssistantBubbleBrush"],
+                Child = new StackPanel
+                {
+                    Spacing = 4,
+                    Children =
+                    {
+                        new TextBlock { Text = $"{(item.Ok ? "OK" : "Errore")} - {item.Label}", Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                        new TextBlock { Text = item.Endpoint, Foreground = (Brush)Application.Current.Resources["MutedTextBrush"], FontSize = 11, TextWrapping = TextWrapping.Wrap },
+                        new TextBlock { Text = item.Message, Foreground = (Brush)Application.Current.Resources["MutedTextBrush"], TextWrapping = TextWrapping.Wrap },
+                        new TextBlock { Text = item.Ok ? string.Empty : $"Azione: {item.Action}", Foreground = (Brush)Application.Current.Resources["AccentGreenBrush"], TextWrapping = TextWrapping.Wrap }
+                    }
+                }
+            };
+            DiagnosticsPanel.Children.Add(border);
+        }
     }
 
     private async Task LoadServerSnapshotAsync()

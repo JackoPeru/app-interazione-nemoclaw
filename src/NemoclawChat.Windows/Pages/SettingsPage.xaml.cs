@@ -26,6 +26,7 @@ public sealed partial class SettingsPage : Page
         InferenceEndpointBox.Text = settings.InferenceEndpoint;
         ModelBox.Text = settings.Model;
         VideoLibraryPathBox.Text = settings.VideoLibraryPath;
+        ActiveProjectNameBox.Text = settings.ActiveProjectName;
         DemoModeSwitch.IsOn = settings.DemoMode;
         SelectComboItem(PreferredApiBox, settings.PreferredApi);
         SelectComboItem(AccessModeBox, settings.AccessMode);
@@ -108,6 +109,8 @@ public sealed partial class SettingsPage : Page
             PreferredApi = SelectedComboText(PreferredApiBox),
             Model = ModelBox.Text.Trim(),
             VideoLibraryPath = VideoLibraryPathBox.Text.Trim(),
+            ActiveProjectId = string.IsNullOrWhiteSpace(ActiveProjectNameBox.Text) ? string.Empty : $"project_{ActiveProjectNameBox.Text.Trim().ToLowerInvariant().Replace(' ', '_')}",
+            ActiveProjectName = ActiveProjectNameBox.Text.Trim(),
             AccessMode = SelectedComboText(AccessModeBox),
             VisualBlocksMode = SelectedComboText(VisualBlocksModeBox),
             DemoMode = DemoModeSwitch.IsOn
@@ -187,5 +190,30 @@ public sealed partial class SettingsPage : Page
                 return;
             }
         }
+    }
+
+    private async void LoadMemory_Click(object sender, RoutedEventArgs e)
+    {
+        MemoryStatusText.Text = "Lettura memoria gateway...";
+        var result = await GatewayService.LoadHubMemoryAsync(ReadSettings());
+        MemoryVideoBox.Text = result.Memory.VideoPreferences;
+        MemoryNewsBox.Text = result.Memory.NewsPreferences;
+        MemoryStyleBox.Text = result.Memory.ResponseStyle;
+        MemoryProjectBox.Text = result.Memory.ProjectRules;
+        MemoryNotesBox.Text = result.Memory.GeneralNotes;
+        MemoryStatusText.Text = result.Status;
+    }
+
+    private async void SaveMemory_Click(object sender, RoutedEventArgs e)
+    {
+        MemoryStatusText.Text = "Salvataggio memoria gateway...";
+        MemoryStatusText.Text = await GatewayService.SaveHubMemoryAsync(
+            ReadSettings(),
+            new HubMemoryState(
+                MemoryVideoBox.Text,
+                MemoryNewsBox.Text,
+                MemoryStyleBox.Text,
+                MemoryProjectBox.Text,
+                MemoryNotesBox.Text));
     }
 }

@@ -11,6 +11,8 @@ public sealed class WorkspaceRequestRecord
     public string Result { get; set; } = string.Empty;
     public string Source { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public string Feedback { get; set; } = string.Empty;
+    public bool IsRead { get; set; } = false;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
 }
 
@@ -83,6 +85,23 @@ public static class WorkspaceRequestStore
         AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(trimmed, JsonOptions));
         lock (_cacheLock) { _cache = trimmed; }
         return record;
+    }
+
+    public static void SaveFeedback(string id, string feedback, string status)
+    {
+        var items = Load();
+        var item = items.FirstOrDefault(candidate => candidate.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        if (item is null)
+        {
+            return;
+        }
+
+        item.Feedback = feedback;
+        item.Status = status;
+        item.IsRead = true;
+        item.UpdatedAt = DateTimeOffset.Now;
+        AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(items, JsonOptions));
+        lock (_cacheLock) { _cache = items; }
     }
 
     private static string MakeTitle(string prompt)

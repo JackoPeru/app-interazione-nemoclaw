@@ -22,6 +22,8 @@ Config: ~/.hermes/config.yaml
 Env: ~/.hermes/.env
 Media roots: $HERMES_TERMINAL_CWD, ~/.hermes/cache, ~/.hermes/media
 Video library: ~/.hermes/media/video
+Hub state: ~/.hermes/hub_state.json
+Hub memory: ~/.hermes/hub_memory.json
 ```
 
 Il launcher prova a leggere il modello attualmente caricato in LM Studio da `/api/v1/models` e poi `/v1/models`.
@@ -80,6 +82,16 @@ curl -H "Authorization: Bearer hermes-hub" http://SERVER:8642/v1/capabilities
 ```
 
 Per chat con file multimediali, `features` deve includere `media_proxy`, `media_register` e `visual_blocks_media_file`. Se una build Hermes non li espone ancora, portare la patch gateway usata nei test Windows prima di usare Ubuntu/vLLM in produzione.
+
+Hermes Hub 0.6.42 richiede anche questi endpoint gateway protetti da `Authorization: Bearer hermes-hub`:
+
+```text
+GET/PATCH /v1/hub/memory
+GET/POST  /v1/hub/state
+DELETE    /v1/hub/state/{state_id}
+```
+
+`/v1/hub/memory` espone i blocchi editabili dall'app: preferenze video, preferenze news, stile risposta, regole progetto e note generali. `/v1/hub/state` e' lo store leggero condiviso Android/Windows per feedback video/news, like/dislike, letto/non letto, progetto attivo e preferenze operative. Il launcher Linux salva di default in `~/.hermes/hub_memory.json` e `~/.hermes/hub_state.json`; puoi sovrascrivere con `HERMES_HUB_MEMORY_PATH` e `HERMES_HUB_STATE_PATH`.
 
 Per permettere all'agente di mostrare file locali in Android/Windows, il gateway deve poterli pubblicare tramite proxy `/v1/media/...`. Configura `HERMES_MEDIA_ROOTS` con le cartelle da cui Hermes puo' condividere media. Il launcher Linux usa di default:
 

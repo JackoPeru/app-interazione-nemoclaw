@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.41 Release Hermes Hub 0.6.41
+v0.6.42 Release Hermes Hub 0.6.42
 ```
 
 ## Regola Memoria
@@ -54,7 +54,7 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.41 (Windows + Android):
+Hermes Hub 0.6.42 (Windows + Android):
 
 Decisione auth client:
 - Hermes Hub usa API key lato app. Default: `hermes-hub`.
@@ -82,6 +82,17 @@ Decisione media chat:
 Terminologia gateway:
 - Il comando `hermes-hub` avvia **Hermes Gateway**: servizio ponte/API server che espone Hermes Agent alle app Hermes Hub Windows/Android e inoltra inferenza a LM Studio nei test o vLLM nel setup finale.
 - La versione Linux/headless deve restare aggiornata e funzionante: `scripts/hermes-hub-linux.sh`, `scripts/hermes-hub-linux.service` e `docs/hermes-hub-linux.md` devono supportare Ubuntu headless + vLLM, con API stabile `http://SERVER:8642/v1` e API key default `hermes-hub`.
+
+Release 0.6.42:
+- Gateway locale: aggiunti endpoint protetti `GET/PATCH /v1/hub/memory`, `GET/POST /v1/hub/state`, `DELETE /v1/hub/state/{id}` con store JSON locale (`hub_memory.json`, `hub_state.json`) e capability `hub_memory`, `hub_state`, `diagnostics`.
+- Linux/headless: helper, service e docs Ubuntu/vLLM aggiornati per `HERMES_HUB_MEMORY_PATH` e `HERMES_HUB_STATE_PATH`, mantenendo API key default `hermes-hub`.
+- Android: player Video passa da `VideoView` a Media3 ExoPlayer con supporto header Authorization; feed Video mantiene thumbnail, like/dislike e feedback.
+- Android/Windows: aggiunta Memoria Hermes editabile da Profilo/Settings con blocchi preferenze video, news, stile risposta, regole progetto e note generali; se gateway non espone endpoint mostra fallback chiaro.
+- Android/Windows: hub state sincronizza feedback video/news, read state news e progetto attivo quando gateway 0.6.42 e' raggiungibile; fallback locale resta attivo se gateway non risponde.
+- Android/Windows: diagnostica Hermes ampliata con health, health detailed, models, capabilities, video library, memory e hub state con messaggio e azione consigliata.
+- Android/Windows: Modalita Progetto base con progetto attivo incluso nei metadata Hermes (`project_id`, `project_name`, `workspace`, memory shared); Windows lo espone in Settings, Android in Profilo.
+- News: Android usa feed card articolo + reader markdown + feedback rapido/scritto; Windows aggiunge selezione articolo e feedback rapido/scritto, senza introdurre `/v1/news/library`.
+- Update: Android e Windows mostrano changelog completo/asset/versioni/cartella update in modo piu' trasparente; nessuna installazione silenziosa.
 
 Release 0.6.41:
 - Android Video: le date dei video nel feed e nel player ora sono timestamp completi `dd/MM/yyyy HH:mm`, invece di etichette relative tipo `oggi`.

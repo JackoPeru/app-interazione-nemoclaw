@@ -99,21 +99,8 @@ public static class AppUpdateService
 
     private static string SummarizeReleaseNotes(string body)
     {
-        foreach (var rawLine in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = rawLine.Trim().TrimStart('-', '*', ' ');
-            if (string.IsNullOrWhiteSpace(line) ||
-                line.StartsWith("Hermes Hub", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith("Verific", StringComparison.OrdinalIgnoreCase) ||
-                line.StartsWith('`'))
-            {
-                continue;
-            }
-
-            return line.Length <= 180 ? line : line[..180].TrimEnd() + "...";
-        }
-
-        return string.Empty;
+        var trimmed = body.Trim();
+        return trimmed.Length <= 4000 ? trimmed : trimmed[..4000].TrimEnd() + "...";
     }
 
     public static FileInfo? FindDownloadedAsset(string version, string? assetName)

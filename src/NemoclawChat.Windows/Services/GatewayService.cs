@@ -32,6 +32,14 @@ public enum TaskCommand
 public sealed record GatewayTaskResult(AgentTaskRecord Task, string Message);
 
 public sealed record WorkspaceRunResult(string Result, string Source, string Status);
+public sealed record HubMemoryState(
+    string VideoPreferences,
+    string NewsPreferences,
+    string ResponseStyle,
+    string ProjectRules,
+    string GeneralNotes);
+
+public sealed record DiagnosticCheckResult(string Label, string Endpoint, bool Ok, string Message, string Action);
 
 public static class GatewayService
 {
@@ -541,6 +549,104 @@ public static class GatewayService
         return $"HTTP {response.StatusCode} {response.ReasonPhrase}: {ExtractHumanError(body)}";
     }
 
+    public static async Task<(HubMemoryState Memory, string Status)> LoadHubMemoryAsync(AppSettings settings)
+    {
+        try
+        {
+            var response = await SendBufferedAsync(token => BuildRequest(HttpMethod.Get, ResolveHermesUri(settings, "/v1/hub/memory"), token));
+            if (!response.IsSuccessStatusCode)
+            {
+                return (new HubMemoryState("", "", "", "", ""), $"Memoria gateway non esposta: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}");
+            }
+
+            using var doc = JsonDocument.Parse(response.Body);
+            var categories = doc.RootElement.TryGetProperty("categories", out var cat) ? cat : default;
+            string Read(string name) => categories.ValueKind == JsonValueKind.Object && categories.TryGetProperty(name, out var value) ? value.GetString() ?? "" : "";
+            return (
+                new HubMemoryState(
+                    Read("video_preferences"),
+                    Read("news_preferences"),
+                    Read("response_style"),
+                    Read("project_rules"),
+                    Read("general_notes")),
+                "Memoria caricata da gateway.");
+        }
+        catch (Exception ex)
+        {
+            return (new HubMemoryState("", "", "", "", ""), $"Memoria gateway non esposta: {ex.Message}");
+        }
+    }
+
+    public static async Task<string> SaveHubMemoryAsync(AppSettings settings, HubMemoryState memory)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            categories = new
+            {
+                video_preferences = memory.VideoPreferences,
+                news_preferences = memory.NewsPreferences,
+                response_style = memory.ResponseStyle,
+                project_rules = memory.ProjectRules,
+                general_notes = memory.GeneralNotes
+            }
+        });
+        var response = await SendBufferedAsync(token => BuildJsonRequest(HttpMethod.Patch, ResolveHermesUri(settings, "/v1/hub/memory"), payload, token));
+        return response.IsSuccessStatusCode
+            ? "Memoria salvata sul gateway."
+            : $"Memoria gateway non esposta: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}";
+    }
+
+    public static async Task<string> SaveHubStateAsync(AppSettings settings, string kind, string entityId, object payload)
+    {
+        var body = JsonSerializer.Serialize(new
+        {
+            kind,
+            entity_id = entityId,
+            project_id = settings.ActiveProjectId,
+            project_name = settings.ActiveProjectName,
+            payload
+        });
+        var response = await SendBufferedAsync(token => BuildJsonRequest(HttpMethod.Post, ResolveHermesUri(settings, "/v1/hub/state"), body, token));
+        return response.IsSuccessStatusCode
+            ? "Sincronizzato con Hub State."
+            : $"Hub State non disponibile: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}";
+    }
+
+    public static async Task<IReadOnlyList<DiagnosticCheckResult>> RunDiagnosticsAsync(AppSettings settings)
+    {
+        var checks = new (string Label, string Path, string Action)[]
+        {
+            ("Tailscale/API", "/health", "Avvia Tailscale e hermes-hub, verifica IP/porta 8642."),
+            ("Health dettagliata", "/health/detailed", "Controlla log gateway."),
+            ("Modelli", "/v1/models", "Controlla LM Studio/vLLM e modello caricato."),
+            ("Capabilities", "/v1/capabilities", "Controlla API key e versione gateway."),
+            ("Video library", "/v1/video/library", "Imposta HERMES_VIDEO_LIBRARY_PATH e riavvia gateway."),
+            ("Memoria", "/v1/hub/memory", "Aggiorna Hermes Gateway alla build 0.6.42 o riavvia hermes-hub."),
+            ("Hub state", "/v1/hub/state", "Aggiorna Hermes Gateway alla build 0.6.42 o riavvia hermes-hub."),
+        };
+        var list = new List<DiagnosticCheckResult>();
+        foreach (var check in checks)
+        {
+            var endpoint = ResolveHermesUri(settings, check.Path);
+            try
+            {
+                var response = await SendBufferedAsync(token => BuildRequest(HttpMethod.Get, endpoint, token));
+                var ok = response.IsSuccessStatusCode;
+                list.Add(new DiagnosticCheckResult(
+                    check.Label,
+                    endpoint,
+                    ok,
+                    ok ? Truncate(response.Body, 220) : $"HTTP {response.StatusCode}: {ExtractHumanError(response.Body)}",
+                    check.Action));
+            }
+            catch (Exception ex)
+            {
+                list.Add(new DiagnosticCheckResult(check.Label, endpoint, false, ex.Message, check.Action));
+            }
+        }
+        return list;
+    }
+
     public static string HermesRoot(AppSettings settings)
     {
         var api = settings.GatewayUrl.TrimEnd('/');
@@ -566,6 +672,16 @@ public static class GatewayService
         }
 
         return $"{settings.GatewayUrl.TrimEnd('/')}{normalizedPath}";
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return value.Length <= maxLength ? value : value[..maxLength] + "...";
     }
 
     internal static IEnumerable<string?> BuildHermesAuthCandidates()

@@ -130,6 +130,13 @@ public sealed partial class VideoPage : Page
         try
         {
             var settings = AppSettingsStore.Load();
+            await GatewayService.SaveHubStateAsync(settings, "video_feedback", _selectedVideo.Path, new
+            {
+                title = _selectedVideo.Title,
+                path = _selectedVideo.Path,
+                feedback,
+                reaction = "written"
+            });
             var prompt = $$"""
                 Feedback editoriale su video in cartella monitorata Hermes Hub.
                 Cartella video: {{VideoLibraryService.EnsureLibraryPath(settings)}}

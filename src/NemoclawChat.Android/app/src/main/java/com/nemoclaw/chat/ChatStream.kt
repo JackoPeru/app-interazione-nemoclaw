@@ -898,6 +898,9 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
         .put("client", "hermes-hub")
         .put("client_surface", "android-app")
         .put("profile", "Matteo")
+        .put("project_id", settings.activeProjectId)
+        .put("project_name", settings.activeProjectName)
+        .put("workspace", settings.activeProjectName.ifBlank { "default" })
         .put(
             "memory_policy",
             JSONObject()

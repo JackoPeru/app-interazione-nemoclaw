@@ -102,6 +102,11 @@
                             FontSize="13"
                             TextWrapping="Wrap"
                             Visibility="Collapsed" />
+                        <TextBlock
+                            x:Name="UpdateDetailText"
+                            Foreground="{StaticResource MutedTextBrush}"
+                            FontSize="12"
+                            TextWrapping="Wrap" />
                         <ProgressBar
                             x:Name="UpdateProgressBar"
                             Height="8"

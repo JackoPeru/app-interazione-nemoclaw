@@ -45,7 +45,9 @@ public static class HermesHubProtocol
             client = "hermes-hub",
             client_surface = "windows-app",
             profile = "Matteo",
-            workspace,
+            project_id = settings.ActiveProjectId,
+            project_name = settings.ActiveProjectName,
+            workspace = workspace ?? (string.IsNullOrWhiteSpace(settings.ActiveProjectName) ? "default" : settings.ActiveProjectName),
             source,
             memory_policy = new
             {

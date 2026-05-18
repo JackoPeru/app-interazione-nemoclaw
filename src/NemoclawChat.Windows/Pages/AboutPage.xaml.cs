@@ -35,13 +35,18 @@ public sealed partial class AboutPage : Page
         InstallUpdateButton.IsEnabled = false;
         UpdateSummaryText.Visibility = Visibility.Collapsed;
         UpdateSummaryText.Text = string.Empty;
+        UpdateDetailText.Text = string.Empty;
         _downloadedAssetPath = null;
 
         _lastUpdateResult = await AppUpdateService.CheckAsync(CurrentVersion);
         UpdateStatusText.Text = _lastUpdateResult.Message;
+        UpdateDetailText.Text =
+            $"Release: {_lastUpdateResult.ReleaseUrl}\n" +
+            $"Asset: {_lastUpdateResult.AssetName ?? "nessun asset selezionato"}\n" +
+            $"Cartella update: %LOCALAPPDATA%\\ChatClaw\\updates";
         if (!string.IsNullOrWhiteSpace(_lastUpdateResult.ReleaseSummary))
         {
-            UpdateSummaryText.Text = $"Novita': {_lastUpdateResult.ReleaseSummary}";
+            UpdateSummaryText.Text = $"Changelog:\n{_lastUpdateResult.ReleaseSummary}";
             UpdateSummaryText.Visibility = Visibility.Visible;
         }
 
@@ -54,6 +59,7 @@ public sealed partial class AboutPage : Page
         if (downloaded is not null)
         {
             _downloadedAssetPath = downloaded.FullName;
+            UpdateDetailText.Text += $"\nAsset scaricato: {_downloadedAssetPath}";
             InstallUpdateButton.Visibility = Visibility.Visible;
             InstallUpdateButton.IsEnabled = true;
             UpdateStatusText.Text = $"{_lastUpdateResult.Message} Asset gia' scaricato.";

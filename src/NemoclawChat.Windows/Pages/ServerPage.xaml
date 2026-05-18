@@ -126,6 +126,20 @@
                         </Border>
                     </StackPanel>
                 </Border>
+
+                <Border
+                    Padding="22"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="#FF3A3A3A"
+                    BorderThickness="1"
+                    CornerRadius="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Diagnostica gateway" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12" Text="Controlla health, key, modelli, capabilities, media, video library, memoria e hub state." TextWrapping="Wrap" />
+                        <Button Click="RunDiagnostics_Click" Content="Esegui diagnostica" />
+                        <StackPanel x:Name="DiagnosticsPanel" Spacing="10" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </Grid>
     </ScrollViewer>

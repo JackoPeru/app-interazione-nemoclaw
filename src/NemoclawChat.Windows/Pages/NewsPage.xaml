@@ -63,14 +63,18 @@
 
                 <Border Grid.Column="1" Style="{StaticResource PremiumCardBorderStyle}">
                     <StackPanel Spacing="12">
-                        <TextBlock
-                            FontWeight="SemiBold"
-                            Foreground="White"
-                            Text="Pipeline futura" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="1. Argomenti e priorita" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="2. Fonti e filtri" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="3. Sintesi con citazioni" />
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="4. Automazioni e notifiche quando Hermes supportera' schedulazione news" />
+                        <TextBlock FontWeight="SemiBold" Foreground="White" Text="Feedback articolo" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Apri un articolo recente, poi lascia feedback rapido o scritto. Hermes lo usa per migliorare i prossimi briefing." TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Click="QuickNewsFeedback_Click" Tag="utile" Content="Utile" />
+                            <Button Click="QuickNewsFeedback_Click" Tag="non utile" Content="Non utile" />
+                            <Button Click="QuickNewsFeedback_Click" Tag="piu' fonti verificabili" Content="Piu' fonti" />
+                            <Button Click="QuickNewsFeedback_Click" Tag="piu' breve" Content="Piu' breve" />
+                            <Button Click="QuickNewsFeedback_Click" Tag="piu' profondo" Content="Piu' profondo" />
+                            <Button Click="QuickNewsFeedback_Click" Tag="tono piu' diretto" Content="Tono" />
+                        </StackPanel>
+                        <TextBox x:Name="NewsFeedbackBox" Header="Feedback scritto" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="110" />
+                        <Button x:Name="NewsFeedbackButton" Click="SendNewsFeedback_Click" Content="Invia feedback" HorizontalAlignment="Left" />
                     </StackPanel>
                 </Border>
             </Grid>

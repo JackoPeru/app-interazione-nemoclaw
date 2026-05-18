@@ -16,8 +16,6 @@ import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -107,6 +105,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -149,6 +148,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.PlayerView
 import com.nemoclaw.chat.ui.theme.ChatClawTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -380,8 +385,32 @@ data class AppSettings(
     val accessMode: String = AppDefaults.accessMode,
     val visualBlocksMode: String = AppDefaults.visualBlocksMode,
     val videoLibraryPath: String = AppDefaults.videoLibraryPath,
+    val activeProjectId: String = AppDefaults.activeProjectId,
+    val activeProjectName: String = AppDefaults.activeProjectName,
     val fontScale: Float = AppDefaults.fontScale,
     val demoMode: Boolean = AppDefaults.demoMode
+)
+
+private data class HubMemoryState(
+    val videoPreferences: String = "",
+    val newsPreferences: String = "",
+    val responseStyle: String = "",
+    val projectRules: String = "",
+    val generalNotes: String = ""
+)
+
+private data class ProjectRecord(
+    val id: String,
+    val name: String,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+private data class DiagnosticCheck(
+    val label: String,
+    val endpoint: String,
+    val ok: Boolean,
+    val message: String,
+    val action: String
 )
 
 private data class GatewayChatResult(
@@ -579,7 +608,10 @@ private fun ChatApp() {
                             }
                         }
                     )
-                    Tab.Profile -> ProfileScreen(context, settings)
+                    Tab.Profile -> ProfileScreen(context, settings) { updated ->
+                        settings = updated
+                        saveSettings(context, updated)
+                    }
                 }
                 if (sidebarOpen) {
                     Box(
@@ -2271,6 +2303,18 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                         }) {
                             Text("Server")
                         }
+                        Button(onClick = {
+                            status = "Sincronizzo Jobs Hermes..."
+                            scope.launch {
+                                val result = syncRemoteTasks(settings, loadGatewaySecret(context))
+                                tasks.clear()
+                                tasks.addAll(result.first)
+                                saveTasks(context, tasks)
+                                status = result.second
+                            }
+                        }) {
+                            Text("Sincronizza")
+                        }
                     }
                     Text(status, color = AppColors.Muted)
                 }
@@ -2369,9 +2413,11 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
             )
         )
     }
+    var diagnostics by remember { mutableStateOf<List<DiagnosticCheck>>(emptyList()) }
 
     LaunchedEffect(settings) {
         snapshot = loadServerSnapshot(context, settings, loadGatewaySecret(context))
+        diagnostics = runDiagnostics(settings, loadGatewaySecret(context))
     }
 
     LazyColumn(
@@ -2429,6 +2475,7 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
                         Button(onClick = {
                             scope.launch {
                                 snapshot = loadServerSnapshot(context, settings, loadGatewaySecret(context))
+                                diagnostics = runDiagnostics(settings, loadGatewaySecret(context))
                             }
                         }) {
                             Text("Aggiorna stato")
@@ -2437,6 +2484,27 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
                             snapshot = snapshot.copy(statusMessage = "Contratto Hermes: GET /health, GET /health/detailed, GET /v1/models, GET /v1/capabilities, POST /v1/responses, POST /v1/chat/completions, POST /v1/runs, GET/POST /api/jobs.")
                         }) {
                             Text("Mostra API")
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Diagnostica gateway", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    if (diagnostics.isEmpty()) {
+                        Text("Nessuna diagnostica eseguita.", color = AppColors.Muted)
+                    } else {
+                        diagnostics.forEach { check ->
+                            Surface(color = AppColors.Panel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, if (check.ok) AppColors.Accent.copy(alpha = 0.55f) else Color(0xFF8A3A3A))) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("${if (check.ok) "OK" else "Errore"} - ${check.label}", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text(check.endpoint, color = AppColors.Faint, fontSize = 11.sp)
+                                    Text(check.message, color = AppColors.Muted, fontSize = 12.sp)
+                                    if (!check.ok) Text("Azione: ${check.action}", color = AppColors.Accent, fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
                 }
@@ -2824,10 +2892,26 @@ private fun VideoThumbnail(settings: AppSettings, item: VideoLibraryItem, apiKey
 }
 
 @Composable
+@androidx.annotation.OptIn(UnstableApi::class)
 private fun VideoWatchScreen(context: Context, settings: AppSettings, item: VideoLibraryItem, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val apiKey = remember { loadGatewaySecret(context) }
     val videoUrl = remember(settings.gatewayUrl, item.mediaUrl) { resolveWorkspaceUrl(settings, item.mediaUrl) }
+    val player = remember(videoUrl, apiKey) {
+        val dataSourceFactory = DefaultHttpDataSource.Factory()
+            .setDefaultRequestProperties(authHeaders(apiKey))
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .build()
+            .apply {
+                setMediaItem(MediaItem.fromUri(Uri.parse(videoUrl)))
+                prepare()
+                playWhenReady = true
+            }
+    }
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
     var feedback by remember(item.id) { mutableStateOf(loadVideoFeedback(context, item.id)) }
     var reaction by remember(item.id) { mutableStateOf(loadVideoReaction(context, item.id)) }
     var status by remember(item.id) { mutableStateOf("Lascia feedback: Hermes lo usera' come memoria editoriale per i prossimi video.") }
@@ -2847,22 +2931,13 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
                     .aspectRatio(16f / 9f)
                     .background(Color.Black),
                 factory = { viewContext ->
-                    VideoView(viewContext).apply {
-                        val controller = MediaController(viewContext)
-                        controller.setAnchorView(this)
-                        setMediaController(controller)
+                    PlayerView(viewContext).apply {
+                        useController = true
+                        this.player = player
                     }
                 },
                 update = { view ->
-                    if (view.tag != videoUrl) {
-                        view.tag = videoUrl
-                        val headers = authHeaders(apiKey)
-                        if (headers.isEmpty()) view.setVideoURI(Uri.parse(videoUrl)) else view.setVideoURI(Uri.parse(videoUrl), headers)
-                        view.setOnPreparedListener { player ->
-                            player.isLooping = false
-                            view.start()
-                        }
-                    }
+                    view.player = player
                 }
             )
         }
@@ -2949,16 +3024,193 @@ private fun VideoReactionButton(label: String, icon: ImageVector, selected: Bool
 
 @Composable
 private fun NewsScreen(context: Context, settings: AppSettings, onOpenChatPrompt: (String) -> Unit) {
-    WorkspaceFeedScreen(
-        context = context,
-        settings = settings,
-        kind = "News",
-        title = "News",
-        description = "Giornale personale: articoli e briefing prodotti da Hermes con fonti, priorita e feedback.",
-        empty = "Nessun articolo ancora. Crea lo spunto dalla chat primaria o programma un job Hermes.",
-        chatPrompt = "Crea un articolo per la sezione News di Hermes Hub: ",
-        onOpenChatPrompt = onOpenChatPrompt
-    )
+    val scope = rememberCoroutineScope()
+    var refreshKey by remember { mutableStateOf(0) }
+    var status by remember { mutableStateOf("Giornale Hermes pronto.") }
+    var selectedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
+    var newsFilter by rememberSaveable { mutableStateOf("Tutti") }
+    val articles = remember(refreshKey) { loadWorkspaceRequests(context, "News") }
+    val selectedArticle = remember(articles, selectedArticleId) { articles.firstOrNull { it.id == selectedArticleId } }
+    val displayedArticles = remember(articles, newsFilter) {
+        when (newsFilter) {
+            "Recenti" -> articles.sortedByDescending { it.updatedAt }
+            "Feedback" -> articles.filter { it.feedback.isNotBlank() }
+            else -> articles
+        }
+    }
+
+    if (selectedArticle != null) {
+        BackHandler { selectedArticleId = null }
+        NewsArticleScreen(
+            context = context,
+            settings = settings,
+            article = selectedArticle,
+            onBack = { selectedArticleId = null },
+            onChanged = {
+                refreshKey++
+                status = it
+            }
+        )
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp),
+        contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Hermes News", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { onOpenChatPrompt("Crea un articolo per la sezione News di Hermes Hub: ") }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Nuovo articolo", tint = Color.White)
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                VideoFeedChip("Tutti", selected = newsFilter == "Tutti") { newsFilter = "Tutti" }
+                VideoFeedChip("Recenti", selected = newsFilter == "Recenti") { newsFilter = "Recenti" }
+                VideoFeedChip("Feedback", selected = newsFilter == "Feedback") { newsFilter = "Feedback" }
+                VideoFeedChip("Sincronizza") {
+                    status = "Sincronizzo articoli Hermes..."
+                    scope.launch {
+                        status = syncWorkspaceJobs(context, settings, "News", loadGatewaySecret(context))
+                        refreshKey++
+                    }
+                }
+            }
+        }
+        item {
+            Text(status, color = AppColors.Faint, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (displayedArticles.isEmpty()) {
+            item {
+                Surface(color = AppColors.Panel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AppColors.Border)) {
+                    Text(
+                        modifier = Modifier.padding(16.dp),
+                        text = if (articles.isEmpty()) {
+                            "Nessun articolo ancora. Tocca + per chiedere a Hermes di crearne uno o sincronizza i Jobs."
+                        } else {
+                            "Nessun articolo con feedback salvato."
+                        },
+                        color = AppColors.Muted
+                    )
+                }
+            }
+        }
+        items(displayedArticles, key = { it.id }) { article ->
+            NewsArticleCard(article = article, onClick = { selectedArticleId = article.id })
+        }
+    }
+}
+
+@Composable
+private fun NewsArticleCard(article: WorkspaceRequest, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        color = AppColors.Panel,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, AppColors.Border)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = AppColors.Accent.copy(alpha = 0.18f)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.AutoMirrored.Rounded.Article, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(22.dp))
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        article.title,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 18.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "${article.source} - ${article.status} - ${formatVideoTimestamp(article.updatedAt)}",
+                        color = AppColors.Muted,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            val preview = article.result.ifBlank { article.prompt }.limitText(420)
+            MarkdownText(preview, color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
+            if (article.feedback.isNotBlank()) {
+                Text("Feedback salvato", color = AppColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NewsArticleScreen(
+    context: Context,
+    settings: AppSettings,
+    article: WorkspaceRequest,
+    onBack: () -> Unit,
+    onChanged: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var feedback by remember(article.id) { mutableStateOf(article.feedback) }
+    var status by remember(article.id) { mutableStateOf("Lascia feedback: Hermes lo usera' per migliorare articoli e briefing futuri.") }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onBack) { Text("Indietro") }
+            }
+        }
+        item {
+            Column(modifier = Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(article.title, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "${article.source} - ${article.status} - ${formatVideoTimestamp(article.updatedAt)}",
+                    color = AppColors.Muted,
+                    fontSize = 13.sp
+                )
+                Text(status, color = AppColors.Faint, fontSize = 12.sp)
+                HorizontalDivider(color = AppColors.Border)
+                MarkdownText(article.result.ifBlank { article.prompt }, color = Color.White, fontSize = 16.sp)
+                HorizontalDivider(color = AppColors.Border)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VideoFeedChip("Piu' fonti") { feedback = appendFeedbackSnippet(feedback, "Aggiungi piu' fonti verificabili") }
+                    VideoFeedChip("Piu' breve") { feedback = appendFeedbackSnippet(feedback, "Sintesi piu' breve e densa") }
+                    VideoFeedChip("Piu' profondo") { feedback = appendFeedbackSnippet(feedback, "Analisi piu' profonda e meno superficiale") }
+                    VideoFeedChip("Tono") { feedback = appendFeedbackSnippet(feedback, "Tono piu' chiaro, diretto e operativo") }
+                }
+                SettingsField("Feedback per Hermes", feedback, { feedback = it })
+                Button(onClick = {
+                    if (feedback.isBlank()) {
+                        status = "Scrivi feedback prima di inviare."
+                        return@Button
+                    }
+                    status = "Invio feedback a Hermes..."
+                    scope.launch {
+                        val result = sendWorkspaceFeedback(settings, article, feedback, loadGatewaySecret(context))
+                        saveWorkspaceFeedback(context, article.id, feedback, result)
+                        status = result
+                        onChanged(result)
+                    }
+                }) { Text("Invia feedback") }
+            }
+        }
+    }
 }
 
 @Composable
@@ -3093,11 +3345,22 @@ private fun runOperatorRpc(
 }
 
 @Composable
-private fun ProfileScreen(context: Context, settings: AppSettings) {
+private fun ProfileScreen(context: Context, settings: AppSettings, onSettingsChanged: (AppSettings) -> Unit) {
     val scope = rememberCoroutineScope()
     val conversations = remember { loadConversations(context) }
     val version = remember { appVersion(context) }
     var updateState by remember { mutableStateOf(UpdateDownloadState()) }
+    var memory by remember { mutableStateOf(HubMemoryState()) }
+    var memoryStatus by remember { mutableStateOf("Memoria gateway non ancora letta.") }
+    var projects by remember { mutableStateOf(loadProjects(context)) }
+    var projectName by remember { mutableStateOf("") }
+    var activeProjectId by remember(settings.activeProjectId) { mutableStateOf(settings.activeProjectId) }
+
+    LaunchedEffect(settings.gatewayUrl) {
+        val loaded = loadHubMemory(settings, loadGatewaySecret(context))
+        memory = loaded.first
+        memoryStatus = loaded.second
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -3147,11 +3410,79 @@ private fun ProfileScreen(context: Context, settings: AppSettings) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Progetto attivo", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(if (activeProjectId.isBlank()) "Nessun progetto selezionato." else "Attivo: ${projects.firstOrNull { it.id == activeProjectId }?.name ?: settings.activeProjectName}", color = AppColors.Muted)
+                    SettingsField("Nuovo progetto", projectName, { projectName = it })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            val name = projectName.trim()
+                            if (name.isBlank()) return@Button
+                            val project = ProjectRecord("project_${System.currentTimeMillis()}", name)
+                            projects = (listOf(project) + projects).distinctBy { it.id }.take(50)
+                            saveProjects(context, projects)
+                            activeProjectId = project.id
+                            projectName = ""
+                            val updated = settings.copy(activeProjectId = project.id, activeProjectName = project.name)
+                            onSettingsChanged(updated)
+                            scope.launch { postHubState(settings, "project_active", project.id, JSONObject().put("name", project.name), loadGatewaySecret(context)) }
+                        }) { Text("Crea e attiva") }
+                        Button(onClick = {
+                            activeProjectId = ""
+                            val updated = settings.copy(activeProjectId = "", activeProjectName = "")
+                            onSettingsChanged(updated)
+                            scope.launch { postHubState(settings, "project_active", "none", JSONObject().put("name", ""), loadGatewaySecret(context)) }
+                        }) { Text("Nessuno") }
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        projects.forEach { project ->
+                            VideoFeedChip(project.name, selected = project.id == activeProjectId) {
+                                activeProjectId = project.id
+                                val updated = settings.copy(activeProjectId = project.id, activeProjectName = project.name)
+                                onSettingsChanged(updated)
+                                scope.launch { postHubState(settings, "project_active", project.id, JSONObject().put("name", project.name), loadGatewaySecret(context)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Memoria Hermes", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(memoryStatus, color = AppColors.Muted, fontSize = 12.sp)
+                    SettingsField("Preferenze video", memory.videoPreferences, { memory = memory.copy(videoPreferences = it) })
+                    SettingsField("Preferenze news", memory.newsPreferences, { memory = memory.copy(newsPreferences = it) })
+                    SettingsField("Stile risposta", memory.responseStyle, { memory = memory.copy(responseStyle = it) })
+                    SettingsField("Regole progetto", memory.projectRules, { memory = memory.copy(projectRules = it) })
+                    SettingsField("Note generali", memory.generalNotes, { memory = memory.copy(generalNotes = it) })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            memoryStatus = "Salvo memoria gateway..."
+                            scope.launch {
+                                memoryStatus = saveHubMemory(settings, memory, loadGatewaySecret(context))
+                            }
+                        }) { Text("Salva memoria") }
+                        Button(onClick = {
+                            memory = HubMemoryState()
+                            memoryStatus = "Contenuti locali svuotati. Premi Salva memoria per cancellare sul gateway."
+                        }) { Text("Svuota") }
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Aggiornamenti", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Installata: $version", color = AppColors.Muted, fontSize = 12.sp)
+                    updateState.latestVersion?.let { Text("Latest: $it", color = AppColors.Muted, fontSize = 12.sp) }
+                    updateState.releaseAssetUrl?.let { Text("Asset: ${it.substringAfterLast('/')}", color = AppColors.Muted, fontSize = 12.sp) }
+                    updateState.downloadedApkPath?.let { Text("APK pronto: $it", color = AppColors.Muted, fontSize = 12.sp) }
                     Text(updateState.status, color = AppColors.Muted)
                     if (updateState.releaseSummary.isNotBlank()) {
                         Text(
-                            "Novita': ${updateState.releaseSummary}",
+                            "Changelog:\n${updateState.releaseSummary}",
                             color = Color.White,
                             fontSize = 13.sp
                         )
@@ -3305,6 +3636,8 @@ private fun SettingsScreen(
             accessMode = accessMode.trim(),
             visualBlocksMode = visualBlocksMode.trim(),
             videoLibraryPath = videoLibraryPath.trim(),
+            activeProjectId = settings.activeProjectId,
+            activeProjectName = settings.activeProjectName,
             fontScale = scale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
             demoMode = demoMode
         )
@@ -3756,6 +4089,9 @@ private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
         .put("client", "hermes-hub")
         .put("client_surface", "android-app")
         .put("profile", "Matteo")
+        .put("project_id", settings.activeProjectId)
+        .put("project_name", settings.activeProjectName)
+        .put("workspace", settings.activeProjectName.ifBlank { "default" })
         .put(
             "memory_policy",
             JSONObject()
@@ -4343,6 +4679,124 @@ private fun executeJsonRequest(url: String, payload: JSONObject, method: String,
     }
 }
 
+private suspend fun runDiagnostics(settings: AppSettings, apiKey: String?): List<DiagnosticCheck> = withContext(Dispatchers.IO) {
+    val checks = listOf(
+        "Tailscale/API" to "/health",
+        "Health dettagliata" to "/health/detailed",
+        "Modelli" to "/v1/models",
+        "Capabilities" to "/v1/capabilities",
+        "Media proxy" to "/v1/media/not-a-real-media-id",
+        "Video library" to "/v1/video/library",
+        "Memoria" to "/v1/hub/memory",
+        "Hub state" to "/v1/hub/state"
+    )
+    checks.map { (label, path) ->
+        val endpoint = resolveHermesUrl(settings, path)
+        try {
+            val response = executeHttpGet(endpoint, hermesAuthCandidates(apiKey).firstOrNull())
+            val ok = when (path) {
+                "/v1/media/not-a-real-media-id" -> response.first == 404 || response.second.contains("media_not_found")
+                else -> response.first in 200..299
+            }
+            DiagnosticCheck(
+                label = label,
+                endpoint = endpoint,
+                ok = ok,
+                message = if (ok) response.second.limitText(180) else "HTTP ${response.first}: ${extractHumanError(response.second)}",
+                action = when (label) {
+                    "Tailscale/API" -> "Avvia Tailscale e hermes-hub, verifica IP/porta 8642."
+                    "Memoria" -> "Aggiorna Hermes Gateway alla build 0.6.42 o riavvia hermes-hub."
+                    "Hub state" -> "Aggiorna Hermes Gateway alla build 0.6.42 o riavvia hermes-hub."
+                    "Video library" -> "Imposta HERMES_VIDEO_LIBRARY_PATH e riavvia gateway."
+                    else -> "Controlla API key, gateway URL e log del terminale hermes-hub."
+                }
+            )
+        } catch (ex: Exception) {
+            DiagnosticCheck(label, endpoint, false, ex.message ?: ex.javaClass.simpleName, "Controlla rete, Tailscale, API key e processo hermes-hub.")
+        }
+    }
+}
+
+private suspend fun loadHubMemory(settings: AppSettings, apiKey: String?): Pair<HubMemoryState, String> = withContext(Dispatchers.IO) {
+    try {
+        val body = httpGet(resolveHermesUrl(settings, "/v1/hub/memory"), apiKey)
+        val root = JSONObject(body)
+        if (root.has("error")) return@withContext HubMemoryState() to "Memoria gateway non esposta: ${extractHumanError(body)}"
+        val categories = root.optJSONObject("categories") ?: JSONObject()
+        HubMemoryState(
+            videoPreferences = categories.optString("video_preferences"),
+            newsPreferences = categories.optString("news_preferences"),
+            responseStyle = categories.optString("response_style"),
+            projectRules = categories.optString("project_rules"),
+            generalNotes = categories.optString("general_notes")
+        ) to "Memoria caricata da gateway."
+    } catch (ex: Exception) {
+        HubMemoryState() to "Memoria gateway non esposta: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private suspend fun saveHubMemory(settings: AppSettings, memory: HubMemoryState, apiKey: String?): String = withContext(Dispatchers.IO) {
+    try {
+        val payload = JSONObject().put(
+            "categories",
+            JSONObject()
+                .put("video_preferences", memory.videoPreferences)
+                .put("news_preferences", memory.newsPreferences)
+                .put("response_style", memory.responseStyle)
+                .put("project_rules", memory.projectRules)
+                .put("general_notes", memory.generalNotes)
+        )
+        val response = postJson(resolveHermesUrl(settings, "/v1/hub/memory"), payload, apiKey, "PATCH")
+        if (response.first in 200..299) "Memoria salvata sul gateway." else "Memoria gateway non esposta: HTTP ${response.first} ${extractHumanError(response.second)}"
+    } catch (ex: Exception) {
+        "Memoria gateway non esposta: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private suspend fun postHubState(settings: AppSettings, kind: String, entityId: String, payload: JSONObject, apiKey: String?): String = withContext(Dispatchers.IO) {
+    try {
+        val body = JSONObject()
+            .put("kind", kind)
+            .put("entity_id", entityId)
+            .put("project_id", if (settings.activeProjectId.isBlank()) JSONObject.NULL else settings.activeProjectId)
+            .put("project_name", if (settings.activeProjectName.isBlank()) JSONObject.NULL else settings.activeProjectName)
+            .put("payload", payload)
+        val response = postJson(resolveHermesUrl(settings, "/v1/hub/state"), body, apiKey)
+        if (response.first in 200..299) "Sincronizzato con Hub State." else "Hub State non disponibile: HTTP ${response.first}"
+    } catch (ex: Exception) {
+        "Hub State non disponibile: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private suspend fun syncRemoteTasks(settings: AppSettings, apiKey: String?): Pair<List<AgentTask>, String> = withContext(Dispatchers.IO) {
+    try {
+        val body = httpGet(resolveHermesUrl(settings, "/api/jobs"), apiKey)
+        val array = findWorkspaceJobsArray(body)
+        val tasks = buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.extractString("id") ?: obj.extractString("job_id") ?: "job_${i}_${System.currentTimeMillis()}"
+                add(
+                    AgentTask(
+                        id = "remote_$id",
+                        remoteId = id,
+                        title = obj.optString("title", "Hermes job $id"),
+                        mode = "Job",
+                        status = obj.optString("status", "sincronizzato"),
+                        detail = obj.optString("instructions", obj.optString("detail", obj.toString().limitText(600))),
+                        requiresApproval = obj.optBoolean("requiresApproval", obj.optBoolean("approvalRequired", false)),
+                        source = "Hermes Jobs",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }.sortedByDescending { it.updatedAt }
+        tasks to "Sincronizzati ${tasks.size} job da Hermes."
+    } catch (ex: Exception) {
+        emptyList<AgentTask>() to "Sync Jobs fallita: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
 private suspend fun supportsResponsesApi(settings: AppSettings, apiKey: String?): Boolean = withContext(Dispatchers.IO) {
     try {
         val body = httpGet("${settings.gatewayUrl.trimEnd('/')}/capabilities", apiKey)
@@ -4893,17 +5347,7 @@ private suspend fun checkGithubUpdate(localVersion: String): UpdateCheckResult =
 }
 
 private fun summarizeReleaseNotes(body: String): String {
-    return body
-        .lines()
-        .map { it.trim().trimStart('-', '*', ' ') }
-        .firstOrNull { line ->
-            line.isNotBlank() &&
-                !line.startsWith("Hermes Hub", ignoreCase = true) &&
-                !line.startsWith("Verific", ignoreCase = true) &&
-                !line.startsWith("`")
-        }
-        ?.limitText(180)
-        .orEmpty()
+    return body.trim().limitText(4000)
 }
 
 private inline fun <T : HttpURLConnection, R> T.use(block: (T) -> R): R {
@@ -5095,6 +5539,8 @@ private fun loadSettings(context: Context): AppSettings {
         accessMode = prefs.getString("accessMode", AppDefaults.accessMode) ?: AppDefaults.accessMode,
         visualBlocksMode = prefs.getString("visualBlocksMode", AppDefaults.visualBlocksMode) ?: AppDefaults.visualBlocksMode,
         videoLibraryPath = prefs.getString("videoLibraryPath", AppDefaults.videoLibraryPath) ?: AppDefaults.videoLibraryPath,
+        activeProjectId = prefs.getString("activeProjectId", AppDefaults.activeProjectId) ?: AppDefaults.activeProjectId,
+        activeProjectName = prefs.getString("activeProjectName", AppDefaults.activeProjectName) ?: AppDefaults.activeProjectName,
         fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
         demoMode = prefs.getBoolean("demoMode", AppDefaults.demoMode)
     )
@@ -5115,8 +5561,40 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .putString("accessMode", settings.accessMode.trim())
         .putString("visualBlocksMode", settings.visualBlocksMode.trim())
         .putString("videoLibraryPath", settings.videoLibraryPath.trim())
+        .putString("activeProjectId", settings.activeProjectId.trim())
+        .putString("activeProjectName", settings.activeProjectName.trim())
         .putFloat("fontScale", settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE))
         .putBoolean("demoMode", settings.demoMode)
+        .apply()
+}
+
+private fun loadProjects(context: Context): List<ProjectRecord> {
+    val raw = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE).getString("projects", "[]") ?: "[]"
+    return try {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id")
+                val name = obj.optString("name")
+                if (id.isNotBlank() && name.isNotBlank()) {
+                    add(ProjectRecord(id, name, obj.optLong("updatedAt", System.currentTimeMillis())))
+                }
+            }
+        }.sortedByDescending { it.updatedAt }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun saveProjects(context: Context, projects: List<ProjectRecord>) {
+    val array = JSONArray()
+    projects.take(50).forEach { project ->
+        array.put(JSONObject().put("id", project.id).put("name", project.name).put("updatedAt", project.updatedAt))
+    }
+    context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString("projects", array.toString())
         .apply()
 }
 
@@ -5330,6 +5808,17 @@ private suspend fun sendWorkspaceFeedback(settings: AppSettings, item: Workspace
         Job originale: ${item.remoteId ?: "non disponibile"}
     """.trimIndent()
     try {
+        postHubState(
+            settings,
+            "${item.kind.lowercase()}_feedback",
+            item.id,
+            JSONObject()
+                .put("title", item.title)
+                .put("feedback", feedback)
+                .put("read", true)
+                .put("status", item.status),
+            apiKey
+        )
         if (item.remoteId != null) {
             val response = postJson(
                 "${hermesRoot(settings)}/api/jobs/${item.remoteId}",
@@ -5421,6 +5910,18 @@ private suspend fun sendVideoLibraryFeedback(settings: AppSettings, item: VideoL
                 .put("share_with_cli", true)
         )
     try {
+        postHubState(
+            settings,
+            "video_feedback",
+            item.id,
+            JSONObject()
+                .put("title", item.title)
+                .put("filename", item.filename)
+                .put("feedback", feedback)
+                .put("reaction", reaction)
+                .put("path", item.path),
+            apiKey
+        )
         val run = postJson(resolveHermesUrl(settings, "/v1/runs"), payload, apiKey)
         if (run.first in 200..299) {
             return@withContext "Feedback inviato a Hermes."
@@ -5926,6 +6427,8 @@ private object AppDefaults {
     const val accessMode = "Tailscale/LAN"
     const val visualBlocksMode = "auto"
     const val videoLibraryPath = ""
+    const val activeProjectId = ""
+    const val activeProjectName = ""
     const val fontScale = 1.0f
     const val demoMode = false
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"

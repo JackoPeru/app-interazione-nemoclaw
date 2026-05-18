@@ -17,8 +17,9 @@ Client Windows + Android per parlare con Hermes Agent su home-server.
 - Chat: `POST /v1/responses` primario con `store`, `conversation`, `previous_response_id`; fallback `POST /v1/chat/completions`.
 - Visual Blocks v1: spiegazioni visuali statiche sicure nella chat (`markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `media_file`, `callout`) con fallback testuale.
 - Jobs: task persistenti, sync reale su Hermes Jobs API `/api/jobs`, azioni `run`, `pause`, `delete`.
-- Server: dashboard Hermes con `/health`, `/health/detailed`, `/v1/models`, `/v1/capabilities`.
+- Server: dashboard Hermes con `/health`, `/health/detailed`, `/v1/models`, `/v1/capabilities`, video library, memoria e hub state.
 - Runs: endpoint manuale e preset reali per health, models, capabilities, runs e jobs.
+- Memoria/Sync: `/v1/hub/memory` e `/v1/hub/state` per preferenze, feedback Video/News, progetto attivo e stato letto.
 - Update: Android scarica APK in app e apre installer; Windows scarica asset `.msix`, `.exe` o `.zip`.
 
 ## Preset Hermes
@@ -61,7 +62,7 @@ src/NemoclawChat.Android/app/build/outputs/apk/debug/androidApp-debug.apk
 Versione corrente:
 
 ```text
-v0.6.41
+v0.6.42
 ```
 
 Asset attesi dagli updater:
