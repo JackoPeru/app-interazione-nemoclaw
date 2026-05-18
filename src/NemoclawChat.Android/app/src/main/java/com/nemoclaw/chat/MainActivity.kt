@@ -79,6 +79,8 @@ import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.ThumbDown
+import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -1543,16 +1545,9 @@ private fun formatVideoDuration(value: Long): String {
     }
 }
 
-private fun formatVideoDate(value: Long): String {
-    if (value <= 0L) return "recente"
-    val delta = (System.currentTimeMillis() - value).coerceAtLeast(0L)
-    val day = 24L * 60L * 60L * 1000L
-    return when {
-        delta < day -> "oggi"
-        delta < day * 2 -> "ieri"
-        delta < day * 30 -> "${delta / day} giorni fa"
-        else -> java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.ITALY).format(java.util.Date(value))
-    }
+private fun formatVideoTimestamp(value: Long): String {
+    if (value <= 0L) return "data non disponibile"
+    return java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.ITALY).format(java.util.Date(value))
 }
 
 private fun appendFeedbackSnippet(current: String, snippet: String): String {
@@ -2641,7 +2636,7 @@ private fun VideoScreen(context: Context, settings: AppSettings, onOpenChatPromp
     val displayedItems = remember(items, videoFilter) {
         when (videoFilter) {
             "Recenti" -> items.sortedByDescending { it.modifiedAt }
-            "Feedback" -> items.filter { loadVideoFeedback(context, it.id).isNotBlank() }
+            "Feedback" -> items.filter { loadVideoFeedback(context, it.id).isNotBlank() || loadVideoReaction(context, it.id).isNotBlank() }
             else -> items
         }
     }
@@ -2769,7 +2764,7 @@ private fun VideoFeedCard(settings: AppSettings, item: VideoLibraryItem, apiKey:
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    "Hermes Hub · ${item.sizeBytes.toReadableFileSize()} · ${formatVideoDate(item.modifiedAt)}",
+                    "Hermes Hub - ${item.sizeBytes.toReadableFileSize()} - ${formatVideoTimestamp(item.modifiedAt)}",
                     color = AppColors.Muted,
                     fontSize = 13.sp,
                     maxLines = 1,
@@ -2834,6 +2829,7 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
     val apiKey = remember { loadGatewaySecret(context) }
     val videoUrl = remember(settings.gatewayUrl, item.mediaUrl) { resolveWorkspaceUrl(settings, item.mediaUrl) }
     var feedback by remember(item.id) { mutableStateOf(loadVideoFeedback(context, item.id)) }
+    var reaction by remember(item.id) { mutableStateOf(loadVideoReaction(context, item.id)) }
     var status by remember(item.id) { mutableStateOf("Lascia feedback: Hermes lo usera' come memoria editoriale per i prossimi video.") }
 
     LazyColumn(
@@ -2874,11 +2870,39 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
             Column(modifier = Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(item.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Hermes Hub · ${item.filename} · ${item.sizeBytes.toReadableFileSize()} · ${formatVideoDate(item.modifiedAt)}",
+                    "Hermes Hub - ${item.filename} - ${item.sizeBytes.toReadableFileSize()} - ${formatVideoTimestamp(item.modifiedAt)}",
                     color = AppColors.Muted,
                     fontSize = 13.sp
                 )
                 Text(status, color = AppColors.Faint, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    VideoReactionButton(
+                        label = "Mi piace",
+                        icon = Icons.Rounded.ThumbUp,
+                        selected = reaction == "like"
+                    ) {
+                        reaction = "like"
+                        status = "Invio like a Hermes..."
+                        scope.launch {
+                            val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
+                            saveVideoFeedback(context, item.id, feedback, reaction, result)
+                            status = result
+                        }
+                    }
+                    VideoReactionButton(
+                        label = "Non mi piace",
+                        icon = Icons.Rounded.ThumbDown,
+                        selected = reaction == "dislike"
+                    ) {
+                        reaction = "dislike"
+                        status = "Invio dislike a Hermes..."
+                        scope.launch {
+                            val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
+                            saveVideoFeedback(context, item.id, feedback, reaction, result)
+                            status = result
+                        }
+                    }
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     VideoFeedChip("Hook") { feedback = appendFeedbackSnippet(feedback, "Hook piu' forte nei primi 5 secondi") }
                     VideoFeedChip("Ritmo") { feedback = appendFeedbackSnippet(feedback, "Ritmo piu' veloce e meno pause") }
@@ -2893,12 +2917,32 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
                     }
                     status = "Invio feedback a Hermes..."
                     scope.launch {
-                        val result = sendVideoLibraryFeedback(settings, item, feedback, loadGatewaySecret(context))
-                        saveVideoFeedback(context, item.id, feedback, result)
+                        val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
+                        saveVideoFeedback(context, item.id, feedback, reaction, result)
                         status = result
                     }
                 }) { Text("Invia feedback") }
             }
+        }
+    }
+}
+
+@Composable
+private fun VideoReactionButton(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(22.dp),
+        color = if (selected) Color.White else AppColors.Panel,
+        contentColor = if (selected) Color.Black else Color.White,
+        border = if (selected) null else BorderStroke(1.dp, AppColors.Border)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp))
+            Text(label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
         }
     }
 }
@@ -5314,7 +5358,17 @@ private fun loadVideoFeedback(context: Context, id: String): String {
     }
 }
 
-private fun saveVideoFeedback(context: Context, id: String, feedback: String, status: String) {
+private fun loadVideoReaction(context: Context, id: String): String {
+    val prefs = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString("video_feedback", "{}") ?: "{}"
+    return try {
+        JSONObject(raw).optJSONObject(id)?.optString("reaction").orEmpty()
+    } catch (_: Exception) {
+        ""
+    }
+}
+
+private fun saveVideoFeedback(context: Context, id: String, feedback: String, reaction: String, status: String) {
     val prefs = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE)
     val root = try {
         JSONObject(prefs.getString("video_feedback", "{}") ?: "{}")
@@ -5325,22 +5379,30 @@ private fun saveVideoFeedback(context: Context, id: String, feedback: String, st
         id,
         JSONObject()
             .put("feedback", feedback)
+            .put("reaction", reaction)
             .put("status", status)
             .put("updatedAt", System.currentTimeMillis())
     )
     prefs.edit().putString("video_feedback", root.toString()).apply()
 }
 
-private suspend fun sendVideoLibraryFeedback(settings: AppSettings, item: VideoLibraryItem, feedback: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+private suspend fun sendVideoLibraryFeedback(settings: AppSettings, item: VideoLibraryItem, feedback: String, reaction: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+    val reactionLabel = when (reaction) {
+        "like" -> "like / mi piace"
+        "dislike" -> "dislike / non mi piace"
+        else -> "nessuna reazione rapida"
+    }
     val instructions = """
         Feedback editoriale su video Hermes Hub.
         Video: ${item.title}
         File: ${item.filename}
         Path server: ${item.path}
+        Reazione rapida: $reactionLabel
 
-        Feedback utente:
-        $feedback
+        Commento utente:
+        ${feedback.ifBlank { "nessun commento scritto" }}
 
+        Interpreta like/dislike come feedback primario rapido. Il commento scritto e' un rinforzo qualitativo opzionale.
         Usa questo feedback come memoria editoriale condivisa Hermes/CLI/app quando e' stabile.
         Nei video futuri migliora ritmo, hook, chiarezza, montaggio, durata, tono, musica, voce e struttura in base a queste note.
         Non creare un nuovo video ora a meno che l'utente lo chieda esplicitamente.
