@@ -61,7 +61,7 @@ src/NemoclawChat.Android/app/build/outputs/apk/debug/androidApp-debug.apk
 Versione corrente:
 
 ```text
-v0.6.39
+v0.6.40
 ```
 
 Asset attesi dagli updater:

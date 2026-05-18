@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import android.os.StrictMode
@@ -15,6 +16,8 @@ import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -142,6 +145,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import com.nemoclaw.chat.ui.theme.ChatClawTheme
 import kotlinx.coroutines.CoroutineScope
@@ -334,9 +338,11 @@ data class VideoLibraryItem(
     val title: String,
     val filename: String,
     val mediaUrl: String,
+    val thumbnailUrl: String,
     val path: String,
     val mimeType: String,
     val sizeBytes: Long,
+    val durationMs: Long,
     val modifiedAt: Long
 )
 
@@ -1524,6 +1530,66 @@ private fun formatMediaDuration(value: Long?): String {
     return if (minutes > 0) "${minutes}m ${seconds}s" else "${seconds}s"
 }
 
+private fun formatVideoDuration(value: Long): String {
+    if (value <= 0L) return ""
+    val totalSeconds = value / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(java.util.Locale.US, "%d:%02d", minutes, seconds)
+    }
+}
+
+private fun formatVideoDate(value: Long): String {
+    if (value <= 0L) return "recente"
+    val delta = (System.currentTimeMillis() - value).coerceAtLeast(0L)
+    val day = 24L * 60L * 60L * 1000L
+    return when {
+        delta < day -> "oggi"
+        delta < day * 2 -> "ieri"
+        delta < day * 30 -> "${delta / day} giorni fa"
+        else -> java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.ITALY).format(java.util.Date(value))
+    }
+}
+
+private fun appendFeedbackSnippet(current: String, snippet: String): String {
+    val base = current.trim()
+    return if (base.isBlank()) snippet else "$base; $snippet"
+}
+
+private fun authHeaders(apiKey: String?): Map<String, String> {
+    val token = apiKey?.trim()?.takeIf { it.isNotBlank() } ?: HERMES_FALLBACK_API_KEY
+    return mapOf("Authorization" to "Bearer $token", "User-Agent" to "HermesHub-Android")
+}
+
+private fun loadVideoThumbnail(url: String, apiKey: String?): Bitmap? {
+    val retriever = MediaMetadataRetriever()
+    return try {
+        if (url.startsWith("http://", true) || url.startsWith("https://", true)) {
+            retriever.setDataSource(url, authHeaders(apiKey))
+        } else {
+            retriever.setDataSource(url)
+        }
+        val frame = retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            ?: retriever.frameAtTime
+        frame?.scaleBitmapToMaxWidth(900)
+    } catch (_: Exception) {
+        null
+    } finally {
+        runCatching { retriever.release() }
+    }
+}
+
+private fun Bitmap.scaleBitmapToMaxWidth(maxWidth: Int): Bitmap {
+    if (width <= maxWidth || width <= 0 || height <= 0) return this
+    val ratio = maxWidth.toFloat() / width.toFloat()
+    val targetHeight = (height * ratio).toInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(this, maxWidth, targetHeight, true)
+}
+
 @Composable
 private fun RemoteGalleryImage(settings: AppSettings, image: VisualGalleryImage, allowExternalImage: Boolean = true) {
     val resolved = remember(settings.gatewayUrl, image.mediaUrl, allowExternalImage) { resolveMediaUrl(settings, image.mediaUrl, allowExternalImage) }
@@ -2569,86 +2635,269 @@ private fun VideoScreen(context: Context, settings: AppSettings, onOpenChatPromp
     var refreshKey by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf("Sincronizzo cartella video Hermes...") }
     var items by remember { mutableStateOf<List<VideoLibraryItem>>(emptyList()) }
+    var selectedVideoId by rememberSaveable { mutableStateOf<String?>(null) }
+    var videoFilter by rememberSaveable { mutableStateOf("Tutti") }
+    val selectedVideo = remember(items, selectedVideoId) { items.firstOrNull { it.id == selectedVideoId } }
+    val displayedItems = remember(items, videoFilter) {
+        when (videoFilter) {
+            "Recenti" -> items.sortedByDescending { it.modifiedAt }
+            "Feedback" -> items.filter { loadVideoFeedback(context, it.id).isNotBlank() }
+            else -> items
+        }
+    }
 
     LaunchedEffect(settings.gatewayUrl, settings.videoLibraryPath, refreshKey) {
         val result = loadVideoLibrary(settings, loadGatewaySecret(context))
         items = result.first
         status = result.second
+        if (selectedVideoId != null && result.first.none { it.id == selectedVideoId }) {
+            selectedVideoId = null
+        }
+    }
+
+    if (selectedVideo != null) {
+        BackHandler { selectedVideoId = null }
+        VideoWatchScreen(
+            context = context,
+            settings = settings,
+            item = selectedVideo,
+            onBack = { selectedVideoId = null }
+        )
+        return
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(horizontal = 14.dp),
+        contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         item {
-            Text("Video", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Feed automatico dalla cartella video del PC Hermes. Ogni file video messo li compare qui senza passare dalla chat.",
-                color = AppColors.Muted
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                settings.videoLibraryPath.ifBlank { "Cartella non ancora sincronizzata dal gateway." },
-                color = AppColors.Faint,
-                fontSize = 12.sp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Hermes Video", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = {
                     onOpenChatPrompt(
                         "Modalita Video Hermes Hub. Usa la cartella video monitorata del PC Hermes: ${settings.videoLibraryPath}. " +
                             "Crea, scarica o prepara un video e salva sempre il file finale in quella cartella, cosi appare automaticamente nella sezione Video. Richiesta: "
                     )
-                }) { Text("Nuovo video in chat") }
-                Button(onClick = {
+                }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Nuovo video", tint = Color.White)
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                VideoFeedChip("Tutti", selected = videoFilter == "Tutti") { videoFilter = "Tutti" }
+                VideoFeedChip("Recenti", selected = videoFilter == "Recenti") { videoFilter = "Recenti" }
+                VideoFeedChip("Feedback", selected = videoFilter == "Feedback") { videoFilter = "Feedback" }
+                VideoFeedChip("Aggiorna") {
                     status = "Aggiorno feed video..."
                     refreshKey++
-                }) { Text("Aggiorna feed") }
+                }
             }
         }
         item {
-            PremiumPanel {
-                Text(modifier = Modifier.padding(14.dp), text = status, color = AppColors.Muted)
-            }
+            Text(status, color = AppColors.Faint, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        if (items.isEmpty()) {
+        if (displayedItems.isEmpty()) {
             item {
-                PremiumPanel {
+                Surface(color = AppColors.Panel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AppColors.Border)) {
                     Text(
                         modifier = Modifier.padding(16.dp),
-                        text = "Nessun video trovato. Metti un file .mp4/.mov/.mkv/.webm/.avi nella cartella video Hermes sul PC e premi Aggiorna feed.",
+                        text = if (items.isEmpty()) {
+                            "Nessun video trovato. Metti un file .mp4/.mov/.mkv/.webm/.avi nella cartella video Hermes sul PC e premi Aggiorna feed."
+                        } else {
+                            "Nessun video con feedback salvato."
+                        },
                         color = AppColors.Muted
                     )
                 }
             }
         }
-        items(items, key = { it.id }) { video ->
-            VideoLibraryCard(settings, video)
+        items(displayedItems, key = { it.id }) { video ->
+            VideoFeedCard(
+                settings = settings,
+                item = video,
+                apiKey = loadGatewaySecret(context),
+                onClick = { selectedVideoId = video.id }
+            )
         }
     }
 }
 
 @Composable
-private fun VideoLibraryCard(settings: AppSettings, item: VideoLibraryItem) {
-    val context = LocalContext.current
-    PremiumPanel {
-        Column(modifier = Modifier.padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(item.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
-            Text("${item.filename} · ${item.sizeBytes.toReadableFileSize()}", color = AppColors.Muted, fontSize = 12.sp)
-            Text(item.path, color = AppColors.Faint, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+private fun VideoFeedChip(label: String, selected: Boolean = false, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        color = if (selected) Color.White else AppColors.Panel,
+        contentColor = if (selected) Color.Black else Color.White,
+        shape = RoundedCornerShape(8.dp),
+        border = if (selected) null else BorderStroke(1.dp, AppColors.Border)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp
+        )
+    }
+}
+
+@Composable
+private fun VideoFeedCard(settings: AppSettings, item: VideoLibraryItem, apiKey: String?, onClick: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        VideoThumbnail(settings, item, apiKey, modifier = Modifier.fillMaxWidth())
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = AppColors.Accent.copy(alpha = 0.18f)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.PlayCircle, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(24.dp))
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    item.title,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 17.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Hermes Hub · ${item.sizeBytes.toReadableFileSize()} · ${formatVideoDate(item.modifiedAt)}",
+                    color = AppColors.Muted,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoThumbnail(settings: AppSettings, item: VideoLibraryItem, apiKey: String?, modifier: Modifier = Modifier) {
+    val videoUrl = remember(settings.gatewayUrl, item.mediaUrl) { resolveWorkspaceUrl(settings, item.mediaUrl) }
+    val thumbUrl = remember(settings.gatewayUrl, item.thumbnailUrl) {
+        item.thumbnailUrl.takeIf { it.isNotBlank() }?.let { resolveWorkspaceUrl(settings, it) }
+    }
+    val bitmap by produceState<Bitmap?>(initialValue = null, videoUrl, thumbUrl, apiKey) {
+        value = withContext(Dispatchers.IO) {
+            thumbUrl?.let { loadRemoteBitmap(it) } ?: loadVideoThumbnail(videoUrl, apiKey)
+        }
+    }
+    Box(
+        modifier = modifier
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        val loaded = bitmap
+        if (loaded != null) {
+            Image(
+                bitmap = loaded.asImageBitmap(),
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawRect(
+                    brush = Brush.linearGradient(listOf(AppColors.Panel, Color.Black, AppColors.Accent.copy(alpha = 0.22f))),
+                    size = size
+                )
+            }
+            Icon(Icons.Rounded.PlayCircle, contentDescription = null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(56.dp))
+        }
+        val duration = formatVideoDuration(item.durationMs)
+        if (duration.isNotBlank()) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                color = Color.Black.copy(alpha = 0.78f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(duration, color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoWatchScreen(context: Context, settings: AppSettings, item: VideoLibraryItem, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val apiKey = remember { loadGatewaySecret(context) }
+    val videoUrl = remember(settings.gatewayUrl, item.mediaUrl) { resolveWorkspaceUrl(settings, item.mediaUrl) }
+    var feedback by remember(item.id) { mutableStateOf(loadVideoFeedback(context, item.id)) }
+    var status by remember(item.id) { mutableStateOf("Lascia feedback: Hermes lo usera' come memoria editoriale per i prossimi video.") }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onBack) { Text("Indietro") }
+            }
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color.Black),
+                factory = { viewContext ->
+                    VideoView(viewContext).apply {
+                        val controller = MediaController(viewContext)
+                        controller.setAnchorView(this)
+                        setMediaController(controller)
+                    }
+                },
+                update = { view ->
+                    if (view.tag != videoUrl) {
+                        view.tag = videoUrl
+                        val headers = authHeaders(apiKey)
+                        if (headers.isEmpty()) view.setVideoURI(Uri.parse(videoUrl)) else view.setVideoURI(Uri.parse(videoUrl), headers)
+                        view.setOnPreparedListener { player ->
+                            player.isLooping = false
+                            view.start()
+                        }
+                    }
+                }
+            )
+        }
+        item {
+            Column(modifier = Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(item.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Hermes Hub · ${item.filename} · ${item.sizeBytes.toReadableFileSize()} · ${formatVideoDate(item.modifiedAt)}",
+                    color = AppColors.Muted,
+                    fontSize = 13.sp
+                )
+                Text(status, color = AppColors.Faint, fontSize = 12.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VideoFeedChip("Hook") { feedback = appendFeedbackSnippet(feedback, "Hook piu' forte nei primi 5 secondi") }
+                    VideoFeedChip("Ritmo") { feedback = appendFeedbackSnippet(feedback, "Ritmo piu' veloce e meno pause") }
+                    VideoFeedChip("Chiarezza") { feedback = appendFeedbackSnippet(feedback, "Piu' chiarezza didattica e step concreti") }
+                    VideoFeedChip("Montaggio") { feedback = appendFeedbackSnippet(feedback, "Montaggio piu' pulito e meno ridondanza") }
+                }
+                SettingsField("Feedback per Hermes", feedback, { feedback = it })
                 Button(onClick = {
-                    val mediaUri = Uri.parse(resolveWorkspaceUrl(settings, item.mediaUrl))
-                    val mediaType = item.mimeType.ifBlank { "video/*" }
-                    openAndroidIntent(context, Intent(Intent.ACTION_VIEW).setDataAndType(mediaUri, mediaType))
-                }) { Text("Apri") }
-                Button(onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("hermes-video", item.path))
-                }) { Text("Copia path") }
+                    if (feedback.isBlank()) {
+                        status = "Scrivi feedback prima di inviare."
+                        return@Button
+                    }
+                    status = "Invio feedback a Hermes..."
+                    scope.launch {
+                        val result = sendVideoLibraryFeedback(settings, item, feedback, loadGatewaySecret(context))
+                        saveVideoFeedback(context, item.id, feedback, result)
+                        status = result
+                    }
+                }) { Text("Invia feedback") }
             }
         }
     }
@@ -3977,9 +4226,11 @@ private suspend fun loadVideoLibrary(settings: AppSettings, apiKey: String?): Pa
                         title = obj.optString("title", filename.substringBeforeLast('.')),
                         filename = filename,
                         mediaUrl = mediaUrl,
+                        thumbnailUrl = obj.optString("thumbnail_url", obj.optString("thumbnailUrl")),
                         path = obj.optString("path"),
                         mimeType = obj.optString("mime_type", "video/*"),
                         sizeBytes = obj.optLong("size_bytes", 0L),
+                        durationMs = obj.optLong("duration_ms", obj.optLong("durationMs", 0L)),
                         modifiedAt = (obj.optDouble("modified_at", 0.0) * 1000).toLong()
                     )
                 )
@@ -5048,6 +5299,82 @@ private suspend fun sendWorkspaceFeedback(settings: AppSettings, item: Workspace
         }
         val result = sendWorkspaceRunRequest(settings, item.kind, instructions, apiKey)
         "Feedback inviato a Hermes: ${result.status}"
+    } catch (ex: Exception) {
+        "Feedback salvato localmente; invio Hermes fallito: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private fun loadVideoFeedback(context: Context, id: String): String {
+    val prefs = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString("video_feedback", "{}") ?: "{}"
+    return try {
+        JSONObject(raw).optJSONObject(id)?.optString("feedback").orEmpty()
+    } catch (_: Exception) {
+        ""
+    }
+}
+
+private fun saveVideoFeedback(context: Context, id: String, feedback: String, status: String) {
+    val prefs = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE)
+    val root = try {
+        JSONObject(prefs.getString("video_feedback", "{}") ?: "{}")
+    } catch (_: Exception) {
+        JSONObject()
+    }
+    root.put(
+        id,
+        JSONObject()
+            .put("feedback", feedback)
+            .put("status", status)
+            .put("updatedAt", System.currentTimeMillis())
+    )
+    prefs.edit().putString("video_feedback", root.toString()).apply()
+}
+
+private suspend fun sendVideoLibraryFeedback(settings: AppSettings, item: VideoLibraryItem, feedback: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+    val instructions = """
+        Feedback editoriale su video Hermes Hub.
+        Video: ${item.title}
+        File: ${item.filename}
+        Path server: ${item.path}
+
+        Feedback utente:
+        $feedback
+
+        Usa questo feedback come memoria editoriale condivisa Hermes/CLI/app quando e' stabile.
+        Nei video futuri migliora ritmo, hook, chiarezza, montaggio, durata, tono, musica, voce e struttura in base a queste note.
+        Non creare un nuovo video ora a meno che l'utente lo chieda esplicitamente.
+    """.trimIndent()
+    val payload = JSONObject()
+        .put("model", settings.model)
+        .put("input", instructions)
+        .put(
+            "metadata",
+            JSONObject()
+                .put("client", "hermes-hub")
+                .put("client_surface", "android-app")
+                .put("workspace", "video")
+                .put("source", "video-feedback")
+                .put("memory_scope", "shared-hermes-agent-memory")
+                .put("share_with_cli", true)
+        )
+    try {
+        val run = postJson(resolveHermesUrl(settings, "/v1/runs"), payload, apiKey)
+        if (run.first in 200..299) {
+            return@withContext "Feedback inviato a Hermes."
+        }
+        val chatPayload = JSONObject()
+            .put("model", settings.model)
+            .put(
+                "messages",
+                JSONArray()
+                    .put(JSONObject().put("role", "system").put("content", hermesHubAgentInstructions()))
+                    .put(JSONObject().put("role", "user").put("content", instructions))
+            )
+            .put("stream", false)
+            .put("metadata", payload.getJSONObject("metadata"))
+        val chat = postJson(resolveHermesUrl(settings, "/v1/chat/completions"), chatPayload, apiKey)
+        if (chat.first in 200..299) "Feedback inviato a Hermes." else "Feedback salvato localmente; Hermes HTTP ${chat.first}: ${extractHumanError(chat.second)}"
     } catch (ex: Exception) {
         "Feedback salvato localmente; invio Hermes fallito: ${ex.message ?: ex.javaClass.simpleName}"
     }
