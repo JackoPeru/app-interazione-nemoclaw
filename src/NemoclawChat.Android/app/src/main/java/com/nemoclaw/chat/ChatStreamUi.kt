@@ -86,8 +86,9 @@ internal fun StreamingBubbleView(state: StreamingState) {
                 if (state.isDone) {
                     val parts = mutableListOf<String>()
                     state.stats?.ttftMs?.takeIf { it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.0f", it)}ms" }
-                    state.stats?.tokensPerSecond?.takeIf { it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.2f", it)} tok/sec" }
+                    state.stats?.tokensPerSecond?.takeIf { it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s" }
                     state.stats?.tokensOut?.takeIf { it > 0 }?.let { parts += "$it tok" }
+                    state.stats?.promptTokens?.takeIf { it > 0 }?.let { parts += "prompt $it" }
                     state.stats?.totalMs?.takeIf { it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
                     if (parts.isNotEmpty()) {
                         Text(
@@ -747,3 +748,4 @@ internal fun SlashCommandList(
         }
     }
 }
+

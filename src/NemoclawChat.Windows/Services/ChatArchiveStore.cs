@@ -7,7 +7,8 @@ public sealed record ChatMessageRecord(
     string Text,
     DateTimeOffset Timestamp,
     int? VisualBlocksVersion = null,
-    List<VisualBlockRecord>? VisualBlocks = null);
+    List<VisualBlockRecord>? VisualBlocks = null,
+    ChatStreamStats? Stats = null);
 
 public sealed class ConversationRecord
 {

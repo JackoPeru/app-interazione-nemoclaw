@@ -232,6 +232,7 @@ data class ChatMessage(
     val isAction: Boolean = false,
     val visualBlocksVersion: Int? = null,
     val visualBlocks: List<VisualBlock> = emptyList(),
+    val stats: ChatStreamStats? = null,
     val id: String = java.util.UUID.randomUUID().toString()
 )
 
@@ -997,7 +998,8 @@ private fun ChatScreen(
                                                     localState.text.ifBlank { "Hermes sta lavorando..." },
                                                     fromUser = false,
                                                     visualBlocksVersion = localState.visualBlocksVersion,
-                                                    visualBlocks = localState.visualBlocks
+                                                    visualBlocks = localState.visualBlocks,
+                                                    stats = localState.stats
                                                 ),
                                                 source = "Hermes in corso",
                                                 responseId = localState.responseId ?: prevId
@@ -1027,7 +1029,8 @@ private fun ChatScreen(
                                         fromUser = false,
                                         isAction = interrupted && partialText.isEmpty(),
                                         visualBlocksVersion = finalState.visualBlocksVersion,
-                                        visualBlocks = finalState.visualBlocks
+                                        visualBlocks = finalState.visualBlocks,
+                                        stats = finalState.stats
                                     )
                                 )
                             }
@@ -1360,6 +1363,7 @@ private fun MessageBubble(message: ChatMessage) {
                         }
                     }
                 }
+                ChatStatsFooter(message.stats)
             }
             return@SelectionContainer
         }
@@ -1397,10 +1401,42 @@ private fun MessageBubble(message: ChatMessage) {
                             }
                         }
                     }
+                    ChatStatsFooter(message.stats)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ChatStatsFooter(stats: ChatStreamStats?) {
+    val line = remember(stats) { formatChatStatsLine(stats) }
+    if (line.isNotBlank()) {
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = line,
+            color = AppColors.Muted,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+private fun formatChatStatsLine(stats: ChatStreamStats?): String {
+    if (stats == null) return ""
+    val parts = mutableListOf<String>()
+    stats.ttftMs?.takeIf { it > 0 }?.let {
+        parts += "TTFT ${String.format(java.util.Locale.US, "%.0f", it)}ms"
+    }
+    stats.tokensPerSecond?.takeIf { it > 0 }?.let {
+        parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s"
+    }
+    stats.tokensOut?.takeIf { it > 0 }?.let { parts += "$it tok" }
+    stats.promptTokens?.takeIf { it > 0 }?.let { parts += "prompt $it" }
+    stats.totalMs?.takeIf { it > 0 }?.let {
+        parts += "${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s"
+    }
+    return parts.joinToString("  ·  ")
 }
 
 @Composable
@@ -6384,6 +6420,7 @@ private fun readMessages(array: JSONArray): List<ChatMessage> {
                     isAction = obj.optBoolean("isAction", false),
                     visualBlocksVersion = obj.optInt("visualBlocksVersion").takeIf { obj.has("visualBlocksVersion") },
                     visualBlocks = readVisualBlocks(obj.optJSONArray("visualBlocks") ?: JSONArray()),
+                    stats = readChatStats(obj.optJSONObject("stats")),
                     id = storedId ?: java.util.UUID.randomUUID().toString()
                 )
             )
@@ -6403,9 +6440,44 @@ private fun writeMessages(messages: List<ChatMessage>): JSONArray {
                 .put("isAction", message.isAction)
                 .put("visualBlocksVersion", message.visualBlocksVersion ?: JSONObject.NULL)
                 .put("visualBlocks", writeVisualBlocks(message.visualBlocks))
+                .put("stats", writeChatStats(message.stats) ?: JSONObject.NULL)
         )
     }
     return array
+}
+
+private fun readChatStats(obj: JSONObject?): ChatStreamStats? {
+    if (obj == null) return null
+    return ChatStreamStats(
+        ttftMs = obj.optNullableDouble("ttftMs"),
+        totalMs = obj.optNullableDouble("totalMs"),
+        tokensOut = obj.optNullableInt("tokensOut"),
+        tokensPerSecond = obj.optNullableDouble("tokensPerSecond"),
+        promptTokens = obj.optNullableInt("promptTokens")
+    ).takeIf {
+        it.ttftMs != null || it.totalMs != null || it.tokensOut != null ||
+            it.tokensPerSecond != null || it.promptTokens != null
+    }
+}
+
+private fun writeChatStats(stats: ChatStreamStats?): JSONObject? {
+    if (stats == null) return null
+    return JSONObject()
+        .put("ttftMs", stats.ttftMs ?: JSONObject.NULL)
+        .put("totalMs", stats.totalMs ?: JSONObject.NULL)
+        .put("tokensOut", stats.tokensOut ?: JSONObject.NULL)
+        .put("tokensPerSecond", stats.tokensPerSecond ?: JSONObject.NULL)
+        .put("promptTokens", stats.promptTokens ?: JSONObject.NULL)
+}
+
+private fun JSONObject.optNullableDouble(name: String): Double? {
+    if (!has(name) || isNull(name)) return null
+    return optDouble(name).takeIf { it.isFinite() }
+}
+
+private fun JSONObject.optNullableInt(name: String): Int? {
+    if (!has(name) || isNull(name)) return null
+    return optInt(name).takeIf { it > 0 }
 }
 
 private fun readVisualBlocks(array: JSONArray): List<VisualBlock> = buildList {

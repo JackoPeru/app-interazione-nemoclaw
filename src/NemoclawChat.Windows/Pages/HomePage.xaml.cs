@@ -328,6 +328,7 @@ public sealed partial class HomePage : Page
             string source = "Hermes";
             bool usedFallback = false;
             string? streamError = null;
+            ChatStreamStats? finalStats = null;
             var lastCheckpointAt = DateTimeOffset.MinValue;
 
             await foreach (var ev in ChatStreamClient.StreamChatAsync(settings, _mode, prompt, _messageHistory, _conversationId, _previousResponseId))
@@ -366,6 +367,7 @@ public sealed partial class HomePage : Page
                         statusMessage = ss.Message;
                         break;
                     case StreamDone done:
+                        finalStats = done.Stats;
                         bubble.Complete(done.Stats);
                         UpdateContextMeter(done.Stats.PromptTokens);
                         if (string.IsNullOrEmpty(finalText) && !string.IsNullOrEmpty(done.AccumulatedText))
@@ -423,6 +425,10 @@ public sealed partial class HomePage : Page
             }
 
             _messageHistory.Add(new ChatMessageRecord("Hermes", finalText, DateTimeOffset.Now, finalBlocksVersion, finalBlocks?.ToList()));
+            if (finalStats is not null)
+            {
+                _messageHistory[^1] = _messageHistory[^1] with { Stats = finalStats };
+            }
             var saved = ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, _messageHistory, source, finalResponseId ?? _previousResponseId);
             _conversationId = saved.Id;
             _previousResponseId = saved.PreviousResponseId;
@@ -507,7 +513,8 @@ public sealed partial class HomePage : Page
                 message.Text,
                 message.Author == "Tu" ? "UserBubbleBrush" : "AssistantBubbleBrush",
                 message.Author == "Tu" ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-                message.VisualBlocks);
+                message.VisualBlocks,
+                message.Stats);
         }
         UpdateContextMeter();
     }
@@ -517,7 +524,8 @@ public sealed partial class HomePage : Page
         string text,
         string brushKey,
         HorizontalAlignment alignment,
-        IReadOnlyList<VisualBlockRecord>? visualBlocks = null)
+        IReadOnlyList<VisualBlockRecord>? visualBlocks = null,
+        ChatStreamStats? stats = null)
     {
         var content = new StackPanel { Spacing = 8 };
         content.Children.Add(new TextBlock
@@ -548,6 +556,7 @@ public sealed partial class HomePage : Page
                 content.Children.Add(RenderVisualBlock(block));
             }
         }
+        AddStatsFooter(content, stats);
 
         var bubble = new Border
         {
@@ -565,6 +574,55 @@ public sealed partial class HomePage : Page
         Messages.Add(new MessageViewModel(bubble));
         _ = MessagesScroll.ChangeView(null, MessagesScroll.ScrollableHeight, null);
         UpdateContextMeter();
+    }
+
+    private static void AddStatsFooter(StackPanel content, ChatStreamStats? stats)
+    {
+        var line = FormatChatStats(stats);
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return;
+        }
+
+        content.Children.Add(new TextBlock
+        {
+            Text = line,
+            FontSize = 11,
+            FontFamily = new FontFamily("Consolas"),
+            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
+            TextWrapping = TextWrapping.WrapWholeWords
+        });
+    }
+
+    private static string FormatChatStats(ChatStreamStats? stats)
+    {
+        if (stats is null)
+        {
+            return string.Empty;
+        }
+
+        var parts = new List<string>();
+        if (stats.TimeToFirstTokenMs is { } ttft && ttft > 0)
+        {
+            parts.Add($"TTFT {ttft:0}ms");
+        }
+        if (stats.TokensPerSecond is { } tps && tps > 0)
+        {
+            parts.Add($"{tps:0.00} t/s");
+        }
+        if (stats.TokensOut is { } toks && toks > 0)
+        {
+            parts.Add($"{toks} tok");
+        }
+        if (stats.PromptTokens is { } prompt && prompt > 0)
+        {
+            parts.Add($"prompt {prompt}");
+        }
+        if (stats.TotalMs is { } total && total > 0)
+        {
+            parts.Add($"{total / 1000.0:0.0}s");
+        }
+        return string.Join("  ·  ", parts);
     }
 
     private StreamingBubble CreateStreamingAssistantBubble()
