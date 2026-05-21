@@ -21,18 +21,20 @@ function Read-Json($Path) {
 $schema = Read-Json $SchemaPath
 $fixture = Read-Json $FixturePath
 
-$expectedTypes = @("markdown", "code", "table", "chart", "diagram", "image_gallery", "media_file", "callout")
+$expectedTypes = @("markdown", "code", "table", "chart", "diagram", "image_gallery", "media_file", "callout", "unknown_block")
 $expectedChartTypes = @("bar", "line")
 $expectedCallouts = @("info", "warning", "error", "success")
 $expectedModes = @("auto", "always", "never")
 
-Assert-True ($schema.properties.visual_blocks_version.const -eq 1) "Schema visual_blocks_version must be 1."
+Assert-True ($schema.properties.visual_blocks_version.minimum -eq 1) "Schema visual_blocks_version must accept version >= 1."
 Assert-True ($schema.properties.visual_blocks.maxItems -eq 20) "Schema max visual blocks must be 20."
 Assert-True ($fixture.visual_blocks_version -eq 1) "Fixture visual_blocks_version must be 1."
 
 $fixtureTypes = @($fixture.visual_blocks | ForEach-Object { $_.type })
 foreach ($type in $expectedTypes) {
-    Assert-True ($fixtureTypes -contains $type) "Fixture missing block type '$type'."
+    if ($type -ne "unknown_block") {
+        Assert-True ($fixtureTypes -contains $type) "Fixture missing block type '$type'."
+    }
 }
 
 $schemaText = Get-Content $SchemaPath -Raw

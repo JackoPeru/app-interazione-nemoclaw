@@ -81,15 +81,16 @@ public static class GatewayService
                 {
                     model = settings.Model,
                     input = prompt,
-                    instructions = HermesHubProtocol.Instructions(mode),
+                    instructions = HermesHubProtocol.Instructions(settings, mode),
                     store = true,
                     conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
                     previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
                     metadata = HermesHubProtocol.Metadata(settings)
                 });
 
-                var response = await SendBufferedAsync(token =>
-                    BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/responses", responsePayload, token));
+                var response = await SendBufferedAsync(
+                    token => BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/responses", responsePayload, token),
+                    allowCompatAuth: !(HermesHubProtocol.IsNativePreferred(settings) && settings.StrictNativeMode));
                 var body = response.Body;
 
                 if (!response.IsSuccessStatusCode)
@@ -123,6 +124,18 @@ public static class GatewayService
             {
                 lastError = ex.Message;
             }
+
+            if (settings.StrictNativeMode && HermesHubProtocol.IsNativePreferred(settings))
+            {
+                return new GatewayChatResult(
+                    $"Hermes native non disponibile: {lastError ?? "errore sconosciuto"}.",
+                    "Errore Hermes Native",
+                    $"Strict native mode: nessun fallback compat eseguito. {lastError ?? "errore sconosciuto"}",
+                    false,
+                    null,
+                    null,
+                    null);
+            }
         }
 
         try
@@ -137,7 +150,7 @@ public static class GatewayService
                     new
                     {
                         role = "system",
-                        content = HermesHubProtocol.Instructions(mode)
+                        content = HermesHubProtocol.Instructions(settings, mode)
                     }
                 }.Concat(history.Select(message => new
                 {
@@ -146,8 +159,9 @@ public static class GatewayService
                 }))
             });
 
-            var response = await SendBufferedAsync(token =>
-                BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions", chatPayload, token));
+            var response = await SendBufferedAsync(
+                token => BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions", chatPayload, token),
+                allowCompatAuth: !(HermesHubProtocol.IsNativePreferred(settings) && settings.StrictNativeMode));
             var body = response.Body;
 
             if (response.IsSuccessStatusCode)
@@ -529,6 +543,11 @@ public static class GatewayService
 
     internal static bool ShouldUseResponsesFirst(AppSettings settings, string mode)
     {
+        if (HermesHubProtocol.IsNativePreferred(settings))
+        {
+            return true;
+        }
+
         return string.Equals(settings.PreferredApi, "openai-responses", StringComparison.OrdinalIgnoreCase) &&
                string.Equals(mode, "Agente", StringComparison.OrdinalIgnoreCase);
     }
@@ -684,7 +703,7 @@ public static class GatewayService
         return value.Length <= maxLength ? value : value[..maxLength] + "...";
     }
 
-    internal static IEnumerable<string?> BuildHermesAuthCandidates()
+    internal static IEnumerable<string?> BuildHermesAuthCandidates(bool allowCompatAuth = true)
     {
         var saved = GatewayCredentialStore.LoadSecret();
         if (!string.IsNullOrWhiteSpace(saved))
@@ -692,12 +711,15 @@ public static class GatewayService
             yield return saved.Trim();
         }
 
-        if (!string.Equals(saved, HermesFallbackApiKey, StringComparison.Ordinal))
+        if (allowCompatAuth && !string.Equals(saved, HermesFallbackApiKey, StringComparison.Ordinal))
         {
             yield return HermesFallbackApiKey;
         }
 
-        yield return null;
+        if (allowCompatAuth)
+        {
+            yield return null;
+        }
     }
 
     internal static bool ShouldRetryWithBearerAuth(int statusCode, string body)
@@ -714,10 +736,11 @@ public static class GatewayService
 
     private static async Task<BufferedHermesResponse> SendBufferedAsync(
         Func<string?, HttpRequestMessage> requestFactory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowCompatAuth = true)
     {
         BufferedHermesResponse? last = null;
-        var candidates = BuildHermesAuthCandidates().ToArray();
+        var candidates = BuildHermesAuthCandidates(allowCompatAuth).ToArray();
         for (var i = 0; i < candidates.Length; i++)
         {
             using var request = requestFactory(candidates[i]);

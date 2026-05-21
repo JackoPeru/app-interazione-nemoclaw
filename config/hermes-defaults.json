@@ -10,7 +10,8 @@
     "runsPath": "/v1/runs",
     "jobsPath": "/api/jobs",
     "model": "hermes-agent",
-    "preferredApi": "openai-responses"
+    "preferredApi": "hermes-native",
+    "strictNativeMode": true
   },
   "security": {
     "recommendedAccess": "Tailscale/LAN",

@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.45 Release Hermes Hub 0.6.45
+v0.6.46 Release Hermes Hub 0.6.46
 ```
 
 ## Regola Memoria
@@ -54,7 +54,15 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.45 (Windows + Android):
+Hermes Hub 0.6.46 (Windows + Android):
+
+Decisione Hermes Native:
+- Hermes Hub usa `preferredApi=hermes-native` come default su Windows, Android e config.
+- `Strict native mode` e' ON di default: niente fallback silenziosi a Chat Completions/no-auth quando il path native fallisce.
+- Chat e Agente usano Responses/native transport con contesto delegato a Hermes Agent; Hermes Hub resta thin operational client.
+- Gateway Hermes locale dichiara `hermes_native`, `native_event_passthrough`, `raw_hermes_events`, `context_owner=hermes-agent`, alias `POST /v1/hermes/native` e primo evento SSE `hermes.native.protocol`.
+- Ubuntu/headless usa `scripts/patch-hermes-gateway-native.py` tramite `scripts/hermes-hub-linux.sh` per applicare lo stesso contratto native al gateway Python installato su Linux prima dell'avvio.
+- Android/Windows conservano raw Hermes events e Visual Blocks futuri come `unknown_block`.
 
 Decisione auth client:
 - Hermes Hub usa API key lato app. Default: `hermes-hub`.
@@ -63,9 +71,9 @@ Decisione auth client:
 - I segreti provider/modello restano lato Hermes/server. AdminBridge resta separato e puo' continuare a usare `CHATCLAW_ADMIN_TOKEN`.
 
 Decisione latenza Chat:
-- Modalita `Chat` su Windows e Android parte direttamente da Hermes Chat Completions invece di provare prima `/v1/responses`.
-- Default `API preferita` e' `openai-completions`.
-- Modalita `Agente` puo' ancora usare Responses-first se `API preferita=openai-responses`.
+- Modalita `Chat` e `Agente` su Windows e Android partono da Hermes Native/Responses.
+- Default `API preferita` e' `hermes-native`.
+- Chat Completions resta solo fallback compat se `Strict native mode` e' disattivato.
 - Android Responses fallback ridotto a 2 tentativi con pausa 500ms.
 
 Decisione ingest Video:
@@ -82,6 +90,12 @@ Decisione media chat:
 Terminologia gateway:
 - Il comando `hermes-hub` avvia **Hermes Gateway**: servizio ponte/API server che espone Hermes Agent alle app Hermes Hub Windows/Android e inoltra inferenza a LM Studio nei test o vLLM nel setup finale.
 - La versione Linux/headless deve restare aggiornata e funzionante: `scripts/hermes-hub-linux.sh`, `scripts/hermes-hub-linux.service` e `docs/hermes-hub-linux.md` devono supportare Ubuntu headless + vLLM, con API stabile `http://SERVER:8642/v1` e API key default `hermes-hub`.
+
+Release 0.6.46:
+- Android/Windows/config: default Hermes Native con strict native mode ON, protocollo effettivo/fallback visibile e contesto delegato a Hermes.
+- Android/Windows: raw Hermes events `hermes.*` conservati e mostrati; Visual Blocks forward-compatible con fallback `unknown_block`.
+- Gateway locale: capability/native alias/eventi raw aggiornati per non castrare Hermes Agent; Linux helper/docs allineati per Ubuntu/vLLM.
+- Linux headless: aggiunto patcher idempotente `scripts/patch-hermes-gateway-native.py`, chiamato automaticamente dal launcher con `HERMES_NATIVE_GATEWAY_PATCH=true`, per portare su Ubuntu lo stesso fix gateway native Windows.
 
 Release 0.6.45:
 - Android/Windows: fix indicatore `Contesto chat`: a chat e draft vuoti mostra 0% invece del 3%; overhead fisso di sistema viene aggiunto solo quando esiste contenuto reale.
@@ -146,7 +160,12 @@ Release 0.6.35:
 
 ## Modifiche non rilasciate
 
-(Nessuna modifica non rilasciata)
+- Audit architetturale aggiunto in `docs/hermes-hub-vs-hermes-native.md`: rischio che Hermes Hub castri Hermes Agent se resta orchestratore rigido. Direzione proposta: `Hermes Hub = thin operational client`, `Hermes Gateway = transport/security/media proxy`, `Hermes Agent = brain/memory/planner/tools/artifacts`.
+- Implementata direzione Hermes Native: default Android/Windows/config `preferredApi=hermes-native`, `strict native mode` default ON, Chat e Agente passano da Responses/native path con context delegato a Hermes; Chat Completions/no-auth restano solo fallback compat quando strict e' OFF.
+- Gateway Hermes locale `%LOCALAPPDATA%\hermes\hermes-agent\gateway\platforms\api_server.py` aggiornato per dichiarare `hermes_native`, `native_event_passthrough`, `raw_hermes_events`, `context_owner=hermes-agent`, alias `POST /v1/hermes/native` e primo evento SSE `hermes.native.protocol`; tool/progress custom `hermes.*` vengono inoltrati raw oltre alla compat Responses.
+- Linux helper/docs aggiornati per `HERMES_NATIVE_EVENTS=true`, `HERMES_RAW_EVENT_PASSTHROUGH=true`, `HERMES_NATIVE_GATEWAY_PATCH=true`, patcher automatico `scripts/patch-hermes-gateway-native.py` e contratto `/v1/hermes/native`; quando si aggiorna Hermes o si passa a Ubuntu/vLLM, il launcher prova a patchare il gateway installato prima dell'avvio.
+- Android/Windows mostrano protocollo effettivo/fallback e conservano raw Hermes events; Visual Blocks ora forward-compatible (`visual_blocks_version >= 1`, fallback `unknown_block` JSON); context meter mostra delega a Hermes finche' server non invia `promptTokens`.
+- Verifiche passate: `python -m py_compile %LOCALAPPDATA%\hermes\hermes-agent\gateway\platforms\api_server.py`, `python -m py_compile scripts\patch-hermes-gateway-native.py`, `python scripts\patch-hermes-gateway-native.py --target %LOCALAPPDATA%\hermes\hermes-agent\gateway\platforms\api_server.py --check`, `dotnet build NemoclawChat.sln`, `dotnet build NemoclawChat.sln -c Release`, Android `:app:compileDebugKotlin`, Android `:app:lintDebug`, Android `:app:assembleRelease`, `scripts/verify-visual-blocks-contract.ps1`, `git diff --check`.
 
 ## Release 0.6.34
 
@@ -502,14 +521,14 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.45`.
+- Versione app: `0.6.46`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
 - Chat: invio con Enter, nuova riga con Shift+Enter, indicatore circolare `Contesto chat` in alto a destra, modalita `Chat`/`Agente` nel menu `+` e slash, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
 - Archivio: ricerca locale + dati persistenti, filtri chat/progetti/task/server, riapertura conversazioni, segna progetto, eliminazione elementi salvati con conferma preventiva.
 - Recenti sidebar: letti dallo store locale e aggiornati quando cambia archivio; nessun elemento seed finto.
-- Chat: prova prima Hermes `POST /v1/responses` con `store`, `conversation` e `previous_response_id`; fallback reale `POST /v1/chat/completions`; fallback locale solo se abilitato.
+- Chat: default Hermes Native/Responses con `store`, `conversation` e `previous_response_id`; fallback reale `POST /v1/chat/completions` solo se strict native mode e' disattivato; fallback locale solo se abilitato.
 - Chat/Hermes memory contract: app invia istruzioni e metadata che dichiarano Hermes Hub come client operativo dello stesso Hermes Agent usato dalla CLI. Preferenze stabili, feedback Video/News e regole di lavoro devono usare memoria agente condivisa lato Hermes quando disponibile, non memoria separata solo app. Chat Completions fallback include system message con lo stesso contesto.
 - Visual Blocks v1 implementato lato client: chat puo' ricevere `output_text` autosufficiente + `visual_blocks_version: 1` + blocchi tipizzati statici (`markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `media_file`, `callout`). Contratto in `docs/visual-blocks-schema.md` e schema in `config/visual-blocks.schema.json`.
 - Jobs: coda persistente su disco, tentativo reale su Hermes Jobs API (`/api/jobs`), `run`/`pause`/`delete` con sync Hermes se disponibile e fallback locale se no.
@@ -540,11 +559,11 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.45`, versionCode `58`.
+- Versione app: `0.6.46`, versionCode `59`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.
-- Chat: action bubble per menu `+`, mode `Chat`/`Agente` nel menu `+` e slash, indicatore circolare `Contesto chat` in alto a destra, tentativo Hermes reale (`/v1/responses`, fallback `/v1/chat/completions`), fallback locale esplicito se abilitato, composer stabile compatto a campo singolo/multiriga con `+` esterno e send interno; keyboard handling usa `adjustResize` + `imePadding` solo sul composer, quindi resta sopra la tastiera senza gap inutile; durante generazione il send diventa stop e cancella job + chiamata OkHttp; mic placeholder rimosso; risposte assistente Android libere senza vignetta, thinking cliccabile con shimmer e reasoning espandibile; font globale regolabile da settings con slider continuo e percentuale editabile; sezioni Android rese come righe flat con separatori dritti al posto di card/vignette, salvataggio cronologia locale con `previous_response_id`.
+- Chat: action bubble per menu `+`, mode `Chat`/`Agente` nel menu `+` e slash, indicatore circolare `Contesto chat` in alto a destra, Hermes Native/Responses default con fallback `/v1/chat/completions` solo se strict native mode e' disattivato, fallback locale esplicito se abilitato, composer stabile compatto a campo singolo/multiriga con `+` esterno e send interno; keyboard handling usa `adjustResize` + `imePadding` solo sul composer, quindi resta sopra la tastiera senza gap inutile; durante generazione il send diventa stop e cancella job + chiamata OkHttp; mic placeholder rimosso; risposte assistente Android libere senza vignetta, thinking cliccabile con shimmer e reasoning espandibile; font globale regolabile da settings con slider continuo e percentuale editabile; sezioni Android rese come righe flat con separatori dritti al posto di card/vignette, salvataggio cronologia locale con `previous_response_id`.
 - Android streaming activity: durante generazione mostra una riga shimmer cliccabile con stato live (`Sto processando`, `Sto pensando`, `Sto generando`, `Uso tool: ...`). Espandendo si vedono stato, reasoning ricevuto dal server, tool call, argomenti e risultato; resta visibile anche quando il testo ha gia' iniziato a uscire.
 - Android streaming activity UI: header compatto senza frasi tecniche del trasporto; mostra freccia accanto allo stato e percentuale di progresso live. Shimmer deve scorrere da sinistra a destra su tutti gli stati attivi.
 - Android streaming latency: il path caldo evita la richiesta `/capabilities` pre-invio, usa loop SSE senza `source.exhausted()` prima di ogni read e mostra feedback immediato quando l'utente preme stop.

@@ -27,6 +27,7 @@ public sealed partial class SettingsPage : Page
         ModelBox.Text = settings.Model;
         VideoLibraryPathBox.Text = settings.VideoLibraryPath;
         ActiveProjectNameBox.Text = settings.ActiveProjectName;
+        StrictNativeModeSwitch.IsOn = settings.StrictNativeMode;
         DemoModeSwitch.IsOn = settings.DemoMode;
         SelectComboItem(PreferredApiBox, settings.PreferredApi);
         SelectComboItem(AccessModeBox, settings.AccessMode);
@@ -113,6 +114,7 @@ public sealed partial class SettingsPage : Page
             ActiveProjectName = ActiveProjectNameBox.Text.Trim(),
             AccessMode = SelectedComboText(AccessModeBox),
             VisualBlocksMode = SelectedComboText(VisualBlocksModeBox),
+            StrictNativeMode = StrictNativeModeSwitch.IsOn,
             DemoMode = DemoModeSwitch.IsOn
         };
     }
@@ -122,7 +124,7 @@ public sealed partial class SettingsPage : Page
         return ValidateGateway(settings.GatewayUrl)
             ?? ValidateRequired(settings.Provider, "Provider")
             ?? ValidateHttpUrl(settings.InferenceEndpoint, "Endpoint inferenza")
-            ?? ValidateRequired(settings.PreferredApi, "API preferita")
+            ?? ValidatePreferredApi(settings.PreferredApi)
             ?? ValidateRequired(settings.Model, "Modello")
             ?? ValidateRequired(settings.AccessMode, "Accesso")
             ?? ValidateVisualBlocksMode(settings.VisualBlocksMode);
@@ -173,6 +175,13 @@ public sealed partial class SettingsPage : Page
     private static string? ValidateVisualBlocksMode(string value)
     {
         return value is "auto" or "always" or "never" ? null : "Modalita visuale deve essere auto, always o never.";
+    }
+
+    private static string? ValidatePreferredApi(string value)
+    {
+        return value is "hermes-native" or "openai-completions" or "openai-responses"
+            ? null
+            : "API preferita deve essere hermes-native, openai-completions o openai-responses.";
     }
 
     private static string SelectedComboText(ComboBox comboBox)

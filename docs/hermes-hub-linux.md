@@ -16,6 +16,9 @@ Hermes Gateway API: http://0.0.0.0:8642/v1
 API key: hermes-hub
 Max iterations: unlimited (`HERMES_MAX_ITERATIONS=0`)
 Auxiliary local-only: true (`HERMES_AUXILIARY_LOCAL_ONLY=true`)
+Native events: true (`HERMES_NATIVE_EVENTS=true`)
+Raw event passthrough: true (`HERMES_RAW_EVENT_PASSTHROUGH=true`)
+Native gateway patch: true (`HERMES_NATIVE_GATEWAY_PATCH=true`)
 Provider: lm_studio
 Inference: http://127.0.0.1:1234/v1
 Config: ~/.hermes/config.yaml
@@ -34,6 +37,7 @@ Installazione come servizio user systemd:
 ```bash
 mkdir -p ~/.config/systemd/user
 cp scripts/hermes-hub-linux.sh ~/hermes-hub-linux.sh
+cp scripts/patch-hermes-gateway-native.py ~/patch-hermes-gateway-native.py
 chmod +x ~/hermes-hub-linux.sh
 cp scripts/hermes-hub-linux.service ~/.config/systemd/user/hermes-hub.service
 systemctl --user daemon-reload
@@ -67,6 +71,36 @@ Il servizio deve esporre sempre `http://SERVER:8642/v1` verso Hermes Hub e usare
 
 `HERMES_AUXILIARY_LOCAL_ONLY=true` mantiene i task ausiliari dentro il provider locale e impedisce fallback esterni OpenRouter/Nous durante i test LM Studio o su vLLM headless.
 
+`HERMES_NATIVE_GATEWAY_PATCH=true` applica automaticamente, prima dell'avvio, la stessa patch gateway usata su Windows al file Python `gateway/platforms/api_server.py` installato su Ubuntu. Il patcher e' idempotente, crea backup `api_server.py.bak-hermes-native-*` e compila il file con `py_compile`; se non trova il file si ferma invece di avviare un gateway non-native. Se Hermes upstream include gia' questi fix, il patcher non cambia nulla.
+
+Se Hermes e' installato in un path non standard:
+
+```bash
+HERMES_GATEWAY_API_SERVER_PATH=/path/to/gateway/platforms/api_server.py ./hermes-hub-linux.sh
+```
+
+Hermes Hub usa il profilo **Hermes Native** come default: il client deve essere un thin client operativo, non un orchestratore. Il gateway deve quindi dichiarare in `/v1/capabilities`:
+
+```text
+features.hermes_native=true
+features.native_responses=true
+features.native_event_passthrough=true
+features.raw_hermes_events=true
+features.context_owner=hermes-agent
+endpoints.hermes_native.path=/v1/hermes/native
+```
+
+`/v1/hermes/native` e' un alias stabile di `/v1/responses`: mantiene compat OpenAI Responses, ma rende esplicito che memoria, planning, tool loop, retrieval e contesto sono responsabilita' di Hermes Agent. In stream, il primo evento custom dopo `response.created` deve essere `event: hermes.native.protocol`; gli eventi custom `hermes.*` successivi vanno inoltrati ai client senza schiacciarli dentro solo testo o solo `function_call`.
+
+Verifica patch native su Ubuntu:
+
+```bash
+python3 ~/patch-hermes-gateway-native.py --check
+curl -H "Authorization: Bearer hermes-hub" http://SERVER:8642/v1/capabilities
+```
+
+La risposta deve includere `features.hermes_native=true`, `features.raw_hermes_events=true` e `endpoints.hermes_native.path=/v1/hermes/native`.
+
 La sezione Video usa una cartella watched-folder ufficiale esposta da `/health/detailed` e interrogabile da Android tramite `GET /v1/video/library`:
 
 ```text
@@ -81,7 +115,7 @@ Verifica media proxy:
 curl -H "Authorization: Bearer hermes-hub" http://SERVER:8642/v1/capabilities
 ```
 
-Per chat con file multimediali, `features` deve includere `media_proxy`, `media_register` e `visual_blocks_media_file`. Se una build Hermes non li espone ancora, portare la patch gateway usata nei test Windows prima di usare Ubuntu/vLLM in produzione.
+Per chat con file multimediali, `features` deve includere `media_proxy`, `media_register` e `visual_blocks_media_file`. Per native mode deve includere anche `hermes_native`, `native_event_passthrough` e `raw_hermes_events`. Se una build Hermes non li espone ancora, portare la patch gateway usata nei test Windows prima di usare Ubuntu/vLLM in produzione.
 
 Hermes Hub 0.6.42 richiede anche questi endpoint gateway protetti da `Authorization: Bearer hermes-hub`:
 

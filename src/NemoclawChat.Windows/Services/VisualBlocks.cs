@@ -106,6 +106,9 @@ public sealed record VisualBlockRecord
 
     [JsonPropertyName("variant")]
     public string? Variant { get; init; }
+
+    [JsonPropertyName("raw_json")]
+    public string? RawJson { get; init; }
 }
 
 public sealed record VisualTableColumn
@@ -177,7 +180,8 @@ public static class VisualBlockParser
         "diagram",
         "image_gallery",
         "media_file",
-        "callout"
+        "callout",
+        "unknown_block"
     };
 
     public static IReadOnlyList<VisualBlockRecord> ExtractFromResponse(string body)
@@ -200,7 +204,7 @@ public static class VisualBlockParser
             if (root.ValueKind == JsonValueKind.Object &&
                 root.TryGetProperty("visual_blocks_version", out var version) &&
                 version.ValueKind == JsonValueKind.Number &&
-                version.GetInt32() != VisualBlocksContract.Version)
+                version.GetInt32() < VisualBlocksContract.Version)
             {
                 return [];
             }
@@ -214,11 +218,20 @@ public static class VisualBlockParser
                     return [];
                 }
 
-                var blocks = JsonSerializer.Deserialize<List<VisualBlockRecord>>(raw, JsonOptions) ?? [];
-                return blocks
-                    .Where(IsValid)
-                    .Take(VisualBlocksContract.MaxBlocks)
-                    .ToList();
+                var blocks = new List<VisualBlockRecord>();
+                foreach (var item in blocksElement.EnumerateArray().Take(VisualBlocksContract.MaxBlocks))
+                {
+                    var block = JsonSerializer.Deserialize<VisualBlockRecord>(item.GetRawText(), JsonOptions);
+                    if (block is not null && IsValid(block))
+                    {
+                        blocks.Add(block);
+                    }
+                    else
+                    {
+                        blocks.Add(ToUnknownBlock(item));
+                    }
+                }
+                return blocks;
             }
         }
         catch
@@ -258,6 +271,7 @@ public static class VisualBlockParser
                             !string.IsNullOrWhiteSpace(block.Alt),
             "callout" => block.Variant is "info" or "warning" or "error" or "success" &&
                          !string.IsNullOrWhiteSpace(block.Text),
+            "unknown_block" => !string.IsNullOrWhiteSpace(block.RawJson),
             _ => false
         };
     }
@@ -316,6 +330,29 @@ public static class VisualBlockParser
     {
         return language is "plaintext" or "mermaid" or "powershell" or "bash" or "json" or "xml" or
             "csharp" or "kotlin" or "python" or "javascript" or "typescript" or "sql" or "yaml" or "markdown";
+    }
+
+    private static VisualBlockRecord ToUnknownBlock(JsonElement element)
+    {
+        var id = TryGetString(element, "id") ?? $"unknown-{Guid.NewGuid():N}";
+        var type = TryGetString(element, "type") ?? "unknown";
+        return new VisualBlockRecord
+        {
+            Id = id,
+            Type = "unknown_block",
+            Title = $"Blocco Hermes non renderizzato: {type}",
+            Caption = "Payload conservato per compatibilita' forward.",
+            RawJson = element.GetRawText()
+        };
+    }
+
+    private static string? TryGetString(JsonElement element, string key)
+    {
+        return element.ValueKind == JsonValueKind.Object &&
+               element.TryGetProperty(key, out var value) &&
+               value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
     }
 
     private static int EncodingSize(string value)

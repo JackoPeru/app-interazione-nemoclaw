@@ -1,13 +1,13 @@
 # Hermes Visual Blocks v1
 
-Hermes Visual Blocks e' il contratto per spiegazioni visuali sicure dentro Hermes Hub. Il server produce testo autosufficiente piu' blocchi tipizzati; i client Windows e Android renderizzano solo lo schema v1.
+Hermes Visual Blocks e' il contratto per spiegazioni visuali sicure dentro Hermes Hub. Il server produce testo autosufficiente piu' blocchi tipizzati; i client Windows e Android renderizzano v1 e conservano payload futuri come `unknown_block`.
 
 ## Regole generali
 
 - `output_text` e' sempre obbligatorio, completo e leggibile anche senza blocchi.
-- `visual_blocks_version` e' `1`.
+- `visual_blocks_version` e' `>= 1`.
 - `visual_blocks` pesa al massimo 500 KB serializzato e contiene al massimo 20 blocchi.
-- Client v1 accetta solo versione 1. Versioni diverse mostrano solo `output_text`.
+- Client v1 renderizza tipi noti e conserva tipi/versioni future come `unknown_block` JSON compatto.
 - `title` e `caption` sono testo plain, non Markdown.
 - Markdown subset unico: paragrafi, H1-H3, liste, bold/italic, link `http/https`, inline code, fenced code. No HTML raw, no math, no tabelle Markdown, no Mermaid inline.
 - History rimandata a Hermes contiene solo testo umano, mai JSON dei blocchi.
@@ -21,6 +21,7 @@ Hermes Visual Blocks e' il contratto per spiegazioni visuali sicure dentro Herme
     "visual_blocks": {
       "min_supported_version": 1,
       "max_supported_version": 1,
+      "forward_compatible": true,
       "mode": "auto"
     }
   }
@@ -38,7 +39,7 @@ Hermes Visual Blocks e' il contratto per spiegazioni visuali sicure dentro Herme
   "visual_blocks": {
     "min_supported_version": 1,
     "max_supported_version": 1,
-    "types": ["markdown", "code", "table", "chart", "diagram", "image_gallery", "media_file", "callout"],
+    "types": ["markdown", "code", "table", "chart", "diagram", "image_gallery", "media_file", "callout", "unknown_block"],
     "max_blocks": 20,
     "max_payload_kb": 500,
     "max_table_columns": 12,
@@ -55,7 +56,7 @@ Hermes Visual Blocks e' il contratto per spiegazioni visuali sicure dentro Herme
 
 ## Tipi supportati
 
-Ogni blocco ha `id`, `type`, `title?`, `caption?`. `id` e' stabile dentro la response. `type` sconosciuti vanno ignorati.
+Ogni blocco ha `id`, `type`, `title?`, `caption?`. `id` e' stabile dentro la response. `type` sconosciuti vengono convertiti in `unknown_block` e mostrati come JSON compatto/debug.
 
 ### markdown
 
@@ -163,6 +164,19 @@ Serve per un singolo asset condiviso in chat: `image`, `video`, `audio` o `docum
 
 Varianti: `info`, `warning`, `error`, `success`.
 
+### unknown_block
+
+```json
+{
+  "id": "future-1",
+  "type": "unknown_block",
+  "title": "Blocco Hermes non renderizzato: task_graph",
+  "raw_json": "{ \"id\": \"future-1\", \"type\": \"task_graph\" }"
+}
+```
+
+Usato dal client quando riceve tipi futuri o non validi. Non e' un target primario per Hermes: e' fallback forward-compatible per non perdere artifact.
+
 ## Generazione Hermes
 
 Ordine raccomandato: structured output con JSON Schema enforcement; tool interno unico `emit_visual_blocks({ "blocks": [...] })`; prompt few-shot + validator + un retry repair. Se validazione fallisce, Hermes scarta i blocchi e conserva `output_text`.
@@ -172,7 +186,7 @@ Ordine raccomandato: structured output con JSON Schema enforcement; tool interno
 I tipi C# e Kotlin devono derivare da `config/visual-blocks.schema.json`. Dopo ogni generazione quicktype va controllato che i discriminator e gli enum restino semanticamente uguali su entrambe le piattaforme:
 
 - discriminator blocchi: `type`;
-- valori `type`: `markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `media_file`, `callout`;
+- valori `type`: `markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `media_file`, `callout`, `unknown_block`;
 - enum chart: `bar`, `line`;
 - enum callout: `info`, `warning`, `error`, `success`;
 - enum visual mode: `auto`, `always`, `never`.

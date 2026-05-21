@@ -22,6 +22,7 @@ public sealed record StreamToolCallEnd(string Id) : ChatStreamEvent;
 public sealed record StreamToolResult(string? Id, string? Name, string Output) : ChatStreamEvent;
 public sealed record StreamResponseId(string Id) : ChatStreamEvent;
 public sealed record StreamVisualBlocks(IReadOnlyList<VisualBlockRecord> Blocks, int Version) : ChatStreamEvent;
+public sealed record StreamRawHermesEvent(string Name, string Json) : ChatStreamEvent;
 public sealed record StreamDone(ChatStreamStats Stats, string AccumulatedText, string AccumulatedThinking) : ChatStreamEvent;
 public sealed record StreamError(string Message) : ChatStreamEvent;
 public sealed record StreamStatus(string Message) : ChatStreamEvent;
@@ -52,14 +53,18 @@ public static class ChatStreamClient
         int? completionTokens = null;
         bool sawAnyDelta = false;
         string? lastError = null;
+        var nativeMode = HermesHubProtocol.IsNativePreferred(settings);
 
         if (GatewayService.ShouldUseResponsesFirst(settings, mode))
         {
+            yield return new StreamStatus(nativeMode
+                ? "Protocollo effettivo: Hermes Native via Responses. Context delegato a Hermes."
+                : "Protocollo effettivo: Hermes Responses compat.");
             var responsesPayload = JsonSerializer.Serialize(new
             {
                 model = settings.Model,
                 input = prompt,
-                instructions = HermesHubProtocol.Instructions(mode),
+                instructions = HermesHubProtocol.Instructions(settings, mode),
                 store = true,
                 stream = true,
                 conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
@@ -68,7 +73,12 @@ public static class ChatStreamClient
             });
 
             var responsesUrl = $"{settings.GatewayUrl.TrimEnd('/')}/responses";
-            await foreach (var ev in OpenStreamAsync(responsesUrl, responsesPayload, "Hermes Responses API stream", cancellationToken))
+            await foreach (var ev in OpenStreamAsync(
+                               responsesUrl,
+                               responsesPayload,
+                               "Hermes Responses API stream",
+                               !(nativeMode && settings.StrictNativeMode),
+                               cancellationToken))
             {
                 if (ev is StreamError err)
                 {
@@ -112,8 +122,26 @@ public static class ChatStreamClient
             }
         }
 
-        if (!sawAnyDelta && lastError is null)
+        if (nativeMode && settings.StrictNativeMode && !sawAnyDelta)
         {
+            yield return new StreamError($"Strict native mode: Hermes Native/Responses non disponibile. {lastError ?? "stream vuoto"}");
+            yield break;
+        }
+
+        if (!sawAnyDelta)
+        {
+            if (nativeMode)
+            {
+                yield return new StreamStatus("Fallback compat: Chat Completions. Strict native mode disattivato.");
+            }
+            else if (lastError is not null)
+            {
+                yield return new StreamStatus($"Responses API non disponibile, fallback Chat Completions: {lastError}");
+            }
+            else
+            {
+                yield return new StreamStatus("Protocollo effettivo: Hermes Chat Completions compat.");
+            }
             var chatPayload = JsonSerializer.Serialize(new
             {
                 model = settings.Model,
@@ -124,7 +152,7 @@ public static class ChatStreamClient
                     new
                     {
                         role = "system",
-                        content = HermesHubProtocol.Instructions(mode)
+                        content = HermesHubProtocol.Instructions(settings, mode)
                     }
                 }.Concat(history.Select(m => new
                 {
@@ -134,7 +162,12 @@ public static class ChatStreamClient
             });
 
             var chatUrl = $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions";
-            await foreach (var ev in OpenStreamAsync(chatUrl, chatPayload, "Hermes Chat Completions stream", cancellationToken))
+            await foreach (var ev in OpenStreamAsync(
+                               chatUrl,
+                               chatPayload,
+                               "Hermes Chat Completions stream",
+                               !(nativeMode && settings.StrictNativeMode),
+                               cancellationToken))
             {
                 if (ev is StreamError err)
                 {
@@ -210,9 +243,10 @@ public static class ChatStreamClient
         string url,
         string jsonPayload,
         string label,
+        bool allowCompatAuth,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var authCandidates = GatewayService.BuildHermesAuthCandidates().ToArray();
+        var authCandidates = GatewayService.BuildHermesAuthCandidates(allowCompatAuth).ToArray();
         for (var attempt = 0; attempt < authCandidates.Length; attempt++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -395,9 +429,14 @@ public static class ChatStreamClient
 
         using (document)
         {
-            foreach (var ev in ParseEventElement(eventName, document.RootElement))
+            var parsed = ParseEventElement(eventName, document.RootElement).ToList();
+            foreach (var ev in parsed)
             {
                 yield return ev;
+            }
+            if (parsed.Count == 0)
+            {
+                yield return new StreamRawHermesEvent(eventName ?? TryGetString(document.RootElement, "type", "event") ?? "hermes.event", document.RootElement.GetRawText());
             }
         }
     }

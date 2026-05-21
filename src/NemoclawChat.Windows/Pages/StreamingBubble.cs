@@ -21,6 +21,7 @@ internal sealed class StreamingBubble
     private readonly Expander _thinkingExpander;
     private readonly TextBlock _thinkingText;
     private readonly StackPanel _toolCallsPanel;
+    private readonly StackPanel _rawEventsPanel;
     private readonly ContentControl _assistantContainer;
     private readonly TextBlock _statsText;
     private readonly LinearGradientBrush _shimmerBrush;
@@ -92,6 +93,9 @@ internal sealed class StreamingBubble
 
         _toolCallsPanel = new StackPanel { Spacing = 8 };
         _content.Children.Add(_toolCallsPanel);
+
+        _rawEventsPanel = new StackPanel { Spacing = 8 };
+        _content.Children.Add(_rawEventsPanel);
 
         _assistantContainer = new ContentControl
         {
@@ -373,6 +377,40 @@ internal sealed class StreamingBubble
         {
             _content.Children.Add(renderer(block));
         }
+        ScheduleScroll();
+    }
+
+    public void AddRawEvent(string name, string json)
+    {
+        var body = new TextBlock
+        {
+            Text = PrettifyJson(json),
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Colors.White),
+            TextWrapping = TextWrapping.Wrap
+        };
+        _rawEventsPanel.Children.Add(new Expander
+        {
+            Header = new TextBlock
+            {
+                Text = $"Evento Hermes · {name}",
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
+            },
+            Content = new Border
+            {
+                Padding = new Thickness(10),
+                Background = (Brush)Application.Current.Resources["ComposerBrush"],
+                CornerRadius = new CornerRadius(8),
+                Child = body
+            },
+            Background = (Brush)Application.Current.Resources["SurfaceBrush"],
+            BorderBrush = (Brush)Application.Current.Resources["BorderBrushSoft"],
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12)
+        });
         ScheduleScroll();
     }
 

@@ -233,7 +233,15 @@ data class ChatMessage(
     val visualBlocksVersion: Int? = null,
     val visualBlocks: List<VisualBlock> = emptyList(),
     val stats: ChatStreamStats? = null,
+    val rawEvents: List<HermesRawEvent> = emptyList(),
     val id: String = java.util.UUID.randomUUID().toString()
+)
+
+@androidx.compose.runtime.Immutable
+data class HermesRawEvent(
+    val name: String,
+    val json: String,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 @androidx.compose.runtime.Immutable
@@ -267,7 +275,8 @@ data class VisualBlock(
     val alt: String = "",
     val layout: String = "",
     val images: List<VisualGalleryImage> = emptyList(),
-    val variant: String = ""
+    val variant: String = "",
+    val rawJson: String = ""
 )
 
 @androidx.compose.runtime.Immutable
@@ -392,6 +401,7 @@ data class AppSettings(
     val activeProjectId: String = AppDefaults.activeProjectId,
     val activeProjectName: String = AppDefaults.activeProjectName,
     val fontScale: Float = AppDefaults.fontScale,
+    val strictNativeMode: Boolean = AppDefaults.strictNativeMode,
     val demoMode: Boolean = AppDefaults.demoMode
 )
 
@@ -430,7 +440,8 @@ private data class GatewayChatResult(
 private data class ContextUsage(
     val tokens: Int,
     val maxTokens: Int = DEFAULT_CONTEXT_WINDOW_TOKENS,
-    val percent: Int
+    val percent: Int,
+    val delegatedToHermes: Boolean = false
 )
 
 private data class GatewayTaskResult(
@@ -852,9 +863,11 @@ private fun ChatScreen(
         state.messages.size,
         state.draft,
         state.streamingState?.stats?.promptTokens,
-        streamingTextLen
+        streamingTextLen,
+        settings.preferredApi
     ) {
         estimateChatContextUsage(
+            settings = settings,
             messages = state.messages.toList(),
             draft = state.draft,
             streamingState = state.streamingState
@@ -967,6 +980,7 @@ private fun ChatScreen(
                         val prevId = state.previousResponseId
                         var interrupted = false
                         var lastCheckpointAt = 0L
+                        val rawEvents = mutableListOf<HermesRawEvent>()
                         val initialConversation = withContext(NonCancellable + Dispatchers.IO) {
                             saveConversationSnapshot(
                                 context = context,
@@ -982,6 +996,9 @@ private fun ChatScreen(
                         try {
                             streamChatRequest(settings, mode, text, state.messages.takeLast(CHAT_HISTORY_MAX_MESSAGES).toList(), state.activeConversationId, prevId, loadGatewaySecret(context))
                                 .collect { event ->
+                                    if (event is ChatStreamEvent.RawHermesEvent) {
+                                        rawEvents += HermesRawEvent(event.name, event.json)
+                                    }
                                     localState = localState.applyEvent(event)
                                     state.streamingState = localState
                                     val now = System.currentTimeMillis()
@@ -999,7 +1016,8 @@ private fun ChatScreen(
                                                     fromUser = false,
                                                     visualBlocksVersion = localState.visualBlocksVersion,
                                                     visualBlocks = localState.visualBlocks,
-                                                    stats = localState.stats
+                                                    stats = localState.stats,
+                                                    rawEvents = rawEvents.toList()
                                                 ),
                                                 source = "Hermes in corso",
                                                 responseId = localState.responseId ?: prevId
@@ -1030,7 +1048,8 @@ private fun ChatScreen(
                                         isAction = interrupted && partialText.isEmpty(),
                                         visualBlocksVersion = finalState.visualBlocksVersion,
                                         visualBlocks = finalState.visualBlocks,
-                                        stats = finalState.stats
+                                        stats = finalState.stats,
+                                        rawEvents = rawEvents.toList()
                                     )
                                 )
                             }
@@ -1222,7 +1241,7 @@ private fun ContextMeter(usage: ContextUsage, modifier: Modifier = Modifier) {
             )
         }
         Text(
-            text = "${usage.percent.coerceIn(0, 100)}%",
+            text = if (usage.delegatedToHermes && usage.tokens <= 0) "H" else "${usage.percent.coerceIn(0, 100)}%",
             color = Color.White,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
@@ -1233,10 +1252,15 @@ private fun ContextMeter(usage: ContextUsage, modifier: Modifier = Modifier) {
 }
 
 private fun estimateChatContextUsage(
+    settings: AppSettings,
     messages: List<ChatMessage>,
     draft: String,
     streamingState: StreamingState?
 ): ContextUsage {
+    val serverPromptTokens = streamingState?.stats?.promptTokens ?: 0
+    if (isHermesNative(settings) && serverPromptTokens <= 0) {
+        return ContextUsage(tokens = 0, percent = 0, delegatedToHermes = true)
+    }
     val historyTokens = messages
         .takeLast(CHAT_HISTORY_MAX_MESSAGES)
         .sumOf { estimateTokenCount(it.author) + estimateTokenCount(it.text) + MESSAGE_CONTEXT_OVERHEAD_TOKENS }
@@ -1249,12 +1273,11 @@ private fun estimateChatContextUsage(
     } else {
         CONTEXT_SYSTEM_OVERHEAD_TOKENS + historyTokens + draftTokens
     }
-    val serverPromptTokens = streamingState?.stats?.promptTokens ?: 0
-    val tokens = maxOf(estimated, serverPromptTokens).coerceAtLeast(0)
+    val tokens = if (isHermesNative(settings)) serverPromptTokens else maxOf(estimated, serverPromptTokens).coerceAtLeast(0)
     val percent = ((tokens.coerceAtMost(DEFAULT_CONTEXT_WINDOW_TOKENS).toDouble() / DEFAULT_CONTEXT_WINDOW_TOKENS) * 100.0)
         .roundToInt()
         .coerceIn(0, 100)
-    return ContextUsage(tokens = tokens, percent = percent)
+    return ContextUsage(tokens = tokens, percent = percent, delegatedToHermes = isHermesNative(settings))
 }
 
 private fun estimateTokenCount(text: String): Int {
@@ -1367,6 +1390,7 @@ private fun MessageBubble(message: ChatMessage) {
                         }
                     }
                 }
+                RawHermesEventsView(message.rawEvents)
                 ChatStatsFooter(message.stats)
             }
             return@SelectionContainer
@@ -1405,7 +1429,31 @@ private fun MessageBubble(message: ChatMessage) {
                             }
                         }
                     }
+                    RawHermesEventsView(message.rawEvents)
                     ChatStatsFooter(message.stats)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RawHermesEventsView(events: List<HermesRawEvent>) {
+    if (events.isEmpty()) return
+    var expanded by remember { mutableStateOf(false) }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
+        color = AppColors.Surface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, AppColors.Border)
+    ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Eventi Hermes raw: ${events.size}", color = AppColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            if (expanded) {
+                events.take(40).forEach { event ->
+                    Text("${event.name}: ${event.json.take(800)}", color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 }
             }
         }
@@ -1463,6 +1511,7 @@ internal fun VisualBlockView(block: VisualBlock) {
                 "image_gallery" -> GalleryBlock(block)
                 "media_file" -> MediaFileBlock(block)
                 "callout" -> CalloutBlock(block)
+                "unknown_block" -> CodeBlock("json", block.rawJson.ifBlank { "{}" }, "hermes-unknown-block.json")
             }
             if (block.caption.isNotBlank()) {
                 Text(block.caption, color = AppColors.Muted, fontSize = 12.sp)
@@ -3799,6 +3848,7 @@ private fun SettingsScreen(
     var videoLibraryPath by remember(settings.videoLibraryPath) { mutableStateOf(settings.videoLibraryPath) }
     var apiKey by remember { mutableStateOf(loadGatewaySecret(context) ?: HERMES_FALLBACK_API_KEY) }
     var fontScale by remember(settings.fontScale) { mutableStateOf(settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)) }
+    var strictNativeMode by remember(settings.strictNativeMode) { mutableStateOf(settings.strictNativeMode) }
     var demoMode by remember(settings.demoMode) { mutableStateOf(settings.demoMode) }
     var status by remember { mutableStateOf("Pronto.") }
 
@@ -3817,6 +3867,7 @@ private fun SettingsScreen(
             activeProjectId = settings.activeProjectId,
             activeProjectName = settings.activeProjectName,
             fontScale = scale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
+            strictNativeMode = strictNativeMode,
             demoMode = demoMode
         )
     }
@@ -3852,6 +3903,17 @@ private fun SettingsScreen(
             item { SettingsField("Accesso", accessMode, { accessMode = it }) }
             item { SettingsField("Modalita visuale (auto / always / never)", visualBlocksMode, { visualBlocksMode = it }) }
             item { SettingsField("Cartella video Hermes (sync server)", videoLibraryPath, { }) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Strict native mode", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = strictNativeMode, onCheckedChange = { strictNativeMode = it })
+                }
+                Text(
+                    "ON = niente fallback Chat Completions/no-auth se Hermes Native/Responses fallisce.",
+                    color = AppColors.Muted,
+                    fontSize = 12.sp
+                )
+            }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Fallback locale", color = Color.White, modifier = Modifier.weight(1f))
@@ -4072,7 +4134,7 @@ private fun validateSettings(settings: AppSettings): String? {
     return validateHttpUrl(settings.gatewayUrl, "Hermes API URL")
         ?: validateRequired(settings.provider, "Provider")
         ?: validateHttpUrl(settings.inferenceEndpoint, "Endpoint API")
-        ?: validateRequired(settings.preferredApi, "API preferita")
+        ?: validatePreferredApi(settings.preferredApi)
         ?: validateRequired(settings.model, "Modello")
         ?: validateRequired(settings.accessMode, "Accesso")
         ?: validateVisualBlocksMode(settings.visualBlocksMode)
@@ -4080,6 +4142,11 @@ private fun validateSettings(settings: AppSettings): String? {
 
 private fun validateVisualBlocksMode(value: String): String? {
     return if (value == "auto" || value == "always" || value == "never") null else "Modalita visuale deve essere auto, always o never."
+}
+
+private fun validatePreferredApi(value: String): String? {
+    return if (value == "hermes-native" || value == "openai-completions" || value == "openai-responses") null
+    else "API preferita deve essere hermes-native, openai-completions o openai-responses."
 }
 
 private fun validateWsUrl(value: String, label: String): String? {
@@ -4149,6 +4216,18 @@ internal fun hermesHubSharedContext(): String {
     """.trimIndent()
 }
 
+internal fun hermesNativeInstructions(mode: String): String {
+    val role = if (mode.equals("Agente", ignoreCase = true)) "agent" else "chat"
+    return """
+        Hermes Hub client surface: android-app.
+        Protocol mode: hermes-native/$role.
+        Use Hermes Agent server-side memory, planner, tools, jobs, artifacts and policy as source of truth.
+        Client history is UI snapshot only; recover conversation context from Hermes conversation/response ids when available.
+        Emit realtime Hermes events for planner, memory, retrieval, tool, artifact and model-call state when supported.
+        Return user-facing answer plus structured artifacts/media through Hermes-declared capabilities.
+    """.trimIndent()
+}
+
 private suspend fun sendChatRequest(
     settings: AppSettings,
     mode: String,
@@ -4167,7 +4246,9 @@ private suspend fun sendChatRequest(
                 .put("input", prompt)
                 .put(
                     "instructions",
-                    if (mode.equals("Agente", ignoreCase = true)) {
+                    if (isHermesNative(settings)) {
+                        hermesNativeInstructions(mode)
+                    } else if (mode.equals("Agente", ignoreCase = true)) {
                         hermesHubAgentInstructions()
                     } else {
                         hermesHubChatInstructions()
@@ -4177,7 +4258,7 @@ private suspend fun sendChatRequest(
                 .put("conversation", conversationId ?: JSONObject.NULL)
                 .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
                 .put("metadata", visualBlocksMetadata(settings))
-            val response = postJson("${settings.gatewayUrl.trimEnd('/')}/responses", payload, apiKey)
+            val response = postJson("${settings.gatewayUrl.trimEnd('/')}/responses", payload, apiKey, allowCompatAuth = !(isHermesNative(settings) && settings.strictNativeMode))
             if (response.first in 200..299) {
                 val text = extractAssistantText(response.second)
                 if (text.isNotBlank()) {
@@ -4198,6 +4279,15 @@ private suspend fun sendChatRequest(
         } catch (ex: Exception) {
             lastError = ex.message ?: ex.javaClass.simpleName
         }
+
+        if (settings.strictNativeMode && isHermesNative(settings)) {
+            return@withContext GatewayChatResult(
+                text = "Hermes native non disponibile: $lastError.",
+                source = "Errore Hermes Native",
+                statusMessage = "Strict native mode: nessun fallback compat eseguito. $lastError",
+                usedFallback = false
+            )
+        }
     }
 
     try {
@@ -4209,9 +4299,10 @@ private suspend fun sendChatRequest(
                 put(
                     JSONObject()
                         .put("role", "system")
-                        .put("content", if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
+                        .put("content", if (isHermesNative(settings)) hermesNativeInstructions(mode) else if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
                 )
-                history.filter { !it.isAction }.forEach { message ->
+                val compatHistory = if (isHermesNative(settings)) emptyList() else history
+                compatHistory.filter { !it.isAction }.forEach { message ->
                     put(
                         JSONObject()
                             .put("role", if (message.fromUser) "user" else "assistant")
@@ -4219,7 +4310,7 @@ private suspend fun sendChatRequest(
                     )
                 }
             })
-        val response = postJson("${settings.gatewayUrl.trimEnd('/')}/chat/completions", payload, apiKey)
+        val response = postJson("${settings.gatewayUrl.trimEnd('/')}/chat/completions", payload, apiKey, allowCompatAuth = !(isHermesNative(settings) && settings.strictNativeMode))
         if (response.first in 200..299) {
             val text = extractAssistantText(response.second)
             if (text.isNotBlank()) {
@@ -4266,6 +4357,8 @@ private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
     return JSONObject()
         .put("client", "hermes-hub")
         .put("client_surface", "android-app")
+        .put("requested_protocol", settings.preferredApi)
+        .put("strict_native_mode", settings.strictNativeMode)
         .put("profile", "Matteo")
         .put("project_id", settings.activeProjectId)
         .put("project_name", settings.activeProjectName)
@@ -4277,6 +4370,15 @@ private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
                 .put("share_with_cli", true)
                 .put("use_server_memory_tools", true)
                 .put("do_not_create_app_only_memory", true)
+                .put("context_owner", if (isHermesNative(settings)) "hermes-agent" else "client-compat")
+        )
+        .put(
+            "native_context",
+            JSONObject()
+                .put("delegated", isHermesNative(settings))
+                .put("conversation_id_required", true)
+                .put("client_history_is_snapshot_only", isHermesNative(settings))
+                .put("client_context_meter", if (isHermesNative(settings)) "server-authoritative" else "local-estimate")
         )
         .put(
             "hub_sections",
@@ -4814,9 +4916,15 @@ private val apiHttpClient: OkHttpClient by lazy {
         .build()
 }
 
-private suspend fun postJson(url: String, payload: JSONObject, apiKey: String? = null, method: String = "POST"): Pair<Int, String> = withContext(Dispatchers.IO) {
+private suspend fun postJson(
+    url: String,
+    payload: JSONObject,
+    apiKey: String? = null,
+    method: String = "POST",
+    allowCompatAuth: Boolean = true
+): Pair<Int, String> = withContext(Dispatchers.IO) {
     var last: Pair<Int, String>? = null
-    for (token in hermesAuthCandidates(apiKey)) {
+    for (token in hermesAuthCandidates(apiKey, allowCompatAuth)) {
         val response = executeJsonRequest(url, payload, method, token)
         last = response
         if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
@@ -5101,7 +5209,7 @@ internal fun extractVisualBlocks(body: String): List<VisualBlock> {
     return try {
         val root = JSONObject(trimmed)
         val version = root.optInt("visual_blocks_version", VISUAL_BLOCKS_VERSION)
-        if (version != VISUAL_BLOCKS_VERSION) {
+        if (version < VISUAL_BLOCKS_VERSION) {
             return emptyList()
         }
         val array = findJsonArray(root, "visual_blocks") ?: return emptyList()
@@ -5110,15 +5218,29 @@ internal fun extractVisualBlocks(body: String): List<VisualBlock> {
         }
         buildList {
             for (i in 0 until minOf(array.length(), VISUAL_BLOCKS_MAX_BLOCKS)) {
-                val block = readVisualBlock(array.optJSONObject(i) ?: continue)
+                val obj = array.optJSONObject(i) ?: continue
+                val block = readVisualBlock(obj)
                 if (block.isValidVisualBlock()) {
                     add(block)
+                } else {
+                    add(toUnknownVisualBlock(obj))
                 }
             }
         }
     } catch (_: Exception) {
         emptyList()
     }
+}
+
+private fun toUnknownVisualBlock(obj: JSONObject): VisualBlock {
+    val rawType = obj.optString("type", "unknown")
+    return VisualBlock(
+        id = obj.optString("id").ifBlank { "unknown-${System.nanoTime()}" },
+        type = "unknown_block",
+        title = "Blocco Hermes non renderizzato: $rawType",
+        caption = "Payload conservato per compatibilita' forward.",
+        rawJson = obj.toString()
+    )
 }
 
 private fun findJsonArray(value: Any?, key: String): JSONArray? {
@@ -5169,7 +5291,8 @@ private fun readVisualBlock(obj: JSONObject): VisualBlock {
         alt = obj.optString("alt"),
         layout = obj.optString("layout"),
         images = readVisualImages(obj.optJSONArray("images") ?: JSONArray()),
-        variant = obj.optString("variant")
+        variant = obj.optString("variant"),
+        rawJson = obj.optString("raw_json", obj.toString())
     )
 }
 
@@ -5238,6 +5361,7 @@ internal fun VisualBlock.isValidVisualBlock(): Boolean {
         "image_gallery" -> images.isNotEmpty() && images.size <= 12 && images.all { it.mediaUrl.isNotBlank() && it.alt.isNotBlank() }
         "media_file" -> mediaKind in setOf("image", "video", "audio", "document") && mediaUrl.isNotBlank() && alt.isNotBlank()
         "callout" -> variant in setOf("info", "warning", "error", "success") && text.isNotBlank()
+        "unknown_block" -> rawJson.isNotBlank()
         else -> false
     }
 }
@@ -5720,6 +5844,7 @@ private fun loadSettings(context: Context): AppSettings {
         activeProjectId = prefs.getString("activeProjectId", AppDefaults.activeProjectId) ?: AppDefaults.activeProjectId,
         activeProjectName = prefs.getString("activeProjectName", AppDefaults.activeProjectName) ?: AppDefaults.activeProjectName,
         fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
+        strictNativeMode = prefs.getBoolean("strictNativeMode", AppDefaults.strictNativeMode),
         demoMode = prefs.getBoolean("demoMode", AppDefaults.demoMode)
     )
 }
@@ -5742,6 +5867,7 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .putString("activeProjectId", settings.activeProjectId.trim())
         .putString("activeProjectName", settings.activeProjectName.trim())
         .putFloat("fontScale", settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE))
+        .putBoolean("strictNativeMode", settings.strictNativeMode)
         .putBoolean("demoMode", settings.demoMode)
         .apply()
 }
@@ -6425,6 +6551,7 @@ private fun readMessages(array: JSONArray): List<ChatMessage> {
                     visualBlocksVersion = obj.optInt("visualBlocksVersion").takeIf { obj.has("visualBlocksVersion") },
                     visualBlocks = readVisualBlocks(obj.optJSONArray("visualBlocks") ?: JSONArray()),
                     stats = readChatStats(obj.optJSONObject("stats")),
+                    rawEvents = readRawEvents(obj.optJSONArray("rawEvents") ?: JSONArray()),
                     id = storedId ?: java.util.UUID.randomUUID().toString()
                 )
             )
@@ -6445,9 +6572,32 @@ private fun writeMessages(messages: List<ChatMessage>): JSONArray {
                 .put("visualBlocksVersion", message.visualBlocksVersion ?: JSONObject.NULL)
                 .put("visualBlocks", writeVisualBlocks(message.visualBlocks))
                 .put("stats", writeChatStats(message.stats) ?: JSONObject.NULL)
+                .put("rawEvents", writeRawEvents(message.rawEvents))
         )
     }
     return array
+}
+
+private fun readRawEvents(array: JSONArray): List<HermesRawEvent> = buildList {
+    for (i in 0 until minOf(array.length(), 80)) {
+        val obj = array.optJSONObject(i) ?: continue
+        add(
+            HermesRawEvent(
+                name = obj.optString("name", "hermes.event"),
+                json = obj.optString("json"),
+                timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+            )
+        )
+    }
+}
+
+private fun writeRawEvents(events: List<HermesRawEvent>): JSONArray {
+    return JSONArray(events.take(80).map { event ->
+        JSONObject()
+            .put("name", event.name)
+            .put("json", event.json)
+            .put("timestamp", event.timestamp)
+    })
 }
 
 private fun readChatStats(obj: JSONObject?): ChatStreamStats? {
@@ -6510,6 +6660,7 @@ private fun writeVisualBlocks(blocks: List<VisualBlock>): JSONArray {
             "image_gallery" -> obj.put("layout", block.layout).put("images", JSONArray(block.images.map { image -> JSONObject().put("media_url", image.mediaUrl).put("alt", image.alt).put("caption", image.caption) }))
             "media_file" -> obj.put("media_url", block.mediaUrl).put("media_kind", block.mediaKind).put("mime_type", block.mimeType).put("filename", block.filename).put("size_bytes", block.sizeBytes ?: JSONObject.NULL).put("duration_ms", block.durationMs ?: JSONObject.NULL).put("thumbnail_url", block.thumbnailUrl).put("alt", block.alt)
             "callout" -> obj.put("variant", block.variant).put("text", block.text)
+            "unknown_block" -> obj.put("raw_json", block.rawJson)
         }
         array.put(obj)
     }
@@ -6639,7 +6790,7 @@ private object AppDefaults {
     const val adminBridgeUrl = "http://hermes.local:8642"
     const val provider = "hermes-agent"
     const val inferenceEndpoint = "http://hermes.local:8642/v1"
-    const val preferredApi = "openai-completions"
+    const val preferredApi = "hermes-native"
     const val model = "hermes-agent"
     const val accessMode = "Tailscale/LAN"
     const val visualBlocksMode = "auto"
@@ -6647,6 +6798,7 @@ private object AppDefaults {
     const val activeProjectId = ""
     const val activeProjectName = ""
     const val fontScale = 1.0f
+    const val strictNativeMode = true
     const val demoMode = false
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"
     const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"

@@ -28,6 +28,7 @@
             <TextBox x:Name="ProviderBox" Header="Provider" />
             <TextBox x:Name="InferenceEndpointBox" Header="Endpoint API lato server" />
             <ComboBox x:Name="PreferredApiBox" Header="API preferita" SelectedIndex="0">
+                <ComboBoxItem Content="hermes-native" />
                 <ComboBoxItem Content="openai-completions" />
                 <ComboBoxItem Content="openai-responses" />
             </ComboBox>
@@ -44,6 +45,7 @@
                 <ComboBoxItem Content="always" />
                 <ComboBoxItem Content="never" />
             </ComboBox>
+            <ToggleSwitch x:Name="StrictNativeModeSwitch" Header="Strict native mode" OffContent="Fallback compat consentiti" OnContent="Solo Hermes native/Responses" />
             <ToggleSwitch x:Name="DemoModeSwitch" Header="Fallback locale" OffContent="Solo Hermes" OnContent="Fallback locale attivo" />
             <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="12">
                 <StackPanel Spacing="10">

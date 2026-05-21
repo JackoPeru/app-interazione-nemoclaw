@@ -150,6 +150,8 @@ data class StreamingState(
             visualBlocksVersion = event.version
         ).withActivity("Visual blocks ricevuti: ${event.blocks.size}.")
         is ChatStreamEvent.Status -> copy(status = event.message).withActivity(event.message)
+        is ChatStreamEvent.RawHermesEvent -> copy(status = "Evento Hermes: ${event.name}")
+            .withActivity("Evento Hermes: ${event.name} ${event.json.take(300)}")
         is ChatStreamEvent.PromptProgress -> copy(
             promptProgressPercent = event.percent.coerceIn(0, 100),
             status = event.label.ifBlank { "Processing prompt..." }
@@ -221,6 +223,7 @@ sealed class ChatStreamEvent {
     data class ResponseId(val id: String) : ChatStreamEvent()
     data class VisualBlocks(val blocks: List<VisualBlock>, val version: Int) : ChatStreamEvent()
     data class Status(val message: String) : ChatStreamEvent()
+    data class RawHermesEvent(val name: String, val json: String) : ChatStreamEvent()
     data class Usage(val promptTokens: Int?, val completionTokens: Int?) : ChatStreamEvent()
     data class PromptProgress(val percent: Int, val label: String = "Processing prompt...") : ChatStreamEvent()
     data class Done(val stats: ChatStreamStats) : ChatStreamEvent()
@@ -245,6 +248,7 @@ fun streamChatRequest(
     val accumThink = StringBuilder()
     var lastError: String? = null
     val videoMode = isVideoRequest(prompt)
+    val nativeMode = isHermesNative(settings)
 
     suspend fun emitAndTrack(ev: ChatStreamEvent): Boolean {
         when (ev) {
@@ -278,13 +282,15 @@ fun streamChatRequest(
     }
 
     if (shouldUseResponsesFirst(settings, mode)) {
-        emit(ChatStreamEvent.Status("Invio diretto a Hermes Responses API..."))
+        emit(ChatStreamEvent.Status(if (nativeMode) "Protocollo effettivo: Hermes Native via Responses. Context delegato a Hermes." else "Invio diretto a Hermes Responses API..."))
         val responsePayload = JSONObject()
             .put("model", settings.model)
             .put("input", prompt)
             .put(
                 "instructions",
-                (if (mode.equals("Agente", ignoreCase = true))
+                (if (nativeMode)
+                    streamHermesNativeInstructions(mode)
+                else if (mode.equals("Agente", ignoreCase = true))
                     hermesHubAgentInstructions()
                 else
                     hermesHubChatInstructions()) + if (videoMode) "\n\n" + hermesHubVideoInstructions(settings) else ""
@@ -300,7 +306,7 @@ fun streamChatRequest(
         while (responsesAttempt < 2 && !sawDelta) {
             responsesAttempt++
             lastError = null
-            val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey) { ev ->
+            val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey, !(nativeMode && settings.strictNativeMode)) { ev ->
                 emitAndTrack(ev)
             }
             if (!terminated || sawDelta) {
@@ -313,12 +319,21 @@ fun streamChatRequest(
         }
         if (lastError != null && !sawDelta) {
             Log.w("ChatStream", "Responses API fallback: $lastError")
+            if (nativeMode && settings.strictNativeMode) {
+                emit(ChatStreamEvent.Error("Strict native mode: Hermes Native/Responses non disponibile. $lastError"))
+                return@flow
+            }
             emit(ChatStreamEvent.Status("Responses API non disponibile, fallback rapido a Chat Completions..."))
         }
     }
 
     if (!sawDelta) {
-        emit(ChatStreamEvent.Status("Invio diretto a Hermes Chat Completions..."))
+        if (nativeMode && settings.strictNativeMode) {
+            emit(ChatStreamEvent.Error("Strict native mode: Hermes Native/Responses non disponibile. Stream vuoto."))
+            return@flow
+        }
+        emit(ChatStreamEvent.Status(if (nativeMode) "Fallback compat: Chat Completions. Strict native mode disattivato." else "Invio diretto a Hermes Chat Completions..."))
+        val compatHistory = if (nativeMode) emptyList() else history
         val payload = JSONObject()
             .put("model", settings.model)
             .put("stream", true)
@@ -326,8 +341,8 @@ fun streamChatRequest(
             .put("messages", JSONArray().apply {
                 put(
                     JSONObject()
-                        .put("role", "system")
-                        .put("content", if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
+                            .put("role", "system")
+                            .put("content", if (nativeMode) streamHermesNativeInstructions(mode) else if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
                 )
                 if (videoMode) {
                     put(
@@ -336,7 +351,7 @@ fun streamChatRequest(
                             .put("content", hermesHubVideoInstructions(settings))
                     )
                 }
-                history.filter { !it.isAction }.forEach { msg ->
+                compatHistory.filter { !it.isAction }.forEach { msg ->
                     put(
                         JSONObject()
                             .put("role", if (msg.fromUser) "user" else "assistant")
@@ -346,7 +361,7 @@ fun streamChatRequest(
         })
         val url = "${settings.gatewayUrl.trimEnd('/')}/chat/completions"
         lastError = null
-        openSseStream(url, payload, "Hermes Chat Completions", apiKey) { ev ->
+        openSseStream(url, payload, "Hermes Chat Completions", apiKey, !(nativeMode && settings.strictNativeMode)) { ev ->
             emitAndTrack(ev)
         }
     }
@@ -369,6 +384,7 @@ private suspend inline fun openSseStream(
     payload: JSONObject,
     label: String,
     apiKey: String?,
+    allowCompatAuth: Boolean,
     crossinline onEvent: suspend (ChatStreamEvent) -> Boolean
 ): Boolean {
     var call: Call? = null
@@ -379,7 +395,7 @@ private suspend inline fun openSseStream(
     }
     return try {
         val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-        val authCandidates = hermesAuthCandidates(apiKey)
+        val authCandidates = hermesAuthCandidates(apiKey, allowCompatAuth)
         var lastHttpError: Pair<Int, String>? = null
 
         for ((index, bearerToken) in authCandidates.withIndex()) {
@@ -469,7 +485,12 @@ private fun parseSseData(eventName: String?, data: String): List<ChatStreamEvent
     val json = try { JSONObject(data) } catch (_: Exception) {
         return listOf(ChatStreamEvent.TextDelta(data))
     }
-    return parseEventObject(eventName, json)
+    val parsed = parseEventObject(eventName, json)
+    return if (parsed.isEmpty()) {
+        listOf(ChatStreamEvent.RawHermesEvent(eventName ?: json.optString("type", "hermes.event"), json.toString()))
+    } else {
+        parsed
+    }
 }
 
 private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStreamEvent> {
@@ -644,6 +665,18 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
     }
 
     return out
+}
+
+private fun streamHermesNativeInstructions(mode: String): String {
+    val role = if (mode.equals("Agente", ignoreCase = true)) "agent" else "chat"
+    return """
+        Hermes Hub client surface: android-app.
+        Protocol mode: hermes-native/$role.
+        Use Hermes Agent server-side memory, planner, tools, jobs, artifacts and policy as source of truth.
+        Client history is UI snapshot only; recover conversation context from Hermes conversation/response ids when available.
+        Emit realtime Hermes events for planner, memory, retrieval, tool, artifact and model-call state when supported.
+        Return user-facing answer plus structured artifacts/media through Hermes-declared capabilities.
+    """.trimIndent()
 }
 
 private fun isVideoRequest(prompt: String): Boolean {
@@ -897,6 +930,8 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
     return JSONObject()
         .put("client", "hermes-hub")
         .put("client_surface", "android-app")
+        .put("requested_protocol", settings.preferredApi)
+        .put("strict_native_mode", settings.strictNativeMode)
         .put("profile", "Matteo")
         .put("project_id", settings.activeProjectId)
         .put("project_name", settings.activeProjectName)
@@ -908,6 +943,15 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
                 .put("share_with_cli", true)
                 .put("use_server_memory_tools", true)
                 .put("do_not_create_app_only_memory", true)
+                .put("context_owner", if (isHermesNative(settings)) "hermes-agent" else "client-compat")
+        )
+        .put(
+            "native_context",
+            JSONObject()
+                .put("delegated", isHermesNative(settings))
+                .put("conversation_id_required", true)
+                .put("client_history_is_snapshot_only", isHermesNative(settings))
+                .put("client_context_meter", if (isHermesNative(settings)) "server-authoritative" else "local-estimate")
         )
         .put(
             "hub_sections",

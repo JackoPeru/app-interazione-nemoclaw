@@ -2,13 +2,16 @@ using System.Text.Json;
 
 namespace NemoclawChat_Windows.Services;
 
+public sealed record HermesRawEventRecord(string Name, string Json, DateTimeOffset Timestamp);
+
 public sealed record ChatMessageRecord(
     string Author,
     string Text,
     DateTimeOffset Timestamp,
     int? VisualBlocksVersion = null,
     List<VisualBlockRecord>? VisualBlocks = null,
-    ChatStreamStats? Stats = null);
+    ChatStreamStats? Stats = null,
+    List<HermesRawEventRecord>? RawEvents = null);
 
 public sealed class ConversationRecord
 {

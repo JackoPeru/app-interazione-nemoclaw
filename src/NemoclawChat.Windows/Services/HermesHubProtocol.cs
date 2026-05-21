@@ -4,6 +4,16 @@ public static class HermesHubProtocol
 {
     public static string Instructions(string mode)
     {
+        return Instructions(new AppSettings(), mode);
+    }
+
+    public static string Instructions(AppSettings settings, string mode)
+    {
+        if (IsNativePreferred(settings))
+        {
+            return NativeInstructions(mode);
+        }
+
         var shared = """
             Stai ricevendo messaggi da Hermes Hub, client operativo mobile/desktop di Hermes Agent.
             Hermes Hub non e' un modello separato: deve usare la stessa memoria agente, gli stessi jobs e lo stesso profilo operativo disponibili anche da CLI Hermes.
@@ -44,6 +54,8 @@ public static class HermesHubProtocol
         {
             client = "hermes-hub",
             client_surface = "windows-app",
+            requested_protocol = settings.PreferredApi,
+            strict_native_mode = settings.StrictNativeMode,
             profile = "Matteo",
             project_id = settings.ActiveProjectId,
             project_name = settings.ActiveProjectName,
@@ -54,7 +66,15 @@ public static class HermesHubProtocol
                 scope = "shared-hermes-agent-memory",
                 share_with_cli = true,
                 use_server_memory_tools = true,
-                do_not_create_app_only_memory = true
+                do_not_create_app_only_memory = true,
+                context_owner = IsNativePreferred(settings) ? "hermes-agent" : "client-compat"
+            },
+            native_context = new
+            {
+                delegated = IsNativePreferred(settings),
+                conversation_id_required = true,
+                client_history_is_snapshot_only = IsNativePreferred(settings),
+                client_context_meter = IsNativePreferred(settings) ? "server-authoritative" : "local-estimate"
             },
             hub_sections = new
             {
@@ -89,5 +109,25 @@ public static class HermesHubProtocol
                 media_file = "supported for image/video/audio/document via safe proxy URLs; include media_kind, mime_type, filename, size_bytes, duration_ms, thumbnail_url when known"
             }
         };
+    }
+
+    public static bool IsNativePreferred(AppSettings settings)
+    {
+        return string.Equals(settings.PreferredApi, "hermes-native", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string NativeInstructions(string mode)
+    {
+        var role = mode.Equals("Agente", StringComparison.OrdinalIgnoreCase)
+            ? "agent"
+            : "chat";
+        return $"""
+            Hermes Hub client surface: windows-app.
+            Protocol mode: hermes-native/{role}.
+            Use Hermes Agent server-side memory, planner, tools, jobs, artifacts and policy as source of truth.
+            Client history is UI snapshot only; recover conversation context from Hermes conversation/response ids when available.
+            Emit realtime Hermes events for planner, memory, retrieval, tool, artifact and model-call state when supported.
+            Return user-facing answer plus structured artifacts/media through Hermes-declared capabilities.
+            """;
     }
 }

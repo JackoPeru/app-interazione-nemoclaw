@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using NemoclawChat_Windows.Services;
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Storage.Pickers;
@@ -329,6 +330,7 @@ public sealed partial class HomePage : Page
             bool usedFallback = false;
             string? streamError = null;
             ChatStreamStats? finalStats = null;
+            var rawEvents = new List<HermesRawEventRecord>();
             var lastCheckpointAt = DateTimeOffset.MinValue;
 
             await foreach (var ev in ChatStreamClient.StreamChatAsync(settings, _mode, prompt, _messageHistory, _conversationId, _previousResponseId))
@@ -365,6 +367,18 @@ public sealed partial class HomePage : Page
                         break;
                     case StreamStatus ss:
                         statusMessage = ss.Message;
+                        if (ss.Message.Contains("Protocollo", StringComparison.OrdinalIgnoreCase) ||
+                            ss.Message.Contains("Fallback compat", StringComparison.OrdinalIgnoreCase) ||
+                            ss.Message.Contains("Strict native", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var rawStatus = $$"""{"message":{{JsonSerializer.Serialize(ss.Message)}}}""";
+                            rawEvents.Add(new HermesRawEventRecord("status", rawStatus, DateTimeOffset.Now));
+                            bubble.AddRawEvent("status", rawStatus);
+                        }
+                        break;
+                    case StreamRawHermesEvent raw:
+                        rawEvents.Add(new HermesRawEventRecord(raw.Name, raw.Json, DateTimeOffset.Now));
+                        bubble.AddRawEvent(raw.Name, raw.Json);
                         break;
                     case StreamDone done:
                         finalStats = done.Stats;
@@ -396,7 +410,9 @@ public sealed partial class HomePage : Page
                                 string.IsNullOrWhiteSpace(finalText) ? "Hermes sta lavorando..." : finalText,
                                 DateTimeOffset.Now,
                                 finalBlocksVersion,
-                                finalBlocks?.ToList())
+                                finalBlocks?.ToList(),
+                                null,
+                                rawEvents.ToList())
                         })
                         .ToList();
                     var checkpoint = ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, partialMessages, "Hermes in corso", finalResponseId ?? _previousResponseId);
@@ -424,7 +440,7 @@ public sealed partial class HomePage : Page
                 bubble.Complete(new ChatStreamStats(null, null, null, null, null));
             }
 
-            _messageHistory.Add(new ChatMessageRecord("Hermes", finalText, DateTimeOffset.Now, finalBlocksVersion, finalBlocks?.ToList()));
+            _messageHistory.Add(new ChatMessageRecord("Hermes", finalText, DateTimeOffset.Now, finalBlocksVersion, finalBlocks?.ToList(), null, rawEvents));
             if (finalStats is not null)
             {
                 _messageHistory[^1] = _messageHistory[^1] with { Stats = finalStats };
@@ -514,7 +530,8 @@ public sealed partial class HomePage : Page
                 message.Author == "Tu" ? "UserBubbleBrush" : "AssistantBubbleBrush",
                 message.Author == "Tu" ? HorizontalAlignment.Right : HorizontalAlignment.Left,
                 message.VisualBlocks,
-                message.Stats);
+                message.Stats,
+                message.RawEvents);
         }
         UpdateContextMeter();
     }
@@ -525,7 +542,8 @@ public sealed partial class HomePage : Page
         string brushKey,
         HorizontalAlignment alignment,
         IReadOnlyList<VisualBlockRecord>? visualBlocks = null,
-        ChatStreamStats? stats = null)
+        ChatStreamStats? stats = null,
+        IReadOnlyList<HermesRawEventRecord>? rawEvents = null)
     {
         var content = new StackPanel { Spacing = 8 };
         content.Children.Add(new TextBlock
@@ -554,6 +572,14 @@ public sealed partial class HomePage : Page
             foreach (var block in visualBlocks.Where(VisualBlockParser.IsValid))
             {
                 content.Children.Add(RenderVisualBlock(block));
+            }
+        }
+        if (string.Equals(author, "Hermes", StringComparison.OrdinalIgnoreCase) &&
+            rawEvents is { Count: > 0 })
+        {
+            foreach (var raw in rawEvents.Take(40))
+            {
+                content.Children.Add(RenderRawHermesEvent(raw));
             }
         }
         AddStatsFooter(content, stats);
@@ -592,6 +618,32 @@ public sealed partial class HomePage : Page
             Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
             TextWrapping = TextWrapping.WrapWholeWords
         });
+    }
+
+    private static UIElement RenderRawHermesEvent(HermesRawEventRecord raw)
+    {
+        return new Expander
+        {
+            Header = new TextBlock
+            {
+                Text = $"Evento Hermes · {raw.Name}",
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
+            },
+            Content = new TextBlock
+            {
+                Text = raw.Json.Length > 4000 ? raw.Json[..4000] + "..." : raw.Json,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Colors.White),
+                TextWrapping = TextWrapping.Wrap
+            },
+            Background = (Brush)Application.Current.Resources["SurfaceBrush"],
+            BorderBrush = (Brush)Application.Current.Resources["BorderBrushSoft"],
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12)
+        };
     }
 
     private static string FormatChatStats(ChatStreamStats? stats)
@@ -666,8 +718,21 @@ public sealed partial class HomePage : Page
             _lastPromptTokens = serverPromptTokens.Value;
         }
 
+        var settings = AppSettingsStore.Load();
+        if (HermesHubProtocol.IsNativePreferred(settings) && _lastPromptTokens <= 0)
+        {
+            ContextMeterText.Text = "H";
+            ContextMeterFill.Data = null;
+            ToolTipService.SetToolTip(
+                ContextMeter,
+                $"Contesto delegato a Hermes Agent. Modalita: {_mode}. Client archive = snapshot UI, non fonte memoria primaria.");
+            return;
+        }
+
         var estimatedTokens = EstimateCurrentContextTokens();
-        var tokens = Math.Max(estimatedTokens, _lastPromptTokens);
+        var tokens = HermesHubProtocol.IsNativePreferred(settings)
+            ? Math.Max(0, _lastPromptTokens)
+            : Math.Max(estimatedTokens, _lastPromptTokens);
         var percent = (int)Math.Round(
             Math.Min(tokens, DefaultContextWindowTokens) * 100.0 / DefaultContextWindowTokens,
             MidpointRounding.AwayFromZero);
@@ -677,7 +742,9 @@ public sealed partial class HomePage : Page
         ContextMeterFill.Data = BuildContextMeterGeometry(percent / 100.0, 54, 54);
         ToolTipService.SetToolTip(
             ContextMeter,
-            $"Contesto chat: {tokens:N0}/{DefaultContextWindowTokens:N0} token stimati. Modalita: {_mode}.");
+            HermesHubProtocol.IsNativePreferred(settings)
+                ? $"Contesto server Hermes: {tokens:N0}/{DefaultContextWindowTokens:N0} token reported. Modalita: {_mode}."
+                : $"Contesto chat: {tokens:N0}/{DefaultContextWindowTokens:N0} token stimati. Modalita: {_mode}.");
     }
 
     private int EstimateCurrentContextTokens()
@@ -1079,6 +1146,7 @@ public sealed partial class HomePage : Page
             "image_gallery" => RenderGallery(block),
             "media_file" => RenderMediaFile(block),
             "callout" => RenderCallout(block),
+            "unknown_block" => RenderCode("json", block.RawJson ?? "{}", "hermes-unknown-block.json"),
             _ => new TextBlock { Text = block.Caption ?? "Blocco visuale non supportato.", Foreground = (Brush)Application.Current.Resources["MutedTextBrush"] }
         });
 

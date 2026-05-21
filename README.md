@@ -14,7 +14,7 @@ Client Windows + Android per parlare con Hermes Agent su home-server.
 
 - Windows WinUI 3: UI dark stile ChatGPT, sidebar, chat, archivio, jobs, Hermes server, runs, settings, profilo e updater.
 - Android Compose: UI mobile dark stile ChatGPT, composer, menu `+`, archivio, jobs, Hermes server, runs, settings, profilo e updater in-app.
-- Chat: `POST /v1/responses` primario con `store`, `conversation`, `previous_response_id`; fallback `POST /v1/chat/completions`.
+- Chat: Hermes Native default via Responses/native transport con `store`, `conversation`, `previous_response_id`; fallback compat solo se strict native mode e' disattivato.
 - Visual Blocks v1: spiegazioni visuali statiche sicure nella chat (`markdown`, `code`, `table`, `chart`, `diagram`, `image_gallery`, `media_file`, `callout`) con fallback testuale.
 - Jobs: task persistenti, sync reale su Hermes Jobs API `/api/jobs`, azioni `run`, `pause`, `delete`.
 - Server: dashboard Hermes con `/health`, `/health/detailed`, `/v1/models`, `/v1/capabilities`, video library, memoria e hub state.
@@ -29,8 +29,8 @@ Preset in [config/hermes-defaults.json](config/hermes-defaults.json):
 - Hermes API URL: `http://hermes.local:8642/v1`
 - Health: `http://hermes.local:8642/health`
 - Model: `hermes-agent`
-- API primaria: `/v1/responses`
-- API fallback: `/v1/chat/completions`
+- API primaria: Hermes Native (`/v1/responses` o alias gateway `/v1/hermes/native`)
+- API fallback: `/v1/chat/completions` solo compat/strict OFF
 - Accesso consigliato: `Tailscale/LAN`
 - Auth: client usa `Authorization: Bearer hermes-hub` come default; se fallisce prova fallback compat.
 
@@ -62,7 +62,7 @@ src/NemoclawChat.Android/app/build/outputs/apk/debug/androidApp-debug.apk
 Versione corrente:
 
 ```text
-v0.6.45
+v0.6.46
 ```
 
 Asset attesi dagli updater:
