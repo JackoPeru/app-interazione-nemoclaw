@@ -1,5 +1,6 @@
 package com.nemoclaw.chat
 
+import android.app.Activity
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -124,6 +125,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -135,12 +137,14 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -162,6 +166,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -700,28 +706,43 @@ private data class VoiceParticle(
     val speed: Float,
     val phase: Float,
     val size: Float,
-    val anchor: Boolean = false
+    val anchor: Boolean = false,
+    val depth: Float = 0f
 )
 
 @Composable
 private fun VoiceModeScreen() {
+    val context = LocalContext.current
+    val view = LocalView.current
     var assembled by rememberSaveable { mutableStateOf(false) }
     val particles = remember { buildVoiceParticles() }
+    val strokes = remember { buildVoiceStrokes() }
+    var time by remember { mutableStateOf(0f) }
     val progress by animateFloatAsState(
         targetValue = if (assembled) 1f else 0f,
-        animationSpec = tween(durationMillis = 780, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 1450, easing = FastOutSlowInEasing),
         label = "voice-assemble"
     )
-    val motion = rememberInfiniteTransition(label = "voice-motion")
-    val time by motion.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 9000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "voice-time"
-    )
+
+    DisposableEffect(view) {
+        val activity = context as? Activity
+        val controller = activity?.let { WindowInsetsControllerCompat(it.window, view) }
+        controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        var start = 0L
+        while (true) {
+            withFrameNanos { frame ->
+                if (start == 0L) start = frame
+                time = ((frame - start) / 1_000_000_000f) % 10000f
+            }
+        }
+    }
 
     Canvas(
         modifier = Modifier
@@ -730,32 +751,41 @@ private fun VoiceModeScreen() {
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { assembled = true },
-                    onDoubleTap = { assembled = false }
+                    onDoubleTap = { assembled = !assembled }
                 )
             }
     ) {
         val w = size.width
         val h = size.height
-        val scale = (w.coerceAtMost(h) / 920f).coerceIn(0.68f, 1.35f)
-        drawHermesWireframe(progress, time, scale)
+        val scale = (w.coerceAtMost(h) / 820f).coerceIn(0.62f, 1.45f)
+        drawVoiceAmbient(time, progress)
+        drawHermesWireframe(strokes, progress, time, scale)
 
         particles.forEach { p ->
-            val idleDriftX = sin((time * p.speed + p.phase) * (2f * PI.toFloat())) * (0.014f + p.size * 0.002f)
-            val idleDriftY = cos((time * (p.speed * 0.72f) + p.phase) * (2f * PI.toFloat())) * 0.018f
-            val targetDriftX = sin((time * 2.1f + p.phase) * (2f * PI.toFloat())) * 0.0028f
-            val targetDriftY = cos((time * 1.7f + p.phase) * (2f * PI.toFloat())) * 0.0032f
-            val x = lerpFloat(p.idleX + idleDriftX, p.targetX + targetDriftX, progress) * w
-            val y = lerpFloat(p.idleY + idleDriftY, p.targetY + targetDriftY, progress) * h
-            val alpha = (0.18f + progress * 0.52f + if (p.anchor) 0.2f else 0f).coerceIn(0.14f, 0.92f)
-            val radius = (p.size + progress * if (p.anchor) 1.6f else 0.7f) * scale
+            val idleOrbit = time * (0.025f + p.speed * 0.025f) + p.phase * 6.28318f
+            val idleDriftX = sin(idleOrbit) * (0.045f + p.depth * 0.018f)
+            val idleDriftY = cos(idleOrbit * 0.73f) * (0.055f + p.depth * 0.016f)
+            val targetDriftX = sin(time * (1.15f + p.depth) + p.phase * 6.28318f) * (0.0025f + p.depth * 0.002f)
+            val targetDriftY = cos(time * (0.92f + p.depth) + p.phase * 6.28318f) * (0.003f + p.depth * 0.002f)
+            val pull = easeOutCubic(progress)
+            val x = lerpFloat(p.idleX + idleDriftX, p.targetX + targetDriftX, pull) * w
+            val y = lerpFloat(p.idleY + idleDriftY, p.targetY + targetDriftY, pull) * h
+            val pulse = 0.72f + abs(sin(time * (1.2f + p.speed) + p.phase * 6.28318f)) * 0.28f
+            val alpha = ((0.1f + progress * 0.62f + if (p.anchor) 0.28f else 0f) * pulse).coerceIn(0.08f, 0.98f)
+            val radius = (p.size + progress * if (p.anchor) 1.15f else 0.25f) * scale
             drawCircle(
-                color = Color(0xFFFF7A00).copy(alpha = alpha * 0.22f),
-                radius = radius * 3.4f,
+                color = Color(0xFFFF5A00).copy(alpha = alpha * 0.12f),
+                radius = radius * 5.2f,
                 center = Offset(x, y)
             )
             drawCircle(
-                color = Color(0xFFFFA126).copy(alpha = alpha),
-                radius = radius,
+                color = Color(0xFFFF7A00).copy(alpha = alpha * 0.34f),
+                radius = radius * 2.25f,
+                center = Offset(x, y)
+            )
+            drawCircle(
+                color = Color(0xFFFFB347).copy(alpha = alpha),
+                radius = radius * 0.62f,
                 center = Offset(x, y)
             )
         }
@@ -784,91 +814,142 @@ private fun buildVoiceParticles(): List<VoiceParticle> {
         }
     }
 
-    addEllipse(0.5f, 0.48f, 0.16f, 0.21f, 90)
-    addEllipse(0.5f, 0.39f, 0.22f, 0.08f, 80, PI.toFloat(), (2f * PI).toFloat())
-    addLine(0.31f, 0.39f, 0.69f, 0.39f, 54)
-    addLine(0.5f, 0.25f, 0.5f, 0.39f, 24)
-    addEllipse(0.43f, 0.46f, 0.045f, 0.016f, 28)
-    addEllipse(0.57f, 0.46f, 0.045f, 0.016f, 28)
-    addLine(0.5f, 0.47f, 0.48f, 0.54f, 18)
-    addLine(0.48f, 0.54f, 0.52f, 0.54f, 12)
-    addEllipse(0.5f, 0.58f, 0.055f, 0.018f, 26, 0.12f * PI.toFloat(), 0.88f * PI.toFloat())
-    addLine(0.34f, 0.66f, 0.23f, 0.88f, 34)
-    addLine(0.66f, 0.66f, 0.77f, 0.88f, 34)
-    addLine(0.25f, 0.76f, 0.75f, 0.76f, 58)
-    addLine(0.18f, 0.83f, 0.82f, 0.83f, 58)
-    repeat(4) { wing ->
-        val offset = wing * 0.025f
-        addEllipse(0.25f + offset, 0.36f + offset * 0.8f, 0.12f + offset, 0.20f - offset * 0.4f, 32, 0.75f * PI.toFloat(), 1.62f * PI.toFloat())
-        addEllipse(0.75f - offset, 0.36f + offset * 0.8f, 0.12f + offset, 0.20f - offset * 0.4f, 32, 1.38f * PI.toFloat(), 2.25f * PI.toFloat())
+    fun addPolyline(points: List<Pair<Float, Float>>, countPerSegment: Int = 16) {
+        points.zipWithNext().forEach { (a, b) -> addLine(a.first, a.second, b.first, b.second, countPerSegment) }
     }
-    repeat(130) {
+
+    buildVoiceStrokes().forEach { addPolyline(it, 14) }
+
+    repeat(620) {
         val x = 0.5f + (random.nextFloat() - 0.5f) * 0.34f
-        val y = 0.48f + (random.nextFloat() - 0.5f) * 0.42f
-        val face = ((x - 0.5f) / 0.17f) * ((x - 0.5f) / 0.17f) + ((y - 0.48f) / 0.22f) * ((y - 0.48f) / 0.22f)
+        val y = 0.51f + (random.nextFloat() - 0.5f) * 0.42f
+        val face = ((x - 0.5f) / 0.16f) * ((x - 0.5f) / 0.16f) + ((y - 0.51f) / 0.23f) * ((y - 0.51f) / 0.23f)
         if (face <= 1f) addPoint(x, y)
     }
-    repeat(120) {
-        addPoint(0.22f + random.nextFloat() * 0.56f, 0.64f + random.nextFloat() * 0.28f)
+    repeat(520) {
+        val x = 0.5f + (random.nextFloat() - 0.5f) * 0.5f
+        val y = 0.32f + random.nextFloat() * 0.18f
+        val helmet = ((x - 0.5f) / 0.25f) * ((x - 0.5f) / 0.25f) + ((y - 0.43f) / 0.13f) * ((y - 0.43f) / 0.13f)
+        if (helmet <= 1f && y < 0.47f) addPoint(x, y)
+    }
+    repeat(520) {
+        val x = 0.14f + random.nextFloat() * 0.72f
+        val y = 0.69f + random.nextFloat() * 0.25f
+        val bust = 1f - abs(x - 0.5f) * 1.25f
+        if (y < 0.72f + bust * 0.24f) addPoint(x, y)
+    }
+    repeat(460) {
+        val side = if (random.nextBoolean()) -1f else 1f
+        val base = random.nextFloat()
+        val x = 0.5f + side * (0.2f + base * 0.28f + random.nextFloat() * 0.04f)
+        val y = 0.2f + base * 0.35f + (random.nextFloat() - 0.5f) * 0.05f
+        addPoint(x, y)
     }
 
     return targets.shuffled(random).mapIndexed { index, target ->
         VoiceParticle(
-            idleX = random.nextFloat(),
-            idleY = random.nextFloat(),
+            idleX = 0.08f + random.nextFloat() * 0.84f,
+            idleY = 0.06f + random.nextFloat() * 0.88f,
             targetX = target.first,
             targetY = target.second,
-            speed = 0.35f + random.nextFloat() * 1.2f,
+            speed = 0.35f + random.nextFloat() * 1.45f,
             phase = random.nextFloat(),
-            size = 0.9f + random.nextFloat() * 1.6f,
-            anchor = index % 41 == 0
+            size = 0.75f + random.nextFloat() * 1.35f,
+            anchor = index % 83 == 0,
+            depth = random.nextFloat()
         )
     }
 }
 
-private fun DrawScope.drawHermesWireframe(progress: Float, time: Float, scale: Float) {
+private fun buildVoiceStrokes(): List<List<Pair<Float, Float>>> {
+    fun ellipse(cx: Float, cy: Float, rx: Float, ry: Float, samples: Int, start: Float = 0f, end: Float = (2f * PI).toFloat()): List<Pair<Float, Float>> {
+        return List(samples) { i ->
+            val t = i / (samples - 1).coerceAtLeast(1).toFloat()
+            val a = start + (end - start) * t
+            cx + cos(a) * rx to cy + sin(a) * ry
+        }
+    }
+    fun line(x1: Float, y1: Float, x2: Float, y2: Float): List<Pair<Float, Float>> = listOf(x1 to y1, x2 to y2)
+    fun curve(vararg points: Pair<Float, Float>): List<Pair<Float, Float>> = points.toList()
+
+    val strokes = mutableListOf<List<Pair<Float, Float>>>()
+    strokes += ellipse(0.5f, 0.51f, 0.15f, 0.22f, 70)
+    strokes += ellipse(0.5f, 0.43f, 0.26f, 0.11f, 70, PI.toFloat(), (2f * PI).toFloat())
+    strokes += ellipse(0.5f, 0.36f, 0.19f, 0.12f, 58, PI.toFloat(), (2f * PI).toFloat())
+    strokes += line(0.24f, 0.43f, 0.76f, 0.43f)
+    strokes += line(0.5f, 0.21f, 0.5f, 0.43f)
+    strokes += curve(0.5f to 0.21f, 0.53f to 0.31f, 0.52f to 0.39f, 0.5f to 0.43f)
+    strokes += ellipse(0.425f, 0.505f, 0.055f, 0.022f, 28)
+    strokes += ellipse(0.575f, 0.505f, 0.055f, 0.022f, 28)
+    strokes += curve(0.38f to 0.48f, 0.42f to 0.465f, 0.47f to 0.475f)
+    strokes += curve(0.53f to 0.475f, 0.58f to 0.465f, 0.62f to 0.48f)
+    strokes += curve(0.5f to 0.505f, 0.485f to 0.55f, 0.48f to 0.59f, 0.515f to 0.595f)
+    strokes += curve(0.455f to 0.635f, 0.485f to 0.655f, 0.515f to 0.655f, 0.545f to 0.635f)
+    strokes += curve(0.34f to 0.41f, 0.32f to 0.52f, 0.34f to 0.67f, 0.39f to 0.73f)
+    strokes += curve(0.66f to 0.41f, 0.68f to 0.52f, 0.66f to 0.67f, 0.61f to 0.73f)
+    strokes += curve(0.35f to 0.34f, 0.38f to 0.29f, 0.44f to 0.27f, 0.5f to 0.28f, 0.56f to 0.27f, 0.62f to 0.29f, 0.65f to 0.34f)
+    strokes += curve(0.27f to 0.75f, 0.37f to 0.68f, 0.5f to 0.69f, 0.63f to 0.68f, 0.73f to 0.75f)
+    strokes += curve(0.16f to 0.86f, 0.32f to 0.77f, 0.5f to 0.77f, 0.68f to 0.77f, 0.84f to 0.86f)
+    strokes += line(0.25f, 0.82f, 0.75f, 0.82f)
+    strokes += line(0.2f, 0.9f, 0.8f, 0.9f)
+    repeat(6) { wing ->
+        val o = wing * 0.026f
+        strokes += curve(0.25f + o to 0.39f, 0.13f + o * 0.3f to 0.28f, 0.07f + o * 0.2f to 0.2f, 0.11f + o * 0.4f to 0.14f)
+        strokes += curve(0.75f - o to 0.39f, 0.87f - o * 0.3f to 0.28f, 0.93f - o * 0.2f to 0.2f, 0.89f - o * 0.4f to 0.14f)
+    }
+    repeat(5) { feather ->
+        val y = 0.25f + feather * 0.055f
+        strokes += curve(0.24f to 0.42f, 0.18f to y + 0.04f, 0.1f to y, 0.08f to y - 0.04f)
+        strokes += curve(0.76f to 0.42f, 0.82f to y + 0.04f, 0.9f to y, 0.92f to y - 0.04f)
+    }
+    strokes += ellipse(0.25f, 0.78f, 0.055f, 0.055f, 38)
+    strokes += ellipse(0.25f, 0.78f, 0.032f, 0.032f, 30)
+    strokes += line(0.25f, 0.725f, 0.25f, 0.835f)
+    strokes += line(0.195f, 0.78f, 0.305f, 0.78f)
+    return strokes
+}
+
+private fun DrawScope.drawVoiceAmbient(time: Float, progress: Float) {
+    val count = 120
+    repeat(count) { i ->
+        val seed = i * 12.9898f
+        val x = (sin(seed) * 43758.5453f).fractPositive()
+        val y = (cos(seed * 0.77f) * 24634.6345f).fractPositive()
+        val driftX = sin(time * 0.06f + seed) * 18f
+        val driftY = cos(time * 0.05f + seed) * 24f
+        val twinkle = abs(sin(time * 0.6f + seed))
+        drawCircle(
+            color = Color(0xFFFF6A00).copy(alpha = (0.05f + twinkle * 0.17f) * (1f - progress * 0.25f)),
+            radius = 0.8f + twinkle * 1.9f,
+            center = Offset(x * size.width + driftX, y * size.height + driftY)
+        )
+    }
+}
+
+private fun DrawScope.drawHermesWireframe(strokes: List<List<Pair<Float, Float>>>, progress: Float, time: Float, scale: Float) {
     if (progress <= 0.03f) return
-    val alpha = (progress * progress * 0.58f).coerceIn(0f, 0.72f)
-    val shimmer = (0.64f + abs(sin(time * 2f * PI.toFloat())) * 0.36f)
-    val stroke = Stroke(width = 1.15f * scale)
+    val alpha = (progress * progress * 0.86f).coerceIn(0f, 0.92f)
+    val shimmer = 0.72f + abs(sin(time * 1.35f)) * 0.28f
     val c = Color(0xFFFF7A00).copy(alpha = alpha * shimmer)
 
-    fun p(x: Float, y: Float) = Offset(size.width * x, size.height * y)
-    fun line(x1: Float, y1: Float, x2: Float, y2: Float, a: Float = 1f) {
-        drawLine(c.copy(alpha = (c.alpha * a).coerceIn(0f, 1f)), p(x1, y1), p(x2, y2), strokeWidth = stroke.width)
-    }
-    fun ellipse(cx: Float, cy: Float, rx: Float, ry: Float, samples: Int, start: Float = 0f, end: Float = (2f * PI).toFloat(), a: Float = 1f) {
-        var prev: Offset? = null
-        repeat(samples) { i ->
-            val t = i / (samples - 1).coerceAtLeast(1).toFloat()
-            val angle = start + (end - start) * t
-            val next = p(cx + cos(angle) * rx, cy + sin(angle) * ry)
-            prev?.let { drawLine(c.copy(alpha = c.alpha * a), it, next, strokeWidth = stroke.width) }
-            prev = next
+    fun p(point: Pair<Float, Float>) = Offset(size.width * point.first, size.height * point.second)
+    fun drawStroke(points: List<Pair<Float, Float>>, color: Color, width: Float) {
+        points.zipWithNext().forEach { (a, b) ->
+            drawLine(color, p(a), p(b), strokeWidth = width, cap = StrokeCap.Round)
         }
     }
 
-    ellipse(0.5f, 0.48f, 0.16f, 0.21f, 70, a = 0.74f)
-    ellipse(0.5f, 0.39f, 0.22f, 0.08f, 60, PI.toFloat(), (2f * PI).toFloat(), 0.82f)
-    line(0.31f, 0.39f, 0.69f, 0.39f, 0.9f)
-    line(0.5f, 0.25f, 0.5f, 0.39f, 0.45f)
-    ellipse(0.43f, 0.46f, 0.045f, 0.016f, 24, a = 0.92f)
-    ellipse(0.57f, 0.46f, 0.045f, 0.016f, 24, a = 0.92f)
-    line(0.5f, 0.47f, 0.48f, 0.54f, 0.42f)
-    line(0.48f, 0.54f, 0.52f, 0.54f, 0.42f)
-    ellipse(0.5f, 0.58f, 0.055f, 0.018f, 20, 0.12f * PI.toFloat(), 0.88f * PI.toFloat(), 0.52f)
-    repeat(4) { wing ->
-        val offset = wing * 0.025f
-        ellipse(0.25f + offset, 0.36f + offset * 0.8f, 0.12f + offset, 0.20f - offset * 0.4f, 34, 0.75f * PI.toFloat(), 1.62f * PI.toFloat(), 0.58f)
-        ellipse(0.75f - offset, 0.36f + offset * 0.8f, 0.12f + offset, 0.20f - offset * 0.4f, 34, 1.38f * PI.toFloat(), 2.25f * PI.toFloat(), 0.58f)
+    strokes.forEachIndexed { i, points ->
+        val local = 0.72f + abs(sin(time * 1.1f + i * 0.37f)) * 0.28f
+        drawStroke(points, Color(0xFFFF4A00).copy(alpha = c.alpha * 0.10f * local), 9f * scale)
+        drawStroke(points, Color(0xFFFF7A00).copy(alpha = c.alpha * 0.24f * local), 4.2f * scale)
+        drawStroke(points, Color(0xFFFFB13B).copy(alpha = c.alpha * 0.82f * local), 1.18f * scale)
     }
-    line(0.34f, 0.66f, 0.23f, 0.88f, 0.36f)
-    line(0.66f, 0.66f, 0.77f, 0.88f, 0.36f)
-    line(0.25f, 0.76f, 0.75f, 0.76f, 0.3f)
-    line(0.18f, 0.83f, 0.82f, 0.83f, 0.26f)
 }
 
 private fun lerpFloat(start: Float, stop: Float, fraction: Float): Float = start + (stop - start) * fraction
+private fun easeOutCubic(value: Float): Float = 1f - (1f - value).let { it * it * it }
+private fun Float.fractPositive(): Float = this - kotlin.math.floor(this)
 
 @Composable
 private fun HermesSidebar(
