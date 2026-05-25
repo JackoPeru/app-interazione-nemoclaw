@@ -16,6 +16,14 @@ import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -68,6 +76,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.ManageSearch
@@ -124,8 +133,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -180,7 +192,12 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -214,6 +231,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Tasks("Jobs", Icons.Rounded.TaskAlt),
     Server("Hermes", Icons.Rounded.Dns),
     Operator("Runs", Icons.Rounded.Terminal),
+    Voice("Voce", Icons.Rounded.GraphicEq),
     Video("Video", Icons.Rounded.PlayCircle),
     News("News", Icons.AutoMirrored.Rounded.Article),
     Settings("Imposta", Icons.Rounded.Tune),
@@ -554,22 +572,24 @@ private fun ChatApp() {
         Scaffold(
             containerColor = AppColors.Background,
             bottomBar = {
-                val bottomTabs = remember { Tab.entries.filterNot { it == Tab.Archive || it == Tab.Tasks } }
-                NavigationBar(containerColor = AppColors.Sidebar) {
-                    bottomTabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = selectedTab == tab,
-                            onClick = { setSelectedTab(tab) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Color.White,
-                                selectedTextColor = Color.White,
-                                indicatorColor = AppColors.NavIndicator,
-                                unselectedIconColor = AppColors.Muted,
-                                unselectedTextColor = AppColors.Muted
-                            ),
-                            icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        )
+                if (selectedTab != Tab.Voice) {
+                    val bottomTabs = remember { Tab.entries.filterNot { it == Tab.Archive || it == Tab.Tasks } }
+                    NavigationBar(containerColor = AppColors.Sidebar) {
+                        bottomTabs.forEach { tab ->
+                            NavigationBarItem(
+                                selected = selectedTab == tab,
+                                onClick = { setSelectedTab(tab) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Color.White,
+                                    selectedTextColor = Color.White,
+                                    indicatorColor = AppColors.NavIndicator,
+                                    unselectedIconColor = AppColors.Muted,
+                                    unselectedTextColor = AppColors.Muted
+                                ),
+                                icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                label = { Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            )
+                        }
                     }
                 }
             }
@@ -577,7 +597,7 @@ private fun ChatApp() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
+                    .padding(if (selectedTab == Tab.Voice) PaddingValues(0.dp) else padding)
                     .background(AppColors.Background)
             ) {
                 when (selectedTab) {
@@ -606,6 +626,7 @@ private fun ChatApp() {
                     Tab.Tasks -> TasksScreen(context, settings)
                     Tab.Server -> ServerScreen(context, settings)
                     Tab.Operator -> OperatorScreen(context, settings)
+                    Tab.Voice -> VoiceModeScreen()
                     Tab.Video -> VideoScreen(context, settings) { prompt ->
                         pendingPrompt = prompt
                         setSelectedTab(Tab.Chat)
@@ -670,6 +691,184 @@ private fun ChatApp() {
         }
     }
 }
+
+private data class VoiceParticle(
+    val idleX: Float,
+    val idleY: Float,
+    val targetX: Float,
+    val targetY: Float,
+    val speed: Float,
+    val phase: Float,
+    val size: Float,
+    val anchor: Boolean = false
+)
+
+@Composable
+private fun VoiceModeScreen() {
+    var assembled by rememberSaveable { mutableStateOf(false) }
+    val particles = remember { buildVoiceParticles() }
+    val progress by animateFloatAsState(
+        targetValue = if (assembled) 1f else 0f,
+        animationSpec = tween(durationMillis = 780, easing = FastOutSlowInEasing),
+        label = "voice-assemble"
+    )
+    val motion = rememberInfiniteTransition(label = "voice-motion")
+    val time by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 9000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "voice-time"
+    )
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { assembled = true },
+                    onDoubleTap = { assembled = false }
+                )
+            }
+    ) {
+        val w = size.width
+        val h = size.height
+        val scale = (w.coerceAtMost(h) / 920f).coerceIn(0.68f, 1.35f)
+        drawHermesWireframe(progress, time, scale)
+
+        particles.forEach { p ->
+            val idleDriftX = sin((time * p.speed + p.phase) * (2f * PI.toFloat())) * (0.014f + p.size * 0.002f)
+            val idleDriftY = cos((time * (p.speed * 0.72f) + p.phase) * (2f * PI.toFloat())) * 0.018f
+            val targetDriftX = sin((time * 2.1f + p.phase) * (2f * PI.toFloat())) * 0.0028f
+            val targetDriftY = cos((time * 1.7f + p.phase) * (2f * PI.toFloat())) * 0.0032f
+            val x = lerpFloat(p.idleX + idleDriftX, p.targetX + targetDriftX, progress) * w
+            val y = lerpFloat(p.idleY + idleDriftY, p.targetY + targetDriftY, progress) * h
+            val alpha = (0.18f + progress * 0.52f + if (p.anchor) 0.2f else 0f).coerceIn(0.14f, 0.92f)
+            val radius = (p.size + progress * if (p.anchor) 1.6f else 0.7f) * scale
+            drawCircle(
+                color = Color(0xFFFF7A00).copy(alpha = alpha * 0.22f),
+                radius = radius * 3.4f,
+                center = Offset(x, y)
+            )
+            drawCircle(
+                color = Color(0xFFFFA126).copy(alpha = alpha),
+                radius = radius,
+                center = Offset(x, y)
+            )
+        }
+    }
+}
+
+private fun buildVoiceParticles(): List<VoiceParticle> {
+    val random = Random(8642)
+    val targets = mutableListOf<Pair<Float, Float>>()
+
+    fun addPoint(x: Float, y: Float) {
+        targets += x.coerceIn(0.04f, 0.96f) to y.coerceIn(0.04f, 0.96f)
+    }
+
+    fun addEllipse(cx: Float, cy: Float, rx: Float, ry: Float, count: Int, start: Float = 0f, end: Float = (2f * PI).toFloat()) {
+        repeat(count) { i ->
+            val a = start + (end - start) * i / (count - 1).coerceAtLeast(1)
+            addPoint(cx + cos(a) * rx, cy + sin(a) * ry)
+        }
+    }
+
+    fun addLine(x1: Float, y1: Float, x2: Float, y2: Float, count: Int) {
+        repeat(count) { i ->
+            val t = i / (count - 1).coerceAtLeast(1).toFloat()
+            addPoint(lerpFloat(x1, x2, t), lerpFloat(y1, y2, t))
+        }
+    }
+
+    addEllipse(0.5f, 0.48f, 0.16f, 0.21f, 90)
+    addEllipse(0.5f, 0.39f, 0.22f, 0.08f, 80, PI.toFloat(), (2f * PI).toFloat())
+    addLine(0.31f, 0.39f, 0.69f, 0.39f, 54)
+    addLine(0.5f, 0.25f, 0.5f, 0.39f, 24)
+    addEllipse(0.43f, 0.46f, 0.045f, 0.016f, 28)
+    addEllipse(0.57f, 0.46f, 0.045f, 0.016f, 28)
+    addLine(0.5f, 0.47f, 0.48f, 0.54f, 18)
+    addLine(0.48f, 0.54f, 0.52f, 0.54f, 12)
+    addEllipse(0.5f, 0.58f, 0.055f, 0.018f, 26, 0.12f * PI.toFloat(), 0.88f * PI.toFloat())
+    addLine(0.34f, 0.66f, 0.23f, 0.88f, 34)
+    addLine(0.66f, 0.66f, 0.77f, 0.88f, 34)
+    addLine(0.25f, 0.76f, 0.75f, 0.76f, 58)
+    addLine(0.18f, 0.83f, 0.82f, 0.83f, 58)
+    repeat(4) { wing ->
+        val offset = wing * 0.025f
+        addEllipse(0.25f + offset, 0.36f + offset * 0.8f, 0.12f + offset, 0.20f - offset * 0.4f, 32, 0.75f * PI.toFloat(), 1.62f * PI.toFloat())
+        addEllipse(0.75f - offset, 0.36f + offset * 0.8f, 0.12f + offset, 0.20f - offset * 0.4f, 32, 1.38f * PI.toFloat(), 2.25f * PI.toFloat())
+    }
+    repeat(130) {
+        val x = 0.5f + (random.nextFloat() - 0.5f) * 0.34f
+        val y = 0.48f + (random.nextFloat() - 0.5f) * 0.42f
+        val face = ((x - 0.5f) / 0.17f) * ((x - 0.5f) / 0.17f) + ((y - 0.48f) / 0.22f) * ((y - 0.48f) / 0.22f)
+        if (face <= 1f) addPoint(x, y)
+    }
+    repeat(120) {
+        addPoint(0.22f + random.nextFloat() * 0.56f, 0.64f + random.nextFloat() * 0.28f)
+    }
+
+    return targets.shuffled(random).mapIndexed { index, target ->
+        VoiceParticle(
+            idleX = random.nextFloat(),
+            idleY = random.nextFloat(),
+            targetX = target.first,
+            targetY = target.second,
+            speed = 0.35f + random.nextFloat() * 1.2f,
+            phase = random.nextFloat(),
+            size = 0.9f + random.nextFloat() * 1.6f,
+            anchor = index % 41 == 0
+        )
+    }
+}
+
+private fun DrawScope.drawHermesWireframe(progress: Float, time: Float, scale: Float) {
+    if (progress <= 0.03f) return
+    val alpha = (progress * progress * 0.58f).coerceIn(0f, 0.72f)
+    val shimmer = (0.64f + abs(sin(time * 2f * PI.toFloat())) * 0.36f)
+    val stroke = Stroke(width = 1.15f * scale)
+    val c = Color(0xFFFF7A00).copy(alpha = alpha * shimmer)
+
+    fun p(x: Float, y: Float) = Offset(size.width * x, size.height * y)
+    fun line(x1: Float, y1: Float, x2: Float, y2: Float, a: Float = 1f) {
+        drawLine(c.copy(alpha = (c.alpha * a).coerceIn(0f, 1f)), p(x1, y1), p(x2, y2), strokeWidth = stroke.width)
+    }
+    fun ellipse(cx: Float, cy: Float, rx: Float, ry: Float, samples: Int, start: Float = 0f, end: Float = (2f * PI).toFloat(), a: Float = 1f) {
+        var prev: Offset? = null
+        repeat(samples) { i ->
+            val t = i / (samples - 1).coerceAtLeast(1).toFloat()
+            val angle = start + (end - start) * t
+            val next = p(cx + cos(angle) * rx, cy + sin(angle) * ry)
+            prev?.let { drawLine(c.copy(alpha = c.alpha * a), it, next, strokeWidth = stroke.width) }
+            prev = next
+        }
+    }
+
+    ellipse(0.5f, 0.48f, 0.16f, 0.21f, 70, a = 0.74f)
+    ellipse(0.5f, 0.39f, 0.22f, 0.08f, 60, PI.toFloat(), (2f * PI).toFloat(), 0.82f)
+    line(0.31f, 0.39f, 0.69f, 0.39f, 0.9f)
+    line(0.5f, 0.25f, 0.5f, 0.39f, 0.45f)
+    ellipse(0.43f, 0.46f, 0.045f, 0.016f, 24, a = 0.92f)
+    ellipse(0.57f, 0.46f, 0.045f, 0.016f, 24, a = 0.92f)
+    line(0.5f, 0.47f, 0.48f, 0.54f, 0.42f)
+    line(0.48f, 0.54f, 0.52f, 0.54f, 0.42f)
+    ellipse(0.5f, 0.58f, 0.055f, 0.018f, 20, 0.12f * PI.toFloat(), 0.88f * PI.toFloat(), 0.52f)
+    repeat(4) { wing ->
+        val offset = wing * 0.025f
+        ellipse(0.25f + offset, 0.36f + offset * 0.8f, 0.12f + offset, 0.20f - offset * 0.4f, 34, 0.75f * PI.toFloat(), 1.62f * PI.toFloat(), 0.58f)
+        ellipse(0.75f - offset, 0.36f + offset * 0.8f, 0.12f + offset, 0.20f - offset * 0.4f, 34, 1.38f * PI.toFloat(), 2.25f * PI.toFloat(), 0.58f)
+    }
+    line(0.34f, 0.66f, 0.23f, 0.88f, 0.36f)
+    line(0.66f, 0.66f, 0.77f, 0.88f, 0.36f)
+    line(0.25f, 0.76f, 0.75f, 0.76f, 0.3f)
+    line(0.18f, 0.83f, 0.82f, 0.83f, 0.26f)
+}
+
+private fun lerpFloat(start: Float, stop: Float, fraction: Float): Float = start + (stop - start) * fraction
 
 @Composable
 private fun HermesSidebar(
@@ -1151,6 +1350,7 @@ private fun executeSlashCommand(
         SlashAction.OpenOperator -> onSwitchTab(Tab.Operator)
         SlashAction.OpenArchive -> onSwitchTab(Tab.Archive)
         SlashAction.OpenTasks -> onSwitchTab(Tab.Tasks)
+        SlashAction.OpenVoice -> onSwitchTab(Tab.Voice)
         SlashAction.OpenVideo -> onSwitchTab(Tab.Video)
         SlashAction.OpenNews -> onSwitchTab(Tab.News)
         SlashAction.OpenSettings -> onSwitchTab(Tab.Settings)

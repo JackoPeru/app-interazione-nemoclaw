@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="NemoclawChat_Windows.Pages.VoicePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="Black"
+    Loaded="Page_Loaded"
+    Unloaded="Page_Unloaded">
+    <Grid
+        x:Name="Root"
+        Background="Black"
+        DoubleTapped="Root_DoubleTapped"
+        IsTabStop="True"
+        KeyDown="Root_KeyDown"
+        Tapped="Root_Tapped">
+        <Canvas
+            x:Name="ParticleCanvas"
+            Background="Black"
+            SizeChanged="ParticleCanvas_SizeChanged" />
+    </Grid>
+</Page>

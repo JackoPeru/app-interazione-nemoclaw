@@ -940,6 +940,8 @@ public sealed partial class HomePage : Page
             new("/runs", "Apri Operator/Runs", "Apri probe API Hermes", SlashAction.OpenOperator),
             new("/archive", "Apri Archivio", "Cerca conversazioni salvate", SlashAction.OpenArchive),
             new("/tasks", "Apri Task agente", "Coda jobs Hermes", SlashAction.OpenTasks),
+            new("/voce", "Modalita Voce", "Schermo particelle Hermes", SlashAction.OpenVoice),
+            new("/voice", "Modalita Voce", "Alias di /voce", SlashAction.OpenVoice),
             new("/settings", "Impostazioni", "Apri pagina settings", SlashAction.OpenSettings),
             new("/about", "Info app", "Versione, profilo, gateway", SlashAction.OpenAbout),
             new("/setup", "Setup Hermes", "Prompt: prepara setup", SlashAction.PromptSetup),
@@ -1156,6 +1158,9 @@ public sealed partial class HomePage : Page
                 break;
             case SlashAction.OpenTasks:
                 Frame?.Navigate(typeof(TasksPage));
+                break;
+            case SlashAction.OpenVoice:
+                Frame?.Navigate(typeof(VoicePage));
                 break;
             case SlashAction.OpenSettings:
                 Frame?.Navigate(typeof(SettingsPage));
@@ -1675,6 +1680,7 @@ internal enum SlashAction
     OpenOperator,
     OpenArchive,
     OpenTasks,
+    OpenVoice,
     OpenSettings,
     OpenAbout,
     PromptSetup,

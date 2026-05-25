@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
         AppWindow.SetIcon("Assets/AppIcon.ico");
         RestoreWindowState();
         ContentFrame.Navigate(typeof(HomePage));
+        ContentFrame.Navigated += ContentFrame_Navigated;
         ChatArchiveStore.Changed += RefreshRecentChats;
         Closed += MainWindow_Closed;
         RefreshRecentChats();
@@ -39,6 +40,7 @@ public sealed partial class MainWindow : Window
         try
         {
             ChatArchiveStore.Changed -= RefreshRecentChats;
+            ContentFrame.Navigated -= ContentFrame_Navigated;
             SaveWindowState();
             Closed -= MainWindow_Closed;
         }
@@ -81,9 +83,7 @@ public sealed partial class MainWindow : Window
     private void CollapseSidebar_Click(object sender, RoutedEventArgs e)
     {
         _sidebarCollapsed = !_sidebarCollapsed;
-        Sidebar.Visibility = _sidebarCollapsed ? Visibility.Collapsed : Visibility.Visible;
-        SidebarColumn.Width = _sidebarCollapsed ? new GridLength(0) : new GridLength(280);
-        RestoreSidebarButton.Visibility = _sidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        ApplyStandardShell();
     }
 
     private void NewChat_Click(object sender, RoutedEventArgs e)
@@ -126,6 +126,11 @@ public sealed partial class MainWindow : Window
     private void Operator_Click(object sender, RoutedEventArgs e)
     {
         ContentFrame.Navigate(typeof(OperatorPage));
+    }
+
+    private void Voice_Click(object sender, RoutedEventArgs e)
+    {
+        ContentFrame.Navigate(typeof(VoicePage));
     }
 
     private void Video_Click(object sender, RoutedEventArgs e)
@@ -181,6 +186,38 @@ public sealed partial class MainWindow : Window
             button.Click += OpenChat_Click;
             RecentChatsPanel.Children.Add(button);
         }
+    }
+
+    private void ContentFrame_Navigated(object sender, Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+    {
+        if (e.SourcePageType == typeof(VoicePage))
+        {
+            ApplyVoiceShell();
+        }
+        else
+        {
+            ApplyStandardShell();
+        }
+    }
+
+    private void ApplyVoiceShell()
+    {
+        Sidebar.Visibility = Visibility.Collapsed;
+        SidebarColumn.Width = new GridLength(0);
+        DragRegion.Visibility = Visibility.Collapsed;
+        RestoreSidebarButton.Visibility = Visibility.Collapsed;
+        Grid.SetRow(ContentFrame, 0);
+        Grid.SetRowSpan(ContentFrame, 2);
+    }
+
+    private void ApplyStandardShell()
+    {
+        Sidebar.Visibility = _sidebarCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        SidebarColumn.Width = _sidebarCollapsed ? new GridLength(0) : new GridLength(280);
+        DragRegion.Visibility = Visibility.Visible;
+        RestoreSidebarButton.Visibility = _sidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetRow(ContentFrame, 1);
+        Grid.SetRowSpan(ContentFrame, 1);
     }
 
 }

@@ -54,7 +54,7 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
-Hermes Hub 0.6.47 (Windows + Android):
+Hermes Hub 0.6.48 (Windows + Android):
 
 Decisione Hermes Native:
 - Hermes Hub usa `preferredApi=hermes-native` come default su Windows, Android e config.
@@ -87,9 +87,20 @@ Decisione media chat:
 - Android e Windows hanno UI dedicata per `media_file`: anteprima immagine/thumbnail, metadata compatti, azione `Apri` e `Copia link`; URL non proxy (`file://`, `data:`, path locali diretti o host non sicuri) vengono rifiutati.
 - Istruzioni/metadata client aggiornati per chiedere all'agente `image_gallery` per gallerie immagini e `media_file` per asset singoli multimediali.
 
+Decisione modalita vocale:
+- Aggiunta modalita `Voce` suggestiva come placeholder visuale per futura voce reale.
+- Android: tab `Voce` apre canvas fullscreen senza bottom nav; tap singolo assembla Hermes, doppio tap disassembla; back Android esce dalla modalita.
+- Windows: sidebar e slash `/voce` aprono `VoicePage`; shell/sidebar/top bar vengono nascosti durante la pagina; tap singolo assembla Hermes, doppio tap disassembla, Esc torna indietro se disponibile.
+- Visual style: particelle orange holographic su fondo nero, idle random spaziale, assemblaggio rapido in figura Hermes/deity con ali/elmo e micro-fluttuazione continua.
+
 Terminologia gateway:
 - Il comando `hermes-hub` avvia **Hermes Gateway**: servizio ponte/API server che espone Hermes Agent alle app Hermes Hub Windows/Android e inoltra inferenza a LM Studio nei test o vLLM nel setup finale.
 - La versione Linux/headless deve restare aggiornata e funzionante: `scripts/hermes-hub-linux.sh`, `scripts/hermes-hub-linux.service` e `docs/hermes-hub-linux.md` devono supportare Ubuntu headless + vLLM, con API stabile `http://SERVER:8642/v1` e API key default `hermes-hub`.
+
+Release 0.6.48:
+- Android: aggiunta tab `Voce` con canvas fullscreen senza controlli; particelle orange holographic random si assemblano in Hermes con tap singolo e si disassemblano con doppio tap; slash `/voce` e `/voice` aprono la modalita.
+- Windows: aggiunta `VoicePage` con lo stesso effetto particellare; la shell viene nascosta in modalita Voce, Esc torna indietro, sidebar e slash `/voce`/`/voice` aprono la pagina.
+- Release bump: Windows/AdminBridge `0.6.48`, Android `versionName 0.6.48`, `versionCode 61`.
 
 Release 0.6.46:
 - Android/Windows/config: default Hermes Native con strict native mode ON, protocollo effettivo/fallback visibile e contesto delegato a Hermes.
@@ -527,11 +538,12 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.46`.
+- Versione app: `0.6.48`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
 - Chat: invio con Enter, nuova riga con Shift+Enter, indicatore circolare `Contesto chat` in alto a destra, modalita `Chat`/`Agente` nel menu `+` e slash, action bubble per menu `+`, scroll automatico, salvataggio cronologia locale.
+- Voce: pagina fullscreen senza UI visibile, particelle orange holographic random; tap assembla Hermes, doppio tap disassembla, Esc torna indietro.
 - Archivio: ricerca locale + dati persistenti, filtri chat/progetti/task/server, riapertura conversazioni, segna progetto, eliminazione elementi salvati con conferma preventiva.
 - Recenti sidebar: letti dallo store locale e aggiornati quando cambia archivio; nessun elemento seed finto.
 - Chat: default Hermes Native/Responses con `store`, `conversation` e `previous_response_id`; fallback reale `POST /v1/chat/completions` solo se strict native mode e' disattivato; fallback locale solo se abilitato.
@@ -565,11 +577,12 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.46`, versionCode `59`.
+- Versione app: `0.6.48`, versionCode `61`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav con icone vere, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.
 - Chat: action bubble per menu `+`, mode `Chat`/`Agente` nel menu `+` e slash, indicatore circolare `Contesto chat` in alto a destra, Hermes Native/Responses default con fallback `/v1/chat/completions` solo se strict native mode e' disattivato, fallback locale esplicito se abilitato, composer stabile compatto a campo singolo/multiriga con `+` esterno e send interno; keyboard handling usa `adjustResize` + `imePadding` solo sul composer, quindi resta sopra la tastiera senza gap inutile; durante generazione il send diventa stop e cancella job + chiamata OkHttp; mic placeholder rimosso; risposte assistente Android libere senza vignetta, thinking cliccabile con shimmer e reasoning espandibile; font globale regolabile da settings con slider continuo e percentuale editabile; sezioni Android rese come righe flat con separatori dritti al posto di card/vignette, salvataggio cronologia locale con `previous_response_id`.
+- Voce: tab fullscreen senza bottom nav, particelle orange holographic random; tap assembla Hermes, doppio tap disassembla, back Android esce.
 - Android streaming activity: durante generazione mostra una riga shimmer cliccabile con stato live (`Sto processando`, `Sto pensando`, `Sto generando`, `Uso tool: ...`). Espandendo si vedono stato, reasoning ricevuto dal server, tool call, argomenti e risultato; resta visibile anche quando il testo ha gia' iniziato a uscire.
 - Android streaming activity UI: header compatto senza frasi tecniche del trasporto; mostra freccia accanto allo stato e percentuale di progresso live. Shimmer deve scorrere da sinistra a destra su tutti gli stati attivi.
 - Android streaming latency: il path caldo evita la richiesta `/capabilities` pre-invio, usa loop SSE senza `source.exhausted()` prima di ogni read e mostra feedback immediato quando l'utente preme stop.
