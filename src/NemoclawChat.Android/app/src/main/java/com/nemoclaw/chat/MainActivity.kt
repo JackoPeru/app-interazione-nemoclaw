@@ -758,20 +758,26 @@ private fun VoiceModeScreen() {
         val w = size.width
         val h = size.height
         val scale = (w.coerceAtMost(h) / 820f).coerceIn(0.62f, 1.45f)
+        val pull = easeOutCubic(progress)
+        drawVoiceBackground(time)
         drawVoiceAmbient(time, progress)
+        drawStandbyConnections(particles, time, pull)
         drawHermesWireframe(strokes, progress, time, scale)
 
-        particles.forEach { p ->
+        particles.forEachIndexed { index, p ->
             val idleOrbit = time * (0.025f + p.speed * 0.025f) + p.phase * 6.28318f
             val idleDriftX = sin(idleOrbit) * (0.045f + p.depth * 0.018f)
             val idleDriftY = cos(idleOrbit * 0.73f) * (0.055f + p.depth * 0.016f)
             val targetDriftX = sin(time * (1.15f + p.depth) + p.phase * 6.28318f) * (0.0025f + p.depth * 0.002f)
             val targetDriftY = cos(time * (0.92f + p.depth) + p.phase * 6.28318f) * (0.003f + p.depth * 0.002f)
-            val pull = easeOutCubic(progress)
             val x = lerpFloat(p.idleX + idleDriftX, p.targetX + targetDriftX, pull) * w
             val y = lerpFloat(p.idleY + idleDriftY, p.targetY + targetDriftY, pull) * h
             val pulse = 0.72f + abs(sin(time * (1.2f + p.speed) + p.phase * 6.28318f)) * 0.28f
-            val alpha = ((0.1f + progress * 0.62f + if (p.anchor) 0.28f else 0f) * pulse).coerceIn(0.08f, 0.98f)
+            val standbyVisible = p.anchor || index % 17 == 0
+            val assemblyFade = if (standbyVisible) 1f else progress.coerceIn(0f, 1f)
+            val baseAlpha = if (standbyVisible) 0.16f else 0.02f
+            val alpha = ((baseAlpha + progress * 0.66f + if (p.anchor) 0.22f else 0f) * pulse * assemblyFade).coerceIn(0f, 0.98f)
+            if (alpha <= 0.015f) return@forEachIndexed
             val radius = (p.size + progress * if (p.anchor) 1.15f else 0.25f) * scale
             drawCircle(
                 color = Color(0xFFFF5A00).copy(alpha = alpha * 0.12f),
@@ -818,27 +824,27 @@ private fun buildVoiceParticles(): List<VoiceParticle> {
         points.zipWithNext().forEach { (a, b) -> addLine(a.first, a.second, b.first, b.second, countPerSegment) }
     }
 
-    buildVoiceStrokes().forEach { addPolyline(it, 14) }
+    buildVoiceStrokes().forEach { addPolyline(it, 9) }
 
-    repeat(620) {
+    repeat(300) {
         val x = 0.5f + (random.nextFloat() - 0.5f) * 0.34f
         val y = 0.51f + (random.nextFloat() - 0.5f) * 0.42f
         val face = ((x - 0.5f) / 0.16f) * ((x - 0.5f) / 0.16f) + ((y - 0.51f) / 0.23f) * ((y - 0.51f) / 0.23f)
         if (face <= 1f) addPoint(x, y)
     }
-    repeat(520) {
+    repeat(260) {
         val x = 0.5f + (random.nextFloat() - 0.5f) * 0.5f
         val y = 0.32f + random.nextFloat() * 0.18f
         val helmet = ((x - 0.5f) / 0.25f) * ((x - 0.5f) / 0.25f) + ((y - 0.43f) / 0.13f) * ((y - 0.43f) / 0.13f)
         if (helmet <= 1f && y < 0.47f) addPoint(x, y)
     }
-    repeat(520) {
+    repeat(260) {
         val x = 0.14f + random.nextFloat() * 0.72f
         val y = 0.69f + random.nextFloat() * 0.25f
         val bust = 1f - abs(x - 0.5f) * 1.25f
         if (y < 0.72f + bust * 0.24f) addPoint(x, y)
     }
-    repeat(460) {
+    repeat(240) {
         val side = if (random.nextBoolean()) -1f else 1f
         val base = random.nextFloat()
         val x = 0.5f + side * (0.2f + base * 0.28f + random.nextFloat() * 0.04f)
@@ -909,8 +915,22 @@ private fun buildVoiceStrokes(): List<List<Pair<Float, Float>>> {
     return strokes
 }
 
+private fun DrawScope.drawVoiceBackground(time: Float) {
+    drawRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFF11100D),
+                Color(0xFF05070A),
+                Color.Black
+            ),
+            center = Offset(size.width * (0.5f + sin(time * 0.035f) * 0.04f), size.height * 0.42f),
+            radius = size.maxDimension * 0.78f
+        )
+    )
+}
+
 private fun DrawScope.drawVoiceAmbient(time: Float, progress: Float) {
-    val count = 120
+    val count = 90
     repeat(count) { i ->
         val seed = i * 12.9898f
         val x = (sin(seed) * 43758.5453f).fractPositive()
@@ -923,6 +943,40 @@ private fun DrawScope.drawVoiceAmbient(time: Float, progress: Float) {
             radius = 0.8f + twinkle * 1.9f,
             center = Offset(x * size.width + driftX, y * size.height + driftY)
         )
+    }
+}
+
+private fun DrawScope.drawStandbyConnections(particles: List<VoiceParticle>, time: Float, pull: Float) {
+    val alpha = (1f - pull).coerceIn(0f, 1f)
+    if (alpha <= 0.02f) return
+    val nodes = particles.filterIndexed { index, particle -> particle.anchor || index % 61 == 0 }.take(90)
+    val positions = nodes.map { p ->
+        val orbit = time * (0.025f + p.speed * 0.025f) + p.phase * 6.28318f
+        Offset(
+            (p.idleX + sin(orbit) * (0.045f + p.depth * 0.018f)) * size.width,
+            (p.idleY + cos(orbit * 0.73f) * (0.055f + p.depth * 0.016f)) * size.height
+        )
+    }
+    val maxDistance = size.minDimension * 0.16f
+    for (i in positions.indices) {
+        var linked = 0
+        for (j in i + 1 until positions.size) {
+            val a = positions[i]
+            val b = positions[j]
+            val dx = a.x - b.x
+            val dy = a.y - b.y
+            val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (distance < maxDistance && linked < 3) {
+                val lineAlpha = (1f - distance / maxDistance) * alpha * 0.16f
+                drawLine(
+                    color = Color(0xFFFF7A00).copy(alpha = lineAlpha),
+                    start = a,
+                    end = b,
+                    strokeWidth = 0.75f
+                )
+                linked++
+            }
+        }
     }
 }
 
