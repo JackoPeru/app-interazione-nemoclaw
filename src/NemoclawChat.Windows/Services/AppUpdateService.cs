@@ -1,5 +1,7 @@
 using System.Net.Http;
+using System.Diagnostics;
 using System.Text.Json;
+using Windows.ApplicationModel;
 using Windows.Storage;
 using Windows.System;
 
@@ -279,6 +281,11 @@ public static class AppUpdateService
 
     public static async Task<bool> LaunchDownloadedAssetAsync(string path)
     {
+        if (IsMsixPackage(path))
+        {
+            return LaunchMsixInstallScript(path);
+        }
+
         try
         {
             var file = await StorageFile.GetFileFromPathAsync(path);
@@ -288,6 +295,75 @@ public static class AppUpdateService
         {
             return false;
         }
+    }
+
+    private static bool IsMsixPackage(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".msix", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".appx", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".msixbundle", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".appxbundle", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LaunchMsixInstallScript(string path)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (!File.Exists(fullPath))
+            {
+                return false;
+            }
+
+            var aumid = GetCurrentAppUserModelId();
+            var relaunch = string.IsNullOrWhiteSpace(aumid)
+                ? string.Empty
+                : $"`nStart-Process explorer.exe 'shell:AppsFolder\\{EscapePowerShellSingleQuoted(aumid)}'";
+            var script =
+                "$ErrorActionPreference = 'Stop'`n" +
+                "Start-Sleep -Seconds 2`n" +
+                $"Add-AppxPackage -LiteralPath '{EscapePowerShellSingleQuoted(fullPath)}' -ForceUpdateFromAnyVersion" +
+                relaunch;
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-ExecutionPolicy");
+            startInfo.ArgumentList.Add("Bypass");
+            startInfo.ArgumentList.Add("-WindowStyle");
+            startInfo.ArgumentList.Add("Hidden");
+            startInfo.ArgumentList.Add("-Command");
+            startInfo.ArgumentList.Add(script);
+
+            Process.Start(startInfo);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? GetCurrentAppUserModelId()
+    {
+        try
+        {
+            return $"{Package.Current.Id.FamilyName}!App";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string EscapePowerShellSingleQuoted(string value)
+    {
+        return value.Replace("'", "''", StringComparison.Ordinal);
     }
 
     private static string GetUpdatesDirectoryPath()
