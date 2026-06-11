@@ -318,31 +318,39 @@ public static class AppUpdateService
 
             var aumid = GetCurrentAppUserModelId();
             var escapedAumid = string.IsNullOrWhiteSpace(aumid) ? string.Empty : EscapePowerShellSingleQuoted(aumid);
+            var updatesDirectory = GetUpdatesDirectoryPath();
+            Directory.CreateDirectory(updatesDirectory);
+            var scriptPath = Path.Combine(updatesDirectory, "install-msix-update.ps1");
+            var logPath = Path.Combine(updatesDirectory, "install-msix-update.log");
             var relaunch = string.IsNullOrWhiteSpace(escapedAumid)
                 ? string.Empty
                 : "`nStart-Sleep -Seconds 1`n" +
                   "for ($i = 0; $i -lt 10; $i++) {`n" +
-                  $"  try {{ Start-Process explorer.exe 'shell:AppsFolder\\{escapedAumid}'; break }} catch {{ Start-Sleep -Seconds 1 }}`n" +
+                  "  Add-Content -LiteralPath $logPath -Value \"Relaunch attempt $i\"`n" +
+                  $"  try {{ Start-Process explorer.exe 'shell:AppsFolder\\{escapedAumid}'; break }} catch {{ Add-Content -LiteralPath $logPath -Value $_.Exception.Message; Start-Sleep -Seconds 1 }}`n" +
                   "}";
             var script =
                 "$ErrorActionPreference = 'Stop'`n" +
-                "Start-Sleep -Seconds 2`n" +
+                $"$logPath = '{EscapePowerShellSingleQuoted(logPath)}'`n" +
+                "\"Started $(Get-Date -Format o)\" | Set-Content -LiteralPath $logPath`n" +
+                "Start-Sleep -Seconds 3`n" +
+                $"Add-Content -LiteralPath $logPath -Value 'Installing {EscapePowerShellSingleQuoted(fullPath)}'`n" +
                 $"Add-AppxPackage -LiteralPath '{EscapePowerShellSingleQuoted(fullPath)}' -ForceUpdateFromAnyVersion`n" +
+                "Add-Content -LiteralPath $logPath -Value \"Installed $(Get-Date -Format o)\"`n" +
                 relaunch;
+            File.WriteAllText(scriptPath, script);
 
             var startInfo = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                UseShellExecute = false,
-                CreateNoWindow = true
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Hidden
             };
             startInfo.ArgumentList.Add("-NoProfile");
             startInfo.ArgumentList.Add("-ExecutionPolicy");
             startInfo.ArgumentList.Add("Bypass");
-            startInfo.ArgumentList.Add("-WindowStyle");
-            startInfo.ArgumentList.Add("Hidden");
-            startInfo.ArgumentList.Add("-Command");
-            startInfo.ArgumentList.Add(script);
+            startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(scriptPath);
 
             Process.Start(startInfo);
             return true;
