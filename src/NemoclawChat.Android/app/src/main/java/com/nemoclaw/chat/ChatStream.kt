@@ -17,11 +17,20 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.ConnectException
+import java.net.URI
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 private const val STREAM_ACCUM_MAX_CHARS = 2_000_000
+private val plugAndPlayStreamGatewayRoots = listOf(
+    "http://hermes.local:8642",
+    "http://hermes:8642",
+    "http://hermes-hub:8642",
+    "http://hermeshub:8642",
+    "http://home-server:8642",
+    "http://server:8642"
+)
 
 private val streamHttpClient: OkHttpClient = OkHttpClient.Builder()
     .connectTimeout(10, TimeUnit.SECONDS)
@@ -334,7 +343,7 @@ fun streamChatRequest(
         while (responsesAttempt < 2 && !sawDelta) {
             responsesAttempt++
             lastError = null
-            val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey, !(nativeMode && settings.strictNativeMode)) { ev ->
+            val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey, true) { ev ->
                 emitAndTrack(ev)
             }
             if (!terminated || sawDelta) {
@@ -389,7 +398,7 @@ fun streamChatRequest(
         })
         val url = "${settings.gatewayUrl.trimEnd('/')}/chat/completions"
         lastError = null
-        openSseStream(url, payload, "Hermes Chat Completions", apiKey, !(nativeMode && settings.strictNativeMode)) { ev ->
+        openSseStream(url, payload, "Hermes Chat Completions", apiKey, true) { ev ->
             emitAndTrack(ev)
         }
     }
@@ -425,73 +434,87 @@ private suspend fun openSseStream(
         val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val authCandidates = hermesAuthCandidates(apiKey, allowCompatAuth)
         var lastHttpError: Pair<Int, String>? = null
+        var lastNetworkError: String? = null
 
-        for ((index, bearerToken) in authCandidates.withIndex()) {
-            val builder = Request.Builder()
-                .url(url)
-                .header("Accept", "text/event-stream, application/json")
-                .header("User-Agent", "HermesHub-Android")
-            bearerToken?.let { builder.header("Authorization", "Bearer $it") }
-            val request = builder.post(body).build()
-            val activeCall = streamHttpClient.newCall(request)
-            call = activeCall
-            var completedSuccessfully = false
-            activeCall.execute().use { response ->
-                val responseBody = response.body
-                if (!response.isSuccessful) {
-                    val text = responseBody.string().take(240)
-                    lastHttpError = response.code to text
-                    val canRetry = index < authCandidates.lastIndex && shouldRetryHermesWithBearerAuth(response.code, text)
-                    if (canRetry) {
-                        onEvent(ChatStreamEvent.Status("API key Hermes non accettata. Riprovo automaticamente..."))
-                        return@use
-                    }
-                    onEvent(ChatStreamEvent.Error("$label HTTP ${response.code}: $text"))
-                    return@use
-                }
-                lastHttpError = null
-                onEvent(ChatStreamEvent.Status("$label connesso. Attendo eventi..."))
-                val ct = responseBody.contentType()?.toString().orEmpty()
-                if (!ct.contains("event-stream", ignoreCase = true)) {
-                    val full = responseBody.string()
-                    parseFullBody(full).forEach { onEvent(it) }
-                    completedSuccessfully = true
-                    return@use
-                }
-                val source = responseBody.source()
-                val dataBuf = StringBuilder()
-                var eventName: String? = null
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val line = source.readUtf8Line() ?: break
-                    if (line.isEmpty()) {
+        for (candidateUrl in plugAndPlayStreamUrlCandidates(url)) {
+            for ((index, bearerToken) in authCandidates.withIndex()) {
+                val builder = Request.Builder()
+                    .url(candidateUrl)
+                    .header("Accept", "text/event-stream, application/json")
+                    .header("User-Agent", "HermesHub-Android")
+                bearerToken?.let { builder.header("Authorization", "Bearer $it") }
+                val request = builder.post(body).build()
+                val activeCall = streamHttpClient.newCall(request)
+                call = activeCall
+                var completedSuccessfully = false
+                try {
+                    activeCall.execute().use { response ->
+                        val responseBody = response.body
+                        if (!response.isSuccessful) {
+                            val text = responseBody.string().take(240)
+                            lastHttpError = response.code to text
+                            val canRetry = index < authCandidates.lastIndex && shouldRetryHermesWithBearerAuth(response.code, text)
+                            if (canRetry) {
+                                onEvent(ChatStreamEvent.Status("API key Hermes non accettata. Riprovo automaticamente..."))
+                                return@use
+                            }
+                            return@use
+                        }
+                        lastHttpError = null
+                        onEvent(ChatStreamEvent.Status("$label connesso: $candidateUrl"))
+                        val ct = responseBody.contentType()?.toString().orEmpty()
+                        if (!ct.contains("event-stream", ignoreCase = true)) {
+                            val full = responseBody.string()
+                            parseFullBody(full).forEach { onEvent(it) }
+                            completedSuccessfully = true
+                            return@use
+                        }
+                        val source = responseBody.source()
+                        val dataBuf = StringBuilder()
+                        var eventName: String? = null
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val line = source.readUtf8Line() ?: break
+                            if (line.isEmpty()) {
+                                if (dataBuf.isNotEmpty()) {
+                                    parseSseData(eventName, dataBuf.toString()).forEach { onEvent(it) }
+                                    dataBuf.clear()
+                                    eventName = null
+                                }
+                                continue
+                            }
+                            when {
+                                line.startsWith(":") -> Unit
+                                line.startsWith("event:", ignoreCase = true) -> {
+                                    eventName = line.substring(6).trim()
+                                }
+                                line.startsWith("data:", ignoreCase = true) -> {
+                                    if (dataBuf.isNotEmpty()) dataBuf.append('\n')
+                                    dataBuf.append(line.substring(5).trimStart())
+                                }
+                            }
+                        }
                         if (dataBuf.isNotEmpty()) {
                             parseSseData(eventName, dataBuf.toString()).forEach { onEvent(it) }
-                            dataBuf.clear()
-                            eventName = null
                         }
-                        continue
+                        completedSuccessfully = true
                     }
-                    when {
-                        line.startsWith(":") -> Unit
-                        line.startsWith("event:", ignoreCase = true) -> {
-                            eventName = line.substring(6).trim()
-                        }
-                        line.startsWith("data:", ignoreCase = true) -> {
-                            if (dataBuf.isNotEmpty()) dataBuf.append('\n')
-                            dataBuf.append(line.substring(5).trimStart())
-                        }
+                } catch (ex: CancellationException) {
+                    throw ex
+                } catch (ex: Exception) {
+                    lastNetworkError = when (ex) {
+                        is SocketTimeoutException -> "$candidateUrl timeout"
+                        is ConnectException -> "$candidateUrl connessione fallita"
+                        else -> "$candidateUrl ${ex.message ?: ex.javaClass.simpleName}"
                     }
                 }
-                if (dataBuf.isNotEmpty()) {
-                    parseSseData(eventName, dataBuf.toString()).forEach { onEvent(it) }
+                if (completedSuccessfully && lastHttpError == null) {
+                    return false
                 }
-                completedSuccessfully = true
-            }
-            if (completedSuccessfully && lastHttpError == null) {
-                return false
             }
         }
+        lastHttpError?.let { onEvent(ChatStreamEvent.Error("$label HTTP ${it.first}: ${it.second}")) }
+            ?: onEvent(ChatStreamEvent.Error(lastNetworkError ?: "$label: Hermes Gateway non raggiungibile."))
         true
     } catch (ex: CancellationException) {
         throw ex
@@ -505,6 +528,23 @@ private suspend fun openSseStream(
         true
     } finally {
         cancellationHook?.dispose()
+    }
+}
+
+private fun plugAndPlayStreamUrlCandidates(url: String): List<String> {
+    return try {
+        val uri = URI(url)
+        if (uri.port != 8642) return listOf(url)
+        val suffix = buildString {
+            append(uri.rawPath.orEmpty())
+            if (!uri.rawQuery.isNullOrBlank()) append("?").append(uri.rawQuery)
+        }
+        val currentRoot = "${uri.scheme}://${uri.host}${if (uri.port > 0) ":${uri.port}" else ""}".trimEnd('/')
+        (listOf(currentRoot) + plugAndPlayStreamGatewayRoots)
+            .distinctBy { it.lowercase() }
+            .map { it.trimEnd('/') + suffix }
+    } catch (_: Exception) {
+        listOf(url)
     }
 }
 

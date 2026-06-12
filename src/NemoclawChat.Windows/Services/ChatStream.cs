@@ -60,6 +60,7 @@ public static class ChatStreamClient
         bool sawAnyDelta = false;
         string? lastError = null;
         var nativeMode = HermesHubProtocol.IsNativePreferred(settings);
+        await GatewayService.EnsureReachableGatewayAsync(settings);
 
         if (GatewayService.ShouldUseResponsesFirst(settings, mode))
         {
@@ -83,7 +84,7 @@ public static class ChatStreamClient
                                responsesUrl,
                                responsesPayload,
                                "Hermes Responses API stream",
-                               !(nativeMode && settings.StrictNativeMode),
+                               true,
                                cancellationToken))
             {
                 if (ev is StreamError err)
@@ -178,7 +179,7 @@ public static class ChatStreamClient
                                chatUrl,
                                chatPayload,
                                "Hermes Chat Completions stream",
-                               !(nativeMode && settings.StrictNativeMode),
+                               true,
                                cancellationToken))
             {
                 if (ev is StreamError err)

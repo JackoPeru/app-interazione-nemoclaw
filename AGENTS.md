@@ -54,6 +54,15 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
+Hermes Hub 0.6.62 (Windows + Android):
+
+Release 0.6.62:
+- Preset personale plug-and-play Tailscale/LAN: Hermes Hub resta su `hermes-native`, ma `Strict native mode` e' OFF di default per evitare blocchi quando il gateway Hermes non e' perfettamente allineato; fallback Responses/Chat Completions/no-auth restano visibili in UI.
+- Auth client resa permissiva per uso personale: Android e Windows provano API key salvata, `hermes-hub` e no-auth anche sul path native/stream.
+- Auto-discovery endpoint Hermes: Windows e Android provano automaticamente `http://hermes.local:8642/v1`, `http://hermes:8642/v1`, `http://hermes-hub:8642/v1`, `http://hermeshub:8642/v1`, `http://home-server:8642/v1`, `http://server:8642/v1`; Windows salva il primo endpoint raggiungibile.
+- Migrazione settings locale: se URL salvato e' vuoto/localhost o strict native era ON, la nuova app normalizza a preset Hermes plug-and-play.
+- Release bump: Windows/AdminBridge `0.6.62`, Android `versionName 0.6.62`, `versionCode 74`.
+
 Hermes Hub 0.6.61 (Windows + Android):
 
 Decisione Hermes Native:

@@ -11,11 +11,19 @@
     "jobsPath": "/api/jobs",
     "model": "hermes-agent",
     "preferredApi": "hermes-native",
-    "strictNativeMode": true
+    "strictNativeMode": false,
+    "autoDiscoveryUrls": [
+      "http://hermes.local:8642/v1",
+      "http://hermes:8642/v1",
+      "http://hermes-hub:8642/v1",
+      "http://hermeshub:8642/v1",
+      "http://home-server:8642/v1",
+      "http://server:8642/v1"
+    ]
   },
   "security": {
     "recommendedAccess": "Tailscale/LAN",
-    "authHeader": "Authorization: Bearer <Hermes API key>",
+    "authHeader": "Authorization: Bearer hermes-hub, then no-auth fallback",
     "releaseCleartextTraffic": true,
     "storeProviderSecretsInClient": false
   }

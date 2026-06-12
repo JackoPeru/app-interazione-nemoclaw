@@ -4924,13 +4924,46 @@ private fun resolveHermesUrl(settings: AppSettings, path: String): String {
     }
 }
 
+private val plugAndPlayGatewayRoots = listOf(
+    "http://hermes.local:8642",
+    "http://hermes:8642",
+    "http://hermes-hub:8642",
+    "http://hermeshub:8642",
+    "http://home-server:8642",
+    "http://server:8642"
+)
+
+private fun plugAndPlayUrlCandidates(url: String): List<String> {
+    return try {
+        val uri = URI(url)
+        if (uri.port != 8642) return listOf(url)
+        val suffix = buildString {
+            append(uri.rawPath.orEmpty())
+            if (!uri.rawQuery.isNullOrBlank()) append("?").append(uri.rawQuery)
+        }
+        val currentRoot = "${uri.scheme}://${uri.host}${if (uri.port > 0) ":${uri.port}" else ""}".trimEnd('/')
+        (listOf(currentRoot) + plugAndPlayGatewayRoots)
+            .distinctBy { it.lowercase() }
+            .map { it.trimEnd('/') + suffix }
+    } catch (_: Exception) {
+        listOf(url)
+    }
+}
+
 private suspend fun httpGet(url: String, apiKey: String? = null): String = withContext(Dispatchers.IO) {
     var last: Pair<Int, String>? = null
-    for (token in hermesAuthCandidates(apiKey)) {
-        val response = executeHttpGet(url, token)
-        last = response
-        if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
-            return@withContext response.second
+    for (candidateUrl in plugAndPlayUrlCandidates(url)) {
+        for (token in hermesAuthCandidates(apiKey)) {
+            val response = try {
+                executeHttpGet(candidateUrl, token)
+            } catch (ex: Exception) {
+                last = 0 to (ex.message ?: ex.javaClass.simpleName)
+                continue
+            }
+            last = response
+            if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
+                if (response.first != 0) return@withContext response.second
+            }
         }
     }
     last?.second.orEmpty()
@@ -4998,11 +5031,18 @@ private suspend fun postJson(
     allowCompatAuth: Boolean = true
 ): Pair<Int, String> = withContext(Dispatchers.IO) {
     var last: Pair<Int, String>? = null
-    for (token in hermesAuthCandidates(apiKey, allowCompatAuth)) {
-        val response = executeJsonRequest(url, payload, method, token)
-        last = response
-        if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
-            return@withContext response
+    for (candidateUrl in plugAndPlayUrlCandidates(url)) {
+        for (token in hermesAuthCandidates(apiKey, allowCompatAuth)) {
+            val response = try {
+                executeJsonRequest(candidateUrl, payload, method, token)
+            } catch (ex: Exception) {
+                last = 0 to (ex.message ?: ex.javaClass.simpleName)
+                continue
+            }
+            last = response
+            if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
+                if (response.first != 0) return@withContext response
+            }
         }
     }
     last ?: (0 to "")
@@ -5904,7 +5944,7 @@ private fun Long.toReadableFileSize(): String {
 
 private fun loadSettings(context: Context): AppSettings {
     val prefs = migratePrefs(context, CURRENT_SETTINGS_PREFS, LEGACY_SETTINGS_PREFS)
-    return AppSettings(
+    val settings = AppSettings(
         gatewayUrl = prefs.getString("gatewayUrl", AppDefaults.gatewayUrl) ?: AppDefaults.gatewayUrl,
         gatewayWsUrl = prefs.getString("gatewayWsUrl", AppDefaults.gatewayWsUrl) ?: AppDefaults.gatewayWsUrl,
         adminBridgeUrl = prefs.getString("adminBridgeUrl", AppDefaults.adminBridgeUrl) ?: AppDefaults.adminBridgeUrl,
@@ -5921,9 +5961,56 @@ private fun loadSettings(context: Context): AppSettings {
         strictNativeMode = prefs.getBoolean("strictNativeMode", AppDefaults.strictNativeMode),
         demoMode = prefs.getBoolean("demoMode", AppDefaults.demoMode)
     )
+    return normalizePlugAndPlaySettings(context, settings)
 }
 
 private fun normalizeUrl(value: String): String = value.trim().trimEnd('/')
+
+private fun normalizePlugAndPlaySettings(context: Context, settings: AppSettings): AppSettings {
+    var next = settings
+    var changed = false
+
+    val gateway = normalizeUrl(next.gatewayUrl)
+    if (gateway.isBlank() || gateway.contains("127.0.0.1", ignoreCase = true) || gateway.contains("localhost", ignoreCase = true)) {
+        next = next.copy(gatewayUrl = AppDefaults.gatewayUrl)
+        changed = true
+    } else if (gateway != next.gatewayUrl) {
+        next = next.copy(gatewayUrl = gateway)
+        changed = true
+    }
+
+    if (!next.preferredApi.equals(AppDefaults.preferredApi, ignoreCase = true)) {
+        next = next.copy(preferredApi = AppDefaults.preferredApi)
+        changed = true
+    }
+
+    if (next.strictNativeMode) {
+        next = next.copy(strictNativeMode = false)
+        changed = true
+    }
+
+    if (next.model.isBlank()) {
+        next = next.copy(model = AppDefaults.model)
+        changed = true
+    }
+
+    if (next.provider.isBlank()) {
+        next = next.copy(provider = AppDefaults.provider)
+        changed = true
+    }
+
+    val root = next.gatewayUrl.removeSuffix("/v1")
+    next = next.copy(
+        inferenceEndpoint = next.gatewayUrl,
+        adminBridgeUrl = root,
+        accessMode = if (next.accessMode.isBlank()) AppDefaults.accessMode else next.accessMode
+    )
+
+    if (changed) {
+        saveSettings(context, next)
+    }
+    return next
+}
 
 private fun saveSettings(context: Context, settings: AppSettings) {
     context.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
@@ -6874,13 +6961,13 @@ private object AppDefaults {
     const val inferenceEndpoint = "http://hermes.local:8642/v1"
     const val preferredApi = "hermes-native"
     const val model = "hermes-agent"
-    const val accessMode = "Tailscale/LAN"
+    const val accessMode = "Tailscale/LAN plug-and-play"
     const val visualBlocksMode = "auto"
     const val videoLibraryPath = ""
     const val activeProjectId = ""
     const val activeProjectName = ""
     const val fontScale = 1.0f
-    const val strictNativeMode = true
+    const val strictNativeMode = false
     const val demoMode = false
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"
     const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"

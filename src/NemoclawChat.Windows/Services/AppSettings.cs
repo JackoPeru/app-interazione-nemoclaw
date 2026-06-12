@@ -14,6 +14,6 @@ public sealed class AppSettings
     public string VideoLibraryPath { get; set; } = string.Empty;
     public string ActiveProjectId { get; set; } = string.Empty;
     public string ActiveProjectName { get; set; } = string.Empty;
-    public bool StrictNativeMode { get; set; } = true;
+    public bool StrictNativeMode { get; set; } = false;
     public bool DemoMode { get; set; } = false;
 }

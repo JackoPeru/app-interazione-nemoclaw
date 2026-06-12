@@ -44,6 +44,15 @@ public sealed record DiagnosticCheckResult(string Label, string Endpoint, bool O
 public static class GatewayService
 {
     internal const string HermesFallbackApiKey = GatewayCredentialStore.DefaultApiKey;
+    private static readonly string[] PlugAndPlayGatewayUrls =
+    [
+        "http://hermes.local:8642/v1",
+        "http://hermes:8642/v1",
+        "http://hermes-hub:8642/v1",
+        "http://hermeshub:8642/v1",
+        "http://home-server:8642/v1",
+        "http://server:8642/v1"
+    ];
 
     private static readonly HttpClientHandler HttpHandler = new()
     {
@@ -71,6 +80,7 @@ public static class GatewayService
         string? conversationId = null,
         string? previousResponseId = null)
     {
+        await EnsureReachableGatewayAsync(settings);
         string? lastError = null;
 
         if (ShouldUseResponsesFirst(settings, mode) && await SupportsResponsesAsync(settings))
@@ -90,7 +100,7 @@ public static class GatewayService
 
                 var response = await SendBufferedAsync(
                     token => BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/responses", responsePayload, token),
-                    allowCompatAuth: !(HermesHubProtocol.IsNativePreferred(settings) && settings.StrictNativeMode));
+                    allowCompatAuth: true);
                 var body = response.Body;
 
                 if (!response.IsSuccessStatusCode)
@@ -161,7 +171,7 @@ public static class GatewayService
 
             var response = await SendBufferedAsync(
                 token => BuildJsonRequest(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions", chatPayload, token),
-                allowCompatAuth: !(HermesHubProtocol.IsNativePreferred(settings) && settings.StrictNativeMode));
+                allowCompatAuth: true);
             var body = response.Body;
 
             if (response.IsSuccessStatusCode)
@@ -373,6 +383,7 @@ public static class GatewayService
 
     public static async Task<ServerSnapshot> GetServerSnapshotAsync(AppSettings settings)
     {
+        await EnsureReachableGatewayAsync(settings);
         var root = HermesRoot(settings);
         var healthUrl = $"{root}/health";
 
@@ -523,6 +534,7 @@ public static class GatewayService
 
     public static async Task<bool> SupportsResponsesAsync(AppSettings settings)
     {
+        await EnsureReachableGatewayAsync(settings);
         try
         {
             var response = await SendBufferedAsync(token => BuildRequest(HttpMethod.Get, $"{settings.GatewayUrl.TrimEnd('/')}/capabilities", token));
@@ -674,7 +686,7 @@ public static class GatewayService
             : api;
     }
 
-    private static string ResolveHermesUri(AppSettings settings, string path)
+    internal static string ResolveHermesUri(AppSettings settings, string path)
     {
         if (Uri.TryCreate(path, UriKind.Absolute, out _))
         {
@@ -719,6 +731,60 @@ public static class GatewayService
         if (allowCompatAuth)
         {
             yield return null;
+        }
+    }
+
+    internal static async Task EnsureReachableGatewayAsync(AppSettings settings)
+    {
+        var current = settings.GatewayUrl.Trim().TrimEnd('/');
+        if (await CanReachGatewayAsync(current))
+        {
+            return;
+        }
+
+        foreach (var candidate in PlugAndPlayGatewayUrls)
+        {
+            if (string.Equals(candidate, current, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!await CanReachGatewayAsync(candidate))
+            {
+                continue;
+            }
+
+            settings.GatewayUrl = candidate;
+            settings.InferenceEndpoint = candidate;
+            settings.AdminBridgeUrl = HermesRoot(settings);
+            settings.AccessMode = "Tailscale/LAN plug-and-play";
+            AppSettingsStore.Save(settings);
+            return;
+        }
+    }
+
+    private static async Task<bool> CanReachGatewayAsync(string gatewayUrl)
+    {
+        if (string.IsNullOrWhiteSpace(gatewayUrl))
+        {
+            return false;
+        }
+
+        var probeSettings = new AppSettings
+        {
+            GatewayUrl = gatewayUrl.Trim().TrimEnd('/'),
+            StrictNativeMode = false
+        };
+        var healthUrl = $"{HermesRoot(probeSettings)}/health";
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var response = await SendBufferedAsync(token => BuildRequest(HttpMethod.Get, healthUrl, token), timeout.Token, allowCompatAuth: true);
+            return response.IsSuccessStatusCode || response.StatusCode is 401 or 404;
+        }
+        catch
+        {
+            return false;
         }
     }
 
