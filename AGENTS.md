@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.61 Release Hermes Hub 0.6.61
+v0.6.62 Release Hermes Hub 0.6.62 plug-and-play
 ```
 
 ## Regola Memoria
@@ -62,6 +62,7 @@ Release 0.6.62:
 - Auto-discovery endpoint Hermes: Windows e Android provano automaticamente `http://hermes.local:8642/v1`, `http://hermes:8642/v1`, `http://hermes-hub:8642/v1`, `http://hermeshub:8642/v1`, `http://home-server:8642/v1`, `http://server:8642/v1`; Windows salva il primo endpoint raggiungibile.
 - Migrazione settings locale: se URL salvato e' vuoto/localhost o strict native era ON, la nuova app normalizza a preset Hermes plug-and-play.
 - Release bump: Windows/AdminBridge `0.6.62`, Android `versionName 0.6.62`, `versionCode 74`.
+- Nota Android release 0.6.62: la release GitHub deve includere asset `.apk`, altrimenti il bottone `Scarica` non compare in app. Se Android rifiuta installazione per firma diversa dalla build gia' installata, disinstallare una volta la vecchia app e installare l'APK 0.6.62; il problema e' keystore, non updater UI.
 
 Hermes Hub 0.6.61 (Windows + Android):
 
