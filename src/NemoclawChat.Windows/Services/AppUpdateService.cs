@@ -318,44 +318,82 @@ public static class AppUpdateService
 
             var aumid = GetCurrentAppUserModelId();
             var escapedAumid = string.IsNullOrWhiteSpace(aumid) ? string.Empty : EscapePowerShellSingleQuoted(aumid);
+            var currentPid = Environment.ProcessId;
+            var currentProcessName = EscapePowerShellSingleQuoted(Process.GetCurrentProcess().ProcessName);
             var updatesDirectory = GetUpdatesDirectoryPath();
             Directory.CreateDirectory(updatesDirectory);
             var scriptPath = Path.Combine(updatesDirectory, "install-msix-update.ps1");
+            var commandPath = Path.Combine(updatesDirectory, "install-msix-update.cmd");
             var logPath = Path.Combine(updatesDirectory, "install-msix-update.log");
             var relaunch = string.IsNullOrWhiteSpace(escapedAumid)
                 ? string.Empty
-                : "`nStart-Sleep -Seconds 1`n" +
-                  "for ($i = 0; $i -lt 10; $i++) {`n" +
-                  "  Add-Content -LiteralPath $logPath -Value \"Relaunch attempt $i\"`n" +
-                  $"  try {{ Start-Process explorer.exe 'shell:AppsFolder\\{escapedAumid}'; break }} catch {{ Add-Content -LiteralPath $logPath -Value $_.Exception.Message; Start-Sleep -Seconds 1 }}`n" +
-                  "}";
+                : "`nStart-Sleep -Seconds 2`n" +
+                  "for ($i = 1; $i -le 20; $i++) {`n" +
+                  "  Write-Log \"Relaunch attempt $i\"`n" +
+                  $"  try {{ Start-Process explorer.exe 'shell:AppsFolder\\{escapedAumid}'; break }} catch {{ Write-Log (\"Relaunch error: \" + $_.Exception.Message); Start-Sleep -Seconds 1 }}`n" +
+                  "}`n";
             var script =
                 "$ErrorActionPreference = 'Stop'`n" +
                 $"$logPath = '{EscapePowerShellSingleQuoted(logPath)}'`n" +
+                $"$packagePath = '{EscapePowerShellSingleQuoted(fullPath)}'`n" +
+                $"$targetPid = {currentPid}`n" +
+                $"$targetProcessName = '{currentProcessName}'`n" +
+                "function Write-Log([string]$message) { Add-Content -LiteralPath $logPath -Value (\"$(Get-Date -Format o) \" + $message) }`n" +
                 "\"Started $(Get-Date -Format o)\" | Set-Content -LiteralPath $logPath`n" +
-                "Start-Sleep -Seconds 3`n" +
+                "Write-Log \"Package: $packagePath\"`n" +
                 "try {`n" +
-                $"  Add-Content -LiteralPath $logPath -Value 'Installing {EscapePowerShellSingleQuoted(fullPath)}'`n" +
-                $"  Add-AppxPackage -Path '{EscapePowerShellSingleQuoted(fullPath)}' -ForceUpdateFromAnyVersion`n" +
-                "  Add-Content -LiteralPath $logPath -Value \"Installed $(Get-Date -Format o)\"`n" +
+                "  if ($targetPid -gt 0) {`n" +
+                "    $p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue`n" +
+                "    if ($p) { Write-Log \"Waiting for app PID $targetPid\"; Wait-Process -Id $targetPid -Timeout 90 -ErrorAction SilentlyContinue }`n" +
+                "  }`n" +
+                "  for ($i = 1; $i -le 30; $i++) {`n" +
+                "    $running = Get-Process -Name $targetProcessName -ErrorAction SilentlyContinue`n" +
+                "    if (-not $running) { break }`n" +
+                "    Write-Log \"Still running: $targetProcessName ($i)\"`n" +
+                "    Start-Sleep -Seconds 1`n" +
+                "  }`n" +
+                "  try { Unblock-File -LiteralPath $packagePath -ErrorAction SilentlyContinue } catch { Write-Log (\"Unblock warning: \" + $_.Exception.Message) }`n" +
+                "  $installed = $false`n" +
+                "  for ($attempt = 1; $attempt -le 3 -and -not $installed; $attempt++) {`n" +
+                "    try {`n" +
+                "      Write-Log \"Install attempt $attempt\"`n" +
+                "      Add-AppxPackage -Path $packagePath -ForceUpdateFromAnyVersion -ForceApplicationShutdown -ErrorAction Stop`n" +
+                "      $installed = $true`n" +
+                "      Write-Log \"Installed\"`n" +
+                "    } catch {`n" +
+                "      Write-Log (\"Install attempt $attempt failed: \" + $_.Exception.Message)`n" +
+                "      Start-Sleep -Seconds 4`n" +
+                "    }`n" +
+                "  }`n" +
+                "  if (-not $installed) {`n" +
+                "    Write-Log \"Falling back to App Installer UI\"`n" +
+                "    Start-Process -FilePath $packagePath`n" +
+                "    exit 2`n" +
+                "  }`n" +
                 relaunch +
                 "`n} catch {`n" +
-                "  Add-Content -LiteralPath $logPath -Value (\"ERROR \" + $_.Exception.Message)`n" +
+                "  Write-Log (\"ERROR \" + $_.Exception.Message)`n" +
                 "  throw`n" +
                 "}`n";
             File.WriteAllText(scriptPath, script);
+            File.WriteAllText(
+                commandPath,
+                "@echo off\r\n" +
+                "setlocal\r\n" +
+                $"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"\r\n",
+                System.Text.Encoding.ASCII);
 
             var startInfo = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
+                FileName = "cmd.exe",
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden
             };
-            startInfo.ArgumentList.Add("-NoProfile");
-            startInfo.ArgumentList.Add("-ExecutionPolicy");
-            startInfo.ArgumentList.Add("Bypass");
-            startInfo.ArgumentList.Add("-File");
-            startInfo.ArgumentList.Add(scriptPath);
+            startInfo.ArgumentList.Add("/c");
+            startInfo.ArgumentList.Add("start");
+            startInfo.ArgumentList.Add("\"\"");
+            startInfo.ArgumentList.Add("/min");
+            startInfo.ArgumentList.Add(commandPath);
 
             Process.Start(startInfo);
             return true;

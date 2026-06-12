@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.62 Release Hermes Hub 0.6.62 plug-and-play
+v0.6.64 Release Hermes Hub 0.6.64 Windows updater test
 ```
 
 ## Regola Memoria
@@ -53,6 +53,18 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.64 (Windows + Android):
+
+Release 0.6.64:
+- Release test per verificare updater Windows corretto installato manualmente in 0.6.63: solo bump versione sopra il nuovo helper update.
+- Release bump: Windows/AdminBridge `0.6.64`, Android `versionName 0.6.64`, `versionCode 76`.
+
+Hermes Hub 0.6.63 (Windows + Android):
+
+Release 0.6.63:
+- Fix updater Windows: install MSIX passa a helper esterno `.cmd` + `.ps1` in `%LOCALAPPDATA%\ChatClaw\updates`, aspetta la chiusura del processo app, usa `Add-AppxPackage -ForceUpdateFromAnyVersion -ForceApplicationShutdown -ForceTargetApplicationShutdown`, fa 3 retry, logga in `install-msix-update.log` e se fallisce apre fallback App Installer UI.
+- Release bump: Windows/AdminBridge `0.6.63`, Android `versionName 0.6.63`, `versionCode 75`.
 
 Hermes Hub 0.6.62 (Windows + Android):
 
