@@ -82,7 +82,7 @@ public static class AppSettingsStore
             settings.GatewayUrl.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
             settings.GatewayUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
         {
-            settings.GatewayUrl = "http://hermes.local:8642/v1";
+            settings.GatewayUrl = "http://100.105.46.6:8642/v1";
             changed = true;
         }
 

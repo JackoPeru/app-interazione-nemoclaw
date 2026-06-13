@@ -46,6 +46,7 @@ public static class GatewayService
     internal const string HermesFallbackApiKey = GatewayCredentialStore.DefaultApiKey;
     private static readonly string[] PlugAndPlayGatewayUrls =
     [
+        "http://100.105.46.6:8642/v1",
         "http://hermes.local:8642/v1",
         "http://hermes:8642/v1",
         "http://hermes-hub:8642/v1",

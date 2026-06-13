@@ -4925,6 +4925,7 @@ private fun resolveHermesUrl(settings: AppSettings, path: String): String {
 }
 
 private val plugAndPlayGatewayRoots = listOf(
+    "http://100.105.46.6:8642",
     "http://hermes.local:8642",
     "http://hermes:8642",
     "http://hermes-hub:8642",
@@ -6954,11 +6955,11 @@ private const val SETTINGS_FIELD_MAX_LENGTH = 2048
 private val gatewaySecretKeyLock = Any()
 
 private object AppDefaults {
-    const val gatewayUrl = "http://hermes.local:8642/v1"
+    const val gatewayUrl = "http://100.105.46.6:8642/v1"
     const val gatewayWsUrl = ""
-    const val adminBridgeUrl = "http://hermes.local:8642"
+    const val adminBridgeUrl = "http://100.105.46.6:8642"
     const val provider = "hermes-agent"
-    const val inferenceEndpoint = "http://hermes.local:8642/v1"
+    const val inferenceEndpoint = "http://100.105.46.6:8642/v1"
     const val preferredApi = "hermes-native"
     const val model = "hermes-agent"
     const val accessMode = "Tailscale/LAN plug-and-play"

@@ -11,7 +11,7 @@ Target:
 - UI moderna chatbot: dark premium operator console, composer largo, menu `+`, modalita `Chat`/`Agente`.
 - Nome visibile app: `Hermes Hub`.
 - Compatibilita Android: `applicationId` resta `com.nemoclaw.chat`.
-- Backend primario: Hermes Agent API Server su `http://hermes.local:8642/v1`.
+- Backend primario personale: Hermes Agent API Server su Tailscale `http://100.105.46.6:8642/v1` con fallback discovery `hermes.local`.
 - Direzione nuova: Hermes Hub e' client operativo per Hermes Agent, non console del vecchio backend.
 
 ## Regola Git
@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.66 Release Hermes Hub 0.6.66 updater test + Android new key
+v0.6.68 Release Hermes Hub 0.6.68 updater repair + Tailscale defaults
 ```
 
 ## Regola Memoria
@@ -53,6 +53,21 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.68 (Windows + Android):
+
+Release 0.6.68:
+- Fix reale updater Windows post-fallimento 0.6.66: lo script PowerShell generato ora contiene newline reali invece di letterali `` `n`` e usa path fisico MSIX `ApplicationData.Current.LocalCacheFolder\Local\ChatClaw\updates`, cosi il PowerShell esterno vede file/log dentro la virtualizzazione MSIX.
+- PC Matteo riparato manualmente installando `0.6.67.0`; release `0.6.68` serve per testare update interno da 0.6.67 a 0.6.68.
+- Default personale plug-and-play: Windows e Android puntano direttamente a `http://100.105.46.6:8642/v1` su Tailscale, con `hermes.local` e alias LAN come fallback discovery.
+- Release bump: Windows/AdminBridge `0.6.68`, Android `versionName 0.6.68`, `versionCode 80`.
+
+Hermes Hub 0.6.67 (Windows manual repair):
+
+Release 0.6.67:
+- Build locale installata manualmente sul PC di Matteo per uscire dalla 0.6.65/0.6.66 con updater rotto.
+- Contiene stesso fix updater e default Tailscale della 0.6.68, ma non e' la release test finale.
+- Release bump locale: Windows/AdminBridge `0.6.67`, Android `versionName 0.6.67`, `versionCode 79`.
 
 Hermes Hub 0.6.66 (Windows + Android):
 
@@ -90,7 +105,7 @@ Hermes Hub 0.6.62 (Windows + Android):
 Release 0.6.62:
 - Preset personale plug-and-play Tailscale/LAN: Hermes Hub resta su `hermes-native`, ma `Strict native mode` e' OFF di default per evitare blocchi quando il gateway Hermes non e' perfettamente allineato; fallback Responses/Chat Completions/no-auth restano visibili in UI.
 - Auth client resa permissiva per uso personale: Android e Windows provano API key salvata, `hermes-hub` e no-auth anche sul path native/stream.
-- Auto-discovery endpoint Hermes: Windows e Android provano automaticamente `http://hermes.local:8642/v1`, `http://hermes:8642/v1`, `http://hermes-hub:8642/v1`, `http://hermeshub:8642/v1`, `http://home-server:8642/v1`, `http://server:8642/v1`; Windows salva il primo endpoint raggiungibile.
+- Auto-discovery endpoint Hermes: Windows e Android provano automaticamente `http://100.105.46.6:8642/v1`, `http://hermes.local:8642/v1`, `http://hermes:8642/v1`, `http://hermes-hub:8642/v1`, `http://hermeshub:8642/v1`, `http://home-server:8642/v1`, `http://server:8642/v1`; Windows salva il primo endpoint raggiungibile.
 - Migrazione settings locale: se URL salvato e' vuoto/localhost o strict native era ON, la nuova app normalizza a preset Hermes plug-and-play.
 - Release bump: Windows/AdminBridge `0.6.62`, Android `versionName 0.6.62`, `versionCode 74`.
 - Nota Android release 0.6.62: la release GitHub deve includere asset `.apk`, altrimenti il bottone `Scarica` non compare in app. Se Android rifiuta installazione per firma diversa dalla build gia' installata, disinstallare una volta la vecchia app e installare l'APK 0.6.62; il problema e' keystore, non updater UI.

@@ -374,6 +374,7 @@ public static class AppUpdateService
                 "  Write-Log (\"ERROR \" + $_.Exception.Message)`n" +
                 "  throw`n" +
                 "}`n";
+            script = script.Replace("`n", Environment.NewLine, StringComparison.Ordinal);
             File.WriteAllText(scriptPath, script);
 
             var startInfo = new ProcessStartInfo
@@ -422,8 +423,20 @@ public static class AppUpdateService
 
     private static string GetUpdatesDirectoryPath()
     {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var localAppData = GetPhysicalLocalAppDataPath();
         return Path.Combine(localAppData, "ChatClaw", "updates");
+    }
+
+    private static string GetPhysicalLocalAppDataPath()
+    {
+        try
+        {
+            return Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "Local");
+        }
+        catch
+        {
+            return Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        }
     }
 
     private static AssetReference? FindPreferredAsset(JsonElement root, string[] suffixes)

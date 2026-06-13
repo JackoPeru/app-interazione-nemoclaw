@@ -24,6 +24,7 @@ import kotlin.math.max
 
 private const val STREAM_ACCUM_MAX_CHARS = 2_000_000
 private val plugAndPlayStreamGatewayRoots = listOf(
+    "http://100.105.46.6:8642",
     "http://hermes.local:8642",
     "http://hermes:8642",
     "http://hermes-hub:8642",
