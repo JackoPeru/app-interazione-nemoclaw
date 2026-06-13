@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.64 Release Hermes Hub 0.6.64 Windows updater test
+v0.6.66 Release Hermes Hub 0.6.66 updater test + Android new key
 ```
 
 ## Regola Memoria
@@ -54,13 +54,26 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
+Hermes Hub 0.6.66 (Windows + Android):
+
+Release 0.6.66:
+- Release test sopra 0.6.65 installata manualmente: verifica updater Windows senza `.cmd` e conferma distribuzione Android con nuova key `5e22...`.
+- Release bump: Windows/AdminBridge `0.6.66`, Android `versionName 0.6.66`, `versionCode 78`.
+
+Hermes Hub 0.6.65 (Windows + Android):
+
+Release 0.6.65:
+- Hotfix updater Windows: rimosso helper `.cmd` che poteva mostrare errore file mancante; ora Hermes Hub scrive solo `install-msix-update.ps1` e lancia direttamente `powershell.exe` detached (`UseShellExecute=false`, `CreateNoWindow=true`) prima di chiudere l'app.
+- Decisione Android key: vecchio keystore `6a676...` dichiarato irrecuperabile da Matteo; da ora si usa il nuovo debug keystore locale SHA-256 `5e22fa7ca9bd9c8c39cb00788061ffbb7e254629283d3876c6d5274f6858494f`. Primo passaggio richiede reinstall manuale, poi gli update successivi saranno compatibili con questa key finche' il keystore viene conservato.
+- Release bump: Windows/AdminBridge `0.6.65`, Android `versionName 0.6.65`, `versionCode 77`.
+
 Hermes Hub 0.6.64 (Windows + Android):
 
 Nota blocco Android firma 2026-06-12:
 - Android installato sul telefono e release storiche `0.6.46-0.6.53` usano certificato debug SHA-256 `6a676291c8f11e4e6cc6d4c38ed3da8faab2c30aea94d152cd77b2745f45c02d`.
 - Il keystore presente su questo PC (`%USERPROFILE%\.android\debug.keystore`) firma invece SHA-256 `5e22fa7ca9bd9c8c39cb00788061ffbb7e254629283d3876c6d5274f6858494f`.
 - Android rifiuta update con errore "pacchetto in conflitto con un pacchetto esistente" quando firma diversa; non e' bypassabile via codice app o APK.
-- Finche' non si recupera il keystore privato `6a676...`, non pubblicare APK Android come aggiornamento compatibile. Opzioni reali: recuperare vecchio `%USERPROFILE%\.android\debug.keystore` dal PC/backup che firmava 0.6.46-0.6.53, oppure fare migrazione dati + reinstall una tantum.
+- Decisione finale 2026-06-13: vecchio keystore dichiarato irrecuperabile; Matteo ha disinstallato l'app Android. Pubblicare di nuovo APK firmati con nuova key `5e22...` e conservarla per tutti gli update futuri.
 
 Release 0.6.64:
 - Release test per verificare updater Windows corretto installato manualmente in 0.6.63: solo bump versione sopra il nuovo helper update.

@@ -323,7 +323,6 @@ public static class AppUpdateService
             var updatesDirectory = GetUpdatesDirectoryPath();
             Directory.CreateDirectory(updatesDirectory);
             var scriptPath = Path.Combine(updatesDirectory, "install-msix-update.ps1");
-            var commandPath = Path.Combine(updatesDirectory, "install-msix-update.cmd");
             var logPath = Path.Combine(updatesDirectory, "install-msix-update.log");
             var relaunch = string.IsNullOrWhiteSpace(escapedAumid)
                 ? string.Empty
@@ -376,24 +375,24 @@ public static class AppUpdateService
                 "  throw`n" +
                 "}`n";
             File.WriteAllText(scriptPath, script);
-            File.WriteAllText(
-                commandPath,
-                "@echo off\r\n" +
-                "setlocal\r\n" +
-                $"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"\r\n",
-                System.Text.Encoding.ASCII);
 
             var startInfo = new ProcessStartInfo
             {
-                FileName = "cmd.exe",
-                UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Hidden
+                FileName = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.System),
+                    "WindowsPowerShell",
+                    "v1.0",
+                    "powershell.exe"),
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                WorkingDirectory = updatesDirectory
             };
-            startInfo.ArgumentList.Add("/c");
-            startInfo.ArgumentList.Add("start");
-            startInfo.ArgumentList.Add("\"\"");
-            startInfo.ArgumentList.Add("/min");
-            startInfo.ArgumentList.Add(commandPath);
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-ExecutionPolicy");
+            startInfo.ArgumentList.Add("Bypass");
+            startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(scriptPath);
 
             Process.Start(startInfo);
             return true;
