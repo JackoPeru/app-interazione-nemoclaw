@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.69 Release Hermes Hub 0.6.69 chat UI + Android auth polish
+v0.6.70 Release Hermes Hub 0.6.70 Android auth/session polish
 ```
 
 ## Regola Memoria
@@ -53,6 +53,15 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.70 (Windows + Android):
+
+Release 0.6.70:
+- Updater Windows 0.6.69 verificato da Matteo: update in-app riuscito perfettamente. Mantieni questa modalita' stabile: MSIX scaricato in `LocalCache\Local\ChatClaw\updates`, helper PowerShell con newline reali, path fisico, `Add-AppxPackage -ForceUpdateFromAnyVersion -ForceApplicationShutdown`, rilancio via AUMID.
+- Regola release notes: non pubblicare fingerprint SHA/keystore completi nelle patch notes. Indicare solo "nuova key locale" o "key storica non disponibile".
+- Android auth: riconosce anche messaggi italiani tipo `API key rifiutata` come auth-error, quindi non cade piu' su fallback Chat Completions dopo un 401 native.
+- Android/Windows native prompt: per saluti/chat semplice risponde direttamente senza strumenti e non deve parlare di limiti tool/iterazioni/turno salvo errore reale della richiesta corrente.
+- Release bump: Windows/AdminBridge `0.6.70`, Android `versionName 0.6.70`, `versionCode 82`.
 
 Hermes Hub 0.6.69 (Windows + Android):
 
@@ -81,23 +90,23 @@ Release 0.6.67:
 Hermes Hub 0.6.66 (Windows + Android):
 
 Release 0.6.66:
-- Release test sopra 0.6.65 installata manualmente: verifica updater Windows senza `.cmd` e conferma distribuzione Android con nuova key `5e22...`.
+- Release test sopra 0.6.65 installata manualmente: verifica updater Windows senza `.cmd` e conferma distribuzione Android con nuova key locale.
 - Release bump: Windows/AdminBridge `0.6.66`, Android `versionName 0.6.66`, `versionCode 78`.
 
 Hermes Hub 0.6.65 (Windows + Android):
 
 Release 0.6.65:
 - Hotfix updater Windows: rimosso helper `.cmd` che poteva mostrare errore file mancante; ora Hermes Hub scrive solo `install-msix-update.ps1` e lancia direttamente `powershell.exe` detached (`UseShellExecute=false`, `CreateNoWindow=true`) prima di chiudere l'app.
-- Decisione Android key: vecchio keystore `6a676...` dichiarato irrecuperabile da Matteo; da ora si usa il nuovo debug keystore locale SHA-256 `5e22fa7ca9bd9c8c39cb00788061ffbb7e254629283d3876c6d5274f6858494f`. Primo passaggio richiede reinstall manuale, poi gli update successivi saranno compatibili con questa key finche' il keystore viene conservato.
+- Decisione Android key: vecchio keystore dichiarato irrecuperabile da Matteo; da ora si usa il nuovo debug keystore locale. Primo passaggio richiede reinstall manuale, poi gli update successivi saranno compatibili con questa key finche' il keystore viene conservato.
 - Release bump: Windows/AdminBridge `0.6.65`, Android `versionName 0.6.65`, `versionCode 77`.
 
 Hermes Hub 0.6.64 (Windows + Android):
 
 Nota blocco Android firma 2026-06-12:
-- Android installato sul telefono e release storiche `0.6.46-0.6.53` usano certificato debug SHA-256 `6a676291c8f11e4e6cc6d4c38ed3da8faab2c30aea94d152cd77b2745f45c02d`.
-- Il keystore presente su questo PC (`%USERPROFILE%\.android\debug.keystore`) firma invece SHA-256 `5e22fa7ca9bd9c8c39cb00788061ffbb7e254629283d3876c6d5274f6858494f`.
+- Android installato sul telefono e release storiche `0.6.46-0.6.53` usano certificato debug storico non piu' disponibile.
+- Il keystore presente su questo PC (`%USERPROFILE%\.android\debug.keystore`) firma invece con nuova key locale.
 - Android rifiuta update con errore "pacchetto in conflitto con un pacchetto esistente" quando firma diversa; non e' bypassabile via codice app o APK.
-- Decisione finale 2026-06-13: vecchio keystore dichiarato irrecuperabile; Matteo ha disinstallato l'app Android. Pubblicare di nuovo APK firmati con nuova key `5e22...` e conservarla per tutti gli update futuri.
+- Decisione finale 2026-06-13: vecchio keystore dichiarato irrecuperabile; Matteo ha disinstallato l'app Android. Pubblicare di nuovo APK firmati con nuova key locale e conservarla per tutti gli update futuri.
 
 Release 0.6.64:
 - Release test per verificare updater Windows corretto installato manualmente in 0.6.63: solo bump versione sopra il nuovo helper update.
@@ -226,7 +235,7 @@ Release 0.6.50:
 
 Release 0.6.49:
 - Hotfix release Android: nuovo `versionCode 62`/`versionName 0.6.49` per superare asset/cache rotta della 0.6.48.
-- Asset Android release va firmato con debug keystore compatibile con 0.6.47 (`C=US, O=Android, CN=Android Debug`, SHA-256 cert `6a676291c8f11e4e6cc6d4c38ed3da8faab2c30aea94d152cd77b2745f45c02d`) prima dell'upload GitHub, non caricare `app-release-unsigned.apk`.
+- Asset Android release va firmato con il keystore locale deciso per le release correnti; non caricare APK unsigned.
 - Windows/AdminBridge bump a `0.6.49`; funzionalita Voce resta quella introdotta in 0.6.48.
 
 Release 0.6.48:

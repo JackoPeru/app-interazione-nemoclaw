@@ -30,6 +30,8 @@ internal fun shouldRetryHermesWithBearerAuth(code: Int, body: String): Boolean {
 internal fun isHermesAuthError(message: String?): Boolean {
     val normalized = message?.lowercase().orEmpty()
     return normalized.contains("401") ||
+        normalized.contains("api key rifiutata") ||
+        normalized.contains("key rifiutata") ||
         normalized.contains("invalid api key") ||
         normalized.contains("invalid_api_key") ||
         normalized.contains("invalidapikey")

@@ -765,6 +765,8 @@ private fun streamHermesNativeInstructions(mode: String): String {
         Hermes Hub client surface: android-app.
         Protocol mode: hermes-native/$role.
         Reply in the user's language. If the user writes Italian, answer in Italian.
+        For simple chat/greetings, answer directly without tools.
+        Do not claim tool-call, iteration, turn, lookup, or action limits unless this exact current user request actually tried tools and failed server-side.
         Use Hermes Agent server-side memory, planner, tools, jobs, artifacts and policy as source of truth.
         Client history is UI snapshot only; recover conversation context from Hermes conversation/response ids when available.
         Emit realtime Hermes events for planner, memory, retrieval, tool, artifact and model-call state when supported.
