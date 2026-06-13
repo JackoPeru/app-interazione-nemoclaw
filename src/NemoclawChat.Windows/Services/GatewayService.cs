@@ -92,7 +92,7 @@ public static class GatewayService
                 {
                     model = settings.Model,
                     input = prompt,
-                    instructions = HermesHubProtocol.Instructions(settings, mode),
+                    instructions = HermesHubProtocol.IsNativePreferred(settings) ? null : HermesHubProtocol.Instructions(settings, mode),
                     store = true,
                     conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
                     previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
@@ -151,23 +151,27 @@ public static class GatewayService
 
         try
         {
-            var chatPayload = JsonSerializer.Serialize(new
-            {
-                model = settings.Model,
-                stream = false,
-                metadata = HermesHubProtocol.Metadata(settings),
-                messages = new[]
+            var nativeMode = HermesHubProtocol.IsNativePreferred(settings);
+            var chatMessages = (nativeMode
+                ? Enumerable.Empty<object>()
+                : new object[]
                 {
                     new
                     {
                         role = "system",
                         content = HermesHubProtocol.Instructions(settings, mode)
                     }
-                }.Concat(history.Select(message => new
+                }).Concat(history.Select(message => new
                 {
                     role = string.Equals(message.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
                     content = message.Text
-                }))
+                }));
+            var chatPayload = JsonSerializer.Serialize(new
+            {
+                model = settings.Model,
+                stream = false,
+                metadata = HermesHubProtocol.Metadata(settings),
+                messages = chatMessages
             });
 
             var response = await SendBufferedAsync(

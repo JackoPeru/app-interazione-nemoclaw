@@ -71,7 +71,7 @@ public static class ChatStreamClient
             {
                 model = settings.Model,
                 input = prompt,
-                instructions = HermesHubProtocol.Instructions(settings, mode),
+                instructions = nativeMode ? null : HermesHubProtocol.Instructions(settings, mode),
                 store = true,
                 stream = true,
                 conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
@@ -155,23 +155,26 @@ public static class ChatStreamClient
             {
                 yield return new StreamStatus("Protocollo effettivo: Hermes Chat Completions compat.");
             }
-            var chatPayload = JsonSerializer.Serialize(new
-            {
-                model = settings.Model,
-                stream = true,
-                metadata = HermesHubProtocol.Metadata(settings),
-                messages = new[]
+            var chatMessages = (nativeMode
+                ? Enumerable.Empty<object>()
+                : new object[]
                 {
                     new
                     {
                         role = "system",
                         content = HermesHubProtocol.Instructions(settings, mode)
                     }
-                }.Concat(history.Select(m => new
+                }).Concat(history.Select(m => new
                 {
                     role = string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
                     content = m.Text
-                }))
+                }));
+            var chatPayload = JsonSerializer.Serialize(new
+            {
+                model = settings.Model,
+                stream = true,
+                metadata = HermesHubProtocol.Metadata(settings),
+                messages = chatMessages
             });
 
             var chatUrl = $"{settings.GatewayUrl.TrimEnd('/')}/chat/completions";

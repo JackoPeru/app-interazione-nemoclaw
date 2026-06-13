@@ -14,7 +14,7 @@ Default:
 ```text
 Hermes Gateway API: http://0.0.0.0:8642/v1
 API key: hermes-hub
-Max iterations: unlimited (`HERMES_MAX_ITERATIONS=0`)
+Max iterations: gateway loop guard (`HERMES_MAX_ITERATIONS=120`)
 Auxiliary local-only: true (`HERMES_AUXILIARY_LOCAL_ONLY=true`)
 Native events: true (`HERMES_NATIVE_EVENTS=true`)
 Raw event passthrough: true (`HERMES_RAW_EVENT_PASSTHROUGH=true`)

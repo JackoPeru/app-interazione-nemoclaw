@@ -324,20 +324,20 @@ fun streamChatRequest(
         val responsePayload = JSONObject()
             .put("model", settings.model)
             .put("input", prompt)
-            .put(
-                "instructions",
-                (if (nativeMode)
-                    streamHermesNativeInstructions(mode)
-                else if (mode.equals("Agente", ignoreCase = true))
-                    hermesHubAgentInstructions()
-                else
-                    hermesHubChatInstructions()) + if (videoMode) "\n\n" + hermesHubVideoInstructions(settings) else ""
-            )
             .put("store", true)
             .put("stream", true)
             .put("conversation", conversationId ?: JSONObject.NULL)
             .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
             .put("metadata", visualBlocksMetadataJson(settings))
+        if (!nativeMode) {
+            responsePayload.put(
+                "instructions",
+                (if (mode.equals("Agente", ignoreCase = true))
+                    hermesHubAgentInstructions()
+                else
+                    hermesHubChatInstructions()) + if (videoMode) "\n\n" + hermesHubVideoInstructions(settings) else ""
+            )
+        }
 
         val responseUrl = "${settings.gatewayUrl.trimEnd('/')}/responses"
         var responsesAttempt = 0
@@ -381,12 +381,14 @@ fun streamChatRequest(
             .put("stream", true)
             .put("metadata", visualBlocksMetadataJson(settings))
             .put("messages", JSONArray().apply {
-                put(
-                    JSONObject()
-                            .put("role", "system")
-                            .put("content", if (nativeMode) streamHermesNativeInstructions(mode) else if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
-                )
-                if (videoMode) {
+                if (!nativeMode) {
+                    put(
+                        JSONObject()
+                                .put("role", "system")
+                                .put("content", if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
+                    )
+                }
+                if (videoMode && !nativeMode) {
                     put(
                         JSONObject()
                             .put("role", "system")
@@ -760,18 +762,7 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
 }
 
 private fun streamHermesNativeInstructions(mode: String): String {
-    val role = if (mode.equals("Agente", ignoreCase = true)) "agent" else "chat"
-    return """
-        Hermes Hub client surface: android-app.
-        Protocol mode: hermes-native/$role.
-        Reply in the user's language. If the user writes Italian, answer in Italian.
-        For simple chat/greetings, answer directly without tools.
-        Do not claim tool-call, iteration, turn, lookup, or action limits unless this exact current user request actually tried tools and failed server-side.
-        Use Hermes Agent server-side memory, planner, tools, jobs, artifacts and policy as source of truth.
-        Client history is UI snapshot only; recover conversation context from Hermes conversation/response ids when available.
-        Emit realtime Hermes events for planner, memory, retrieval, tool, artifact and model-call state when supported.
-        Return user-facing answer plus structured artifacts/media through Hermes-declared capabilities.
-    """.trimIndent()
+    return ""
 }
 
 private fun isVideoRequest(prompt: String): Boolean {
@@ -1025,6 +1016,7 @@ private fun visualBlocksMetadataJson(settings: AppSettings): JSONObject {
     return JSONObject()
         .put("client", "hermes-hub")
         .put("client_surface", "android-app")
+        .put("hub_client", true)
         .put("requested_protocol", settings.preferredApi)
         .put("strict_native_mode", settings.strictNativeMode)
         .put("profile", "Matteo")

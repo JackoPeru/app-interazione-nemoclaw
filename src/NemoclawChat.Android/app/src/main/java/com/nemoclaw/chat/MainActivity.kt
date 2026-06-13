@@ -4291,15 +4291,7 @@ internal fun hermesHubSharedContext(): String {
 }
 
 internal fun hermesNativeInstructions(mode: String): String {
-    val role = if (mode.equals("Agente", ignoreCase = true)) "agent" else "chat"
-    return """
-        Hermes Hub client surface: android-app.
-        Protocol mode: hermes-native/$role.
-        Use Hermes Agent server-side memory, planner, tools, jobs, artifacts and policy as source of truth.
-        Client history is UI snapshot only; recover conversation context from Hermes conversation/response ids when available.
-        Emit realtime Hermes events for planner, memory, retrieval, tool, artifact and model-call state when supported.
-        Return user-facing answer plus structured artifacts/media through Hermes-declared capabilities.
-    """.trimIndent()
+    return ""
 }
 
 private suspend fun sendChatRequest(
@@ -4318,20 +4310,20 @@ private suspend fun sendChatRequest(
             val payload = JSONObject()
                 .put("model", settings.model)
                 .put("input", prompt)
-                .put(
+                .put("store", true)
+                .put("conversation", conversationId ?: JSONObject.NULL)
+                .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
+                .put("metadata", visualBlocksMetadata(settings))
+            if (!isHermesNative(settings)) {
+                payload.put(
                     "instructions",
-                    if (isHermesNative(settings)) {
-                        hermesNativeInstructions(mode)
-                    } else if (mode.equals("Agente", ignoreCase = true)) {
+                    if (mode.equals("Agente", ignoreCase = true)) {
                         hermesHubAgentInstructions()
                     } else {
                         hermesHubChatInstructions()
                     }
                 )
-                .put("store", true)
-                .put("conversation", conversationId ?: JSONObject.NULL)
-                .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
-                .put("metadata", visualBlocksMetadata(settings))
+            }
             val response = postJson("${settings.gatewayUrl.trimEnd('/')}/responses", payload, apiKey, allowCompatAuth = !(isHermesNative(settings) && settings.strictNativeMode))
             if (response.first in 200..299) {
                 val text = extractAssistantText(response.second)
@@ -4370,11 +4362,13 @@ private suspend fun sendChatRequest(
             .put("stream", false)
             .put("metadata", visualBlocksMetadata(settings))
             .put("messages", JSONArray().apply {
-                put(
-                    JSONObject()
-                        .put("role", "system")
-                        .put("content", if (isHermesNative(settings)) hermesNativeInstructions(mode) else if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
-                )
+                if (!isHermesNative(settings)) {
+                    put(
+                        JSONObject()
+                            .put("role", "system")
+                            .put("content", if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
+                    )
+                }
                 val compatHistory = if (isHermesNative(settings)) emptyList() else history
                 compatHistory.filter { !it.isAction }.forEach { message ->
                     put(
@@ -4430,6 +4424,7 @@ private suspend fun sendChatRequest(
 private fun visualBlocksMetadata(settings: AppSettings): JSONObject {
     return JSONObject()
         .put("client", "hermes-hub")
+        .put("hub_client", true)
         .put("client_surface", "android-app")
         .put("requested_protocol", settings.preferredApi)
         .put("strict_native_mode", settings.strictNativeMode)

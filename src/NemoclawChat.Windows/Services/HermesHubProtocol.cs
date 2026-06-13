@@ -54,6 +54,7 @@ public static class HermesHubProtocol
         {
             client = "hermes-hub",
             client_surface = "windows-app",
+            hub_client = true,
             requested_protocol = settings.PreferredApi,
             strict_native_mode = settings.StrictNativeMode,
             profile = "Matteo",
@@ -118,19 +119,6 @@ public static class HermesHubProtocol
 
     public static string NativeInstructions(string mode)
     {
-        var role = mode.Equals("Agente", StringComparison.OrdinalIgnoreCase)
-            ? "agent"
-            : "chat";
-        return $"""
-            Hermes Hub client surface: windows-app.
-            Protocol mode: hermes-native/{role}.
-            Reply in the user's language. If the user writes Italian, answer in Italian.
-            For simple chat/greetings, answer directly without tools.
-            Do not claim tool-call, iteration, turn, lookup, or action limits unless this exact current user request actually tried tools and failed server-side.
-            Use Hermes Agent server-side memory, planner, tools, jobs, artifacts and policy as source of truth.
-            Client history is UI snapshot only; recover conversation context from Hermes conversation/response ids when available.
-            Emit realtime Hermes events for planner, memory, retrieval, tool, artifact and model-call state when supported.
-            Return user-facing answer plus structured artifacts/media through Hermes-declared capabilities.
-            """;
+        return string.Empty;
     }
 }

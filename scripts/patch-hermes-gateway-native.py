@@ -100,6 +100,70 @@ def _replace_regex_once(text: str, pattern: str, repl: str, label: str) -> tuple
 def _patch_text(text: str) -> tuple[str, list[str]]:
     changes: list[str] = []
 
+    if "def _is_hermes_hub_request" not in text:
+        text, _ = _replace_once(
+            text,
+            "def _multimodal_validation_error(exc: ValueError, *, param: str) -> \"web.Response\":",
+            'def _is_hermes_hub_request(request: "web.Request", body: Optional[Dict[str, Any]] = None) -> bool:\n'
+            '    """Detect Hermes Hub clients so the gateway can stay prompt-transparent."""\n'
+            '    user_agent = str(request.headers.get("User-Agent", "")).lower()\n'
+            '    if "hermeshub-" in user_agent or "hermes hub" in user_agent:\n'
+            "        return True\n"
+            "    if isinstance(body, dict):\n"
+            '        metadata = body.get("metadata")\n'
+            "        if isinstance(metadata, dict):\n"
+            '            surface = str(metadata.get("client") or metadata.get("client_surface") or metadata.get("source") or "").lower()\n'
+            '            if "hermes" in surface and "hub" in surface:\n'
+            "                return True\n"
+            '            if str(metadata.get("hub_client") or "").lower() in {"true", "1", "yes"}:\n'
+            "                return True\n"
+            "    return False\n"
+            "\n"
+            "\n"
+            "def _multimodal_validation_error(exc: ValueError, *, param: str) -> \"web.Response\":",
+            "hermes hub transparent request detector",
+        )
+        changes.append("hermes hub transparent request detector")
+
+    if 'system_prompt = None if _is_hermes_hub_request(request, body) else (body.get("system_message") or body.get("instructions"))' not in text:
+        text = text.replace(
+            'system_prompt = body.get("system_message") or body.get("instructions")',
+            'system_prompt = None if _is_hermes_hub_request(request, body) else (body.get("system_message") or body.get("instructions"))',
+        )
+        changes.append("session chat ignore hermes hub system prompts")
+
+    if "allow_client_system_prompt = not _is_hermes_hub_request(request, body)" not in text:
+        text, _ = _replace_once(
+            text,
+            '        # Extract system message (becomes ephemeral system prompt layered ON TOP of core)\n'
+            '        system_prompt = None\n'
+            '        conversation_messages: List[Dict[str, str]] = []',
+            '        # Extract system message (becomes ephemeral system prompt layered ON TOP of core)\n'
+            '        system_prompt = None\n'
+            '        allow_client_system_prompt = not _is_hermes_hub_request(request, body)\n'
+            '        conversation_messages: List[Dict[str, str]] = []',
+            "chat completions hermes hub system gate",
+        )
+        text, _ = _replace_once(
+            text,
+            '            if role == "system":\n'
+            '                # System messages don\'t support images',
+            '            if role == "system":\n'
+            '                if not allow_client_system_prompt:\n'
+            '                    continue\n'
+            '                # System messages don\'t support images',
+            "chat completions ignore hermes hub system prompts",
+        )
+        changes.append("chat completions ignore hermes hub system prompts")
+
+    if 'instructions = None if _is_hermes_hub_request(request, body) else body.get("instructions")' not in text:
+        text = text.replace(
+            'instructions = body.get("instructions")',
+            'instructions = None if _is_hermes_hub_request(request, body) else body.get("instructions")',
+            1,
+        )
+        changes.append("responses ignore hermes hub instructions")
+
     if '"native_protocol": {' not in text:
         text, _ = _replace_regex_once(
             text,

@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.70 Release Hermes Hub 0.6.70 Android auth/session polish
+v0.6.71 Release Hermes Hub 0.6.71 gateway transparency
 ```
 
 ## Regola Memoria
@@ -53,6 +53,17 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.71 (Windows + Android):
+
+Release 0.6.71:
+- Decisione gateway trasparente: Hermes Hub non deve piu' iniettare prompt native/instructions nella chat native. Il prompt di Hermes Agent resta fonte unica.
+- Gateway Hermes aggiornato per ignorare `instructions`/system prompt dei client Hermes Hub su Responses, Chat Completions e session chat, mantenendo compatibilita' per client generici.
+- Client Android/Windows native: rimosso prompt native lato app; inviano solo input, conversation/previous_response_id e metadata strutturali `hub_client`.
+- Loop guard gateway: il gateway mantiene solo il contatore tool per prevenire loop, con `HERMES_MAX_ITERATIONS=120` su Windows locale e helper/service Linux.
+- Updater Windows: mantenere invariata la modalita' 0.6.69+ gia' verificata da Matteo.
+- Regola release notes confermata: non pubblicare fingerprint SHA/keystore completi nelle patch notes.
+- Release bump: Windows/AdminBridge `0.6.71`, Android `versionName 0.6.71`, `versionCode 83`.
 
 Hermes Hub 0.6.70 (Windows + Android):
 
@@ -288,15 +299,15 @@ Release 0.6.39:
 - Android: la sezione Video ora ha feed diretto con `Aggiorna feed`, `Apri` e `Copia path`; fix runtime sull'apertura video usando `Intent.setDataAndType(...)` per non perdere l'URI media.
 - Android: quando il prompt parla di video aggiunge un system prompt secondario che obbliga l'agent a salvare i file finali nella watched folder e a usare `/v1/media/...` se li mostra in chat.
 - Windows/Android/Linux: istruzioni e metadata aggiornati per dichiarare `/v1/video/library` come contratto ufficiale della sezione Video.
-- Linux helper/service/docs: aggiunto `HERMES_AUXILIARY_LOCAL_ONLY=true` anche su Ubuntu/vLLM, oltre a `HERMES_MAX_ITERATIONS=0`, API key `hermes-hub`, video library e media roots.
+- Linux helper/service/docs: aggiunto `HERMES_AUXILIARY_LOCAL_ONLY=true` anche su Ubuntu/vLLM, API key `hermes-hub`, video library e media roots. Dal 0.6.71 il loop guard gateway usa `HERMES_MAX_ITERATIONS=120`.
 
 Release 0.6.38:
 - Android/Windows chat archive: salvataggio a snapshot. Il prompt utente viene persistito subito all'invio; durante streaming viene scritto un checkpoint parziale circa ogni 2s; il salvataggio finale sostituisce lo snapshot invece di aggiungere di nuovo la coppia prompt/risposta. Android conserva anche messaggi di stato/action nell'archivio.
 - Android: stream chat spostato su scope applicativo non legato alla composizione; chiudere la UI non cancella subito il job finche' il processo resta vivo. Se il trasporto cade con `connection abort`, il parziale viene salvato come stream scollegato invece di sparire.
 - Gateway locale: disconnessione SSE del client non interrompe piu' l'agent task; il gateway lascia proseguire il lavoro invece di chiamare `agent.interrupt("SSE client disconnected")`.
-- Gateway locale: rimosso hard cap globale da 90 iterazioni per Hermes Hub. `HERMES_MAX_ITERATIONS=0` significa illimitato; i vecchi hard-stop tool-loop sono forzati off anche se la config prova a riattivarli. Il loop guardrail ora emette prompt di assestamento dopo 10 fallimenti consecutivi dello stesso tool.
+- Gateway locale: rimosso hard cap globale da 90 iterazioni per Hermes Hub. Dal 0.6.71 il gateway resta trasparente sui prompt ma mantiene loop guard tool con `HERMES_MAX_ITERATIONS=120`.
 - Wrapper Windows imposta `HERMES_AUXILIARY_LOCAL_ONLY=true` e il client ausiliario salta fallback esterni OpenRouter/Nous per evitare warning/credit errors nei test LM Studio locali. Hotfix locale post-release: `_try_payment_fallback` torna sempre tripla `(client, model, label)` anche in local-only; `session_search` in local-only usa raw preview senza LLM summarization per evitare timeout LM Studio e log rumorosi.
-- Linux helper/service/docs: impostano `HERMES_MAX_ITERATIONS=0` per mantenere lo stesso comportamento su Ubuntu/vLLM.
+- Linux helper/service/docs: dal 0.6.71 impostano `HERMES_MAX_ITERATIONS=120` come contatore tool gateway.
 
 Release 0.6.37:
 - Android: tool call della chat raccolti in una singola flag `Tool` espandibile con conteggio/stato, per evitare che molti tool allunghino la chat. Le righe tool esistenti restano dentro la flag e mantengono JSON argomenti/risultato.
