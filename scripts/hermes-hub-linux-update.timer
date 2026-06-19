@@ -1,11 +1,10 @@
 [Unit]
-Description=Daily Hermes Hub Linux gateway helper update check
+Description=Hermes Hub Linux gateway helper update check
 
 [Timer]
 OnBootSec=2min
-OnCalendar=*-*-* 04:20:00
-Persistent=true
-RandomizedDelaySec=30m
+OnUnitActiveSec=2min
+AccuracySec=30s
 
 [Install]
 WantedBy=timers.target

@@ -76,7 +76,7 @@ Forzare reinstall stessa versione:
 ~/.local/bin/hermes-hub-linux-update --force --restart
 ```
 
-Auto-update opzionale: il timer controlla dopo ogni boot (`OnBootSec=2min`) e poi ogni giorno alle 04:20 con jitter fino a 30 minuti:
+Auto-update opzionale: il timer controlla dopo il boot (`OnBootSec=2min`) e poi ogni 2 minuti (`OnUnitActiveSec=2min`). Il service usa `hermes-hub-linux-update --restart`: se non trova una nuova versione non riavvia nulla; se installa una nuova versione riavvia `hermes-hub.service`.
 
 ```bash
 systemctl --user enable --now hermes-hub-linux-update.timer
@@ -93,13 +93,13 @@ export GH_TOKEN=ghp_xxx
 Per creare l'asset Linux da pubblicare nella release GitHub:
 
 ```powershell
-.\scripts\package-linux-gateway.ps1 -Version 0.6.79
+.\scripts\package-linux-gateway.ps1 -Version 0.6.80
 ```
 
 Output:
 
 ```text
-artifacts\HermesHub-0.6.79-linux-gateway.tar.gz
+artifacts\HermesHub-0.6.80-linux-gateway.tar.gz
 ```
 
 Carica questo asset nella stessa GitHub Release usata da Windows `.msix` e Android `.apk`. Da quel momento il server Linux puo' aggiornarsi da solo o con comando CLI, senza nuovo trasferimento manuale.
