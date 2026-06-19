@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.82 Release Hermes Hub 0.6.82 chat isolation
+v0.6.83 Release Hermes Hub 0.6.83 conversation hotfix
 ```
 
 ## Regola Linux Gateway Update
@@ -134,6 +134,14 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.83 (Windows + Android conversation hotfix):
+
+Release 0.6.83:
+- Hotfix Responses context: quando Hermes Hub manda `conversation` namespaced, non manda piu' anche `previous_response_id`, per rispettare il contratto gateway dove i due campi sono mutuamente esclusivi.
+- Il gateway risolve il contesto dal mapping server `conversation -> latest response_id`; cosi Windows e Android mantengono cronologia per chat senza retry 400 fragile.
+- Mantiene isolamento 0.6.82: `hermes-hub:windows-app:<id>` e `hermes-hub:android-app:<id>` restano separati per superficie e chat locale.
+- Release bump: Windows/AdminBridge `0.6.83`, Android `versionName 0.6.83`, `versionCode 88`.
 
 Hermes Hub 0.6.82 (Windows + Android chat isolation):
 

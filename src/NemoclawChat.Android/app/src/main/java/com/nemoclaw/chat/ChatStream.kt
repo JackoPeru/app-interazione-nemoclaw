@@ -335,7 +335,7 @@ fun streamChatRequest(
                 .put("store", true)
                 .put("stream", true)
                 .put("conversation", serverConversationId ?: JSONObject.NULL)
-                .put("previous_response_id", candidatePreviousResponseId ?: JSONObject.NULL)
+                .put("previous_response_id", if (serverConversationId == null) candidatePreviousResponseId ?: JSONObject.NULL else JSONObject.NULL)
                 .put("metadata", visualBlocksMetadataJson(settings, conversationId))
             if (!nativeMode) {
                 payload.put(

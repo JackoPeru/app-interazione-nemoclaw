@@ -4503,7 +4503,7 @@ private suspend fun sendChatRequest(
                 .put("input", prompt)
                 .put("store", true)
                 .put("conversation", serverConversationId ?: JSONObject.NULL)
-                .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
+                .put("previous_response_id", if (serverConversationId == null) previousResponseId ?: JSONObject.NULL else JSONObject.NULL)
                 .put("metadata", visualBlocksMetadata(settings, conversationId))
             if (!isHermesNative(settings)) {
                 payload.put(

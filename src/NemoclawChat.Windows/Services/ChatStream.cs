@@ -68,6 +68,7 @@ public static class ChatStreamClient
             yield return new StreamStatus(nativeMode
                 ? "Protocollo effettivo: Hermes Native via Responses. Context delegato a Hermes."
                 : "Protocollo effettivo: Hermes Responses compat.");
+            var serverConversationId = HermesHubProtocol.ServerConversationId(conversationId);
             string BuildResponsesPayload(string? candidatePreviousResponseId) => JsonSerializer.Serialize(new
             {
                 model = settings.Model,
@@ -75,8 +76,8 @@ public static class ChatStreamClient
                 instructions = nativeMode ? null : HermesHubProtocol.Instructions(settings, mode),
                 store = true,
                 stream = true,
-                conversation = HermesHubProtocol.ServerConversationId(conversationId),
-                previous_response_id = string.IsNullOrWhiteSpace(candidatePreviousResponseId) ? null : candidatePreviousResponseId,
+                conversation = serverConversationId,
+                previous_response_id = string.IsNullOrWhiteSpace(serverConversationId) && !string.IsNullOrWhiteSpace(candidatePreviousResponseId) ? candidatePreviousResponseId : null,
                 metadata = HermesHubProtocol.Metadata(settings, conversationId: conversationId)
             });
 

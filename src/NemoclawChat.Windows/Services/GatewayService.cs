@@ -133,14 +133,15 @@ public static class GatewayService
         {
             try
             {
+                var serverConversationId = HermesHubProtocol.ServerConversationId(conversationId);
                 var responsePayload = JsonSerializer.Serialize(new
                 {
                     model = settings.Model,
                     input = prompt,
                     instructions = HermesHubProtocol.IsNativePreferred(settings) ? null : HermesHubProtocol.Instructions(settings, mode),
                     store = true,
-                    conversation = HermesHubProtocol.ServerConversationId(conversationId),
-                    previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
+                    conversation = serverConversationId,
+                    previous_response_id = string.IsNullOrWhiteSpace(serverConversationId) && !string.IsNullOrWhiteSpace(previousResponseId) ? previousResponseId : null,
                     metadata = HermesHubProtocol.Metadata(settings, conversationId: conversationId)
                 });
 
