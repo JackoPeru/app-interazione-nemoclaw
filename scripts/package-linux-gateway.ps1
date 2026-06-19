@@ -32,7 +32,9 @@ $files = @(
     "install-hermes-hub-linux.sh",
     "hermes-hub-linux.service",
     "hermes-hub-linux-update.service",
-    "hermes-hub-linux-update.timer"
+    "hermes-hub-linux-update.timer",
+    "hermes-wait-tailscale.sh",
+    "hermes-wait-llama.sh"
 )
 
 foreach ($file in $files) {

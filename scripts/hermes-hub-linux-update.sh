@@ -210,6 +210,8 @@ INSTALLER="$(find_one install-hermes-hub-linux.sh || true)"
 SERVICE="$(find_one hermes-hub-linux.service || true)"
 UPDATE_SERVICE="$(find_one hermes-hub-linux-update.service || true)"
 UPDATE_TIMER="$(find_one hermes-hub-linux-update.timer || true)"
+WAIT_TAILSCALE="$(find_one hermes-wait-tailscale.sh || true)"
+WAIT_LLAMA="$(find_one hermes-wait-llama.sh || true)"
 
 if [ -z "$LAUNCHER" ] || [ -z "$PATCHER" ] || [ -z "$UPDATER" ]; then
   echo "ERROR: asset missing required files: hermes-hub-linux.sh, patch-hermes-gateway-native.py, hermes-hub-linux-update.sh" >&2
@@ -234,11 +236,23 @@ fi
 if [ -n "$UPDATE_TIMER" ]; then
   install -m 0644 "$UPDATE_TIMER" "$RELEASE_DIR/hermes-hub-linux-update.timer"
 fi
+if [ -n "$WAIT_TAILSCALE" ]; then
+  install -m 0755 "$WAIT_TAILSCALE" "$RELEASE_DIR/hermes-wait-tailscale.sh"
+fi
+if [ -n "$WAIT_LLAMA" ]; then
+  install -m 0755 "$WAIT_LLAMA" "$RELEASE_DIR/hermes-wait-llama.sh"
+fi
 
 ln -sfn "$RELEASE_DIR" "$INSTALL_DIR/current"
 ln -sfn "$INSTALL_DIR/current/hermes-hub-linux.sh" "$HOME/hermes-hub-linux.sh"
 ln -sfn "$INSTALL_DIR/current/patch-hermes-gateway-native.py" "$HOME/patch-hermes-gateway-native.py"
 ln -sfn "$INSTALL_DIR/current/hermes-hub-linux-update.sh" "$BIN_DIR/hermes-hub-linux-update"
+if [ -n "$WAIT_TAILSCALE" ]; then
+  ln -sfn "$INSTALL_DIR/current/hermes-wait-tailscale.sh" "$BIN_DIR/hermes-wait-tailscale"
+fi
+if [ -n "$WAIT_LLAMA" ]; then
+  ln -sfn "$INSTALL_DIR/current/hermes-wait-llama.sh" "$BIN_DIR/hermes-wait-llama"
+fi
 printf '%s\n' "$LATEST_VERSION" > "$LOCAL_VERSION_FILE"
 
 mkdir -p "$SERVICE_DIR"

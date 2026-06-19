@@ -21,6 +21,8 @@ Installs:
   ~/hermes-hub-linux.sh
   ~/patch-hermes-gateway-native.py
   ~/.local/bin/hermes-hub-linux-update
+  ~/.local/bin/hermes-wait-tailscale
+  ~/.local/bin/hermes-wait-llama
   ~/.config/systemd/user/hermes-hub.service
 
 Optional:
@@ -72,6 +74,8 @@ require_file hermes-hub-linux.sh
 require_file patch-hermes-gateway-native.py
 require_file hermes-hub-linux-update.sh
 require_file hermes-hub-linux.service
+require_file hermes-wait-tailscale.sh
+require_file hermes-wait-llama.sh
 
 mkdir -p "$RELEASE_DIR" "$BIN_DIR" "$SERVICE_DIR"
 install -m 0755 "$SCRIPT_DIR/hermes-hub-linux.sh" "$RELEASE_DIR/hermes-hub-linux.sh"
@@ -79,6 +83,8 @@ install -m 0644 "$SCRIPT_DIR/patch-hermes-gateway-native.py" "$RELEASE_DIR/patch
 install -m 0755 "$SCRIPT_DIR/hermes-hub-linux-update.sh" "$RELEASE_DIR/hermes-hub-linux-update.sh"
 install -m 0755 "$SCRIPT_DIR/install-hermes-hub-linux.sh" "$RELEASE_DIR/install-hermes-hub-linux.sh"
 install -m 0644 "$SCRIPT_DIR/hermes-hub-linux.service" "$RELEASE_DIR/hermes-hub-linux.service"
+install -m 0755 "$SCRIPT_DIR/hermes-wait-tailscale.sh" "$RELEASE_DIR/hermes-wait-tailscale.sh"
+install -m 0755 "$SCRIPT_DIR/hermes-wait-llama.sh" "$RELEASE_DIR/hermes-wait-llama.sh"
 
 if [ -f "$SCRIPT_DIR/hermes-hub-linux-update.service" ]; then
   install -m 0644 "$SCRIPT_DIR/hermes-hub-linux-update.service" "$RELEASE_DIR/hermes-hub-linux-update.service"
@@ -91,6 +97,8 @@ ln -sfn "$RELEASE_DIR" "$INSTALL_DIR/current"
 ln -sfn "$INSTALL_DIR/current/hermes-hub-linux.sh" "$HOME/hermes-hub-linux.sh"
 ln -sfn "$INSTALL_DIR/current/patch-hermes-gateway-native.py" "$HOME/patch-hermes-gateway-native.py"
 ln -sfn "$INSTALL_DIR/current/hermes-hub-linux-update.sh" "$BIN_DIR/hermes-hub-linux-update"
+ln -sfn "$INSTALL_DIR/current/hermes-wait-tailscale.sh" "$BIN_DIR/hermes-wait-tailscale"
+ln -sfn "$INSTALL_DIR/current/hermes-wait-llama.sh" "$BIN_DIR/hermes-wait-llama"
 printf '%s\n' "$VERSION" > "$INSTALL_DIR/VERSION"
 
 cp "$SCRIPT_DIR/hermes-hub-linux.service" "$SERVICE_DIR/hermes-hub.service"

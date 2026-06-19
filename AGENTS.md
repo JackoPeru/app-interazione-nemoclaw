@@ -40,7 +40,7 @@ v0.6.73 Release Hermes Hub 0.6.73 hardware bottom nav
 
 Quando serve preparare/aggiornare il server Linux Hermes Gateway:
 
-- Primo trasferimento manuale: copiare sul server questi file da `scripts/`: `hermes-hub-linux.sh`, `patch-hermes-gateway-native.py`, `install-hermes-hub-linux.sh`, `hermes-hub-linux-update.sh`, `hermes-hub-linux.service`, `hermes-hub-linux-update.service`, `hermes-hub-linux-update.timer`.
+- Primo trasferimento manuale: copiare sul server questi file da `scripts/`: `hermes-hub-linux.sh`, `patch-hermes-gateway-native.py`, `install-hermes-hub-linux.sh`, `hermes-hub-linux-update.sh`, `hermes-hub-linux.service`, `hermes-hub-linux-update.service`, `hermes-hub-linux-update.timer`, `hermes-wait-tailscale.sh`, `hermes-wait-llama.sh`.
 - Se il trasferimento lo fa un'altra IA, darle queste istruzioni:
 
 ```text
@@ -54,13 +54,15 @@ Dal repo HermesHub prendi SOLO questi file:
 - scripts/hermes-hub-linux.service
 - scripts/hermes-hub-linux-update.service
 - scripts/hermes-hub-linux-update.timer
+- scripts/hermes-wait-tailscale.sh
+- scripts/hermes-wait-llama.sh
 
 Copiali sul server Linux in una cartella temporanea, per esempio:
 ~/hermes-hub-transfer/scripts/
 
 Poi sul server esegui:
 cd ~/hermes-hub-transfer/scripts
-chmod +x install-hermes-hub-linux.sh hermes-hub-linux.sh hermes-hub-linux-update.sh
+chmod +x install-hermes-hub-linux.sh hermes-hub-linux.sh hermes-hub-linux-update.sh hermes-wait-tailscale.sh hermes-wait-llama.sh
 ./install-hermes-hub-linux.sh --enable-service --enable-auto-update
 
 Verifica:
@@ -79,7 +81,7 @@ Dopo install iniziale, non trasferire piu' file a mano: per aggiornare usa:
 
 ```bash
 cd /percorso/dove/hai/messo/scripts
-chmod +x install-hermes-hub-linux.sh hermes-hub-linux.sh hermes-hub-linux-update.sh
+chmod +x install-hermes-hub-linux.sh hermes-hub-linux.sh hermes-hub-linux-update.sh hermes-wait-tailscale.sh hermes-wait-llama.sh
 ./install-hermes-hub-linux.sh --enable-service --enable-auto-update
 ```
 
@@ -108,8 +110,8 @@ Stato server Linux verificato 2026-06-18:
 
 - Boot order impostato senza reboot: `tailscaled.service` -> `hermes-llama.service` -> `hermes-hub.service`.
 - `hermes-llama.service` e' system service: richiede Tailscale, attende `tailscale status`, poi carica modello in GPU con llama.cpp TurboQuant.
-- `hermes-hub.service` e' user service con `loginctl enable-linger matteo`: resta vivo dopo logout SSH, attende Tailscale, attende `http://127.0.0.1:8000/v1/models`, poi espone gateway su `0.0.0.0:8642`.
-- Fix applicati sul server: user service PATH include `~/.local/bin` per trovare `hermes`; provider gateway impostato su `custom` verso `http://127.0.0.1:8000/v1` invece del default `lmstudio` su `127.0.0.1:1234`.
+- `hermes-hub.service` e' user service con `loginctl enable-linger matteo`: resta vivo dopo logout SSH, PATH completo include `/home/matteo/.local/bin`, attende Tailscale con `hermes-wait-tailscale`, attende llama.cpp con `hermes-wait-llama` su `http://127.0.0.1:8000/v1/models`, poi espone gateway su `0.0.0.0:8642`.
+- Fix applicati sul server diventati default repo: provider gateway `custom`, base `http://127.0.0.1:8000/v1`, modello `HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:IQ4_XS`, timeout start 1000s e stop 240s.
 - Verifica finale attesa: `tailscaled.service`, `hermes-llama.service`, `hermes-hub.service` active; `curl -H "Authorization: Bearer hermes-hub" http://127.0.0.1:8642/v1/capabilities` OK; timer auto-update enabled.
 - Firewall finale atteso: UFW apre solo `8642/tcp` da LAN `192.168.1.0/24` e su `tailscale0`; nessuna apertura WAN/router.
 - Backup creati sul server prima delle modifiche: `/etc/systemd/system/hermes-llama.service.*.bootseq.bak`, `/home/matteo/.config/systemd/user/hermes-hub.service.*.bootseq.bak`, `/etc/ufw/user.rules.*.hermeshub.bak`, `/etc/ufw/user6.rules.*.hermeshub.bak`.
@@ -131,6 +133,15 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.76 (Linux Gateway):
+
+Release 0.6.76:
+- Gateway Linux production defaults allineati al server Hermes llama.cpp: user service PATH completo, provider `custom`, base `http://127.0.0.1:8000/v1`, modello `HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:IQ4_XS`.
+- Service gateway ora aspetta Tailscale e llama.cpp con `ExecStartPre=/home/matteo/.local/bin/hermes-wait-tailscale` e `ExecStartPre=/home/matteo/.local/bin/hermes-wait-llama`.
+- Aggiunti script installati/versionati `hermes-wait-tailscale.sh` e `hermes-wait-llama.sh`; installer, updater e package Linux li includono e li linkano in `~/.local/bin`.
+- Timeout service: `TimeoutStartSec=1000`, `TimeoutStopSec=240`.
+- Asset update server atteso: `artifacts/HermesHub-0.6.76-linux-gateway.tar.gz`.
 
 Hermes Hub 0.6.75 (Linux Gateway):
 
@@ -288,8 +299,8 @@ Decisione modalita vocale:
 - Visual style: particelle orange holographic su fondo nero, idle random spaziale, assemblaggio rapido in figura Hermes/deity con ali/elmo e micro-fluttuazione continua.
 
 Terminologia gateway:
-- Il comando `hermes-hub` avvia **Hermes Gateway**: servizio ponte/API server che espone Hermes Agent alle app Hermes Hub Windows/Android e inoltra inferenza a LM Studio nei test o vLLM nel setup finale.
-- La versione Linux/headless deve restare aggiornata e funzionante: `scripts/hermes-hub-linux.sh`, `scripts/hermes-hub-linux.service` e `docs/hermes-hub-linux.md` devono supportare Ubuntu headless + vLLM, con API stabile `http://SERVER:8642/v1` e API key default `hermes-hub`.
+- Il comando `hermes-hub` avvia **Hermes Gateway**: servizio ponte/API server che espone Hermes Agent alle app Hermes Hub Windows/Android e inoltra inferenza al backend OpenAI-compatible locale.
+- La versione Linux/headless deve restare aggiornata e funzionante: `scripts/hermes-hub-linux.sh`, `scripts/hermes-hub-linux.service` e `docs/hermes-hub-linux.md` devono supportare Ubuntu headless + llama.cpp su `http://127.0.0.1:8000/v1`, con API stabile `http://SERVER:8642/v1` e API key default `hermes-hub`.
 
 Release 0.6.61:
 - UI refresh personale: Windows Chat rimuove larghezze fisse su lista/composer, usa suggerimenti compatti e lascia spazio ai controlli contesto; Windows Video passa a layout adattivo due colonne/stack verticale e feedback rapido a griglia; Windows Settings separa Connessione Hermes, Avanzate e Memoria.

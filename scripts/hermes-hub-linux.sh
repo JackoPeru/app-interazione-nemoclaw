@@ -3,14 +3,16 @@ set -euo pipefail
 
 # Hermes Gateway launcher for Ubuntu/Linux.
 # Exposes Hermes Agent API on LAN/Tailscale for Hermes Hub clients and routes
-# inference to LM Studio during tests or vLLM on the final headless server.
+# inference to the production llama.cpp OpenAI-compatible server by default.
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 HERMES_ENV="$HERMES_HOME/.env"
 HERMES_CONFIG="$HERMES_HOME/config.yaml"
-HERMES_INFERENCE_PROVIDER="${HERMES_INFERENCE_PROVIDER:-lmstudio}"
+HERMES_INFERENCE_PROVIDER="${HERMES_INFERENCE_PROVIDER:-custom}"
 LM_STUDIO_BASE_URL="${LM_STUDIO_BASE_URL:-http://127.0.0.1:1234}"
 VLLM_BASE_URL="${VLLM_BASE_URL:-http://127.0.0.1:8000}"
+LLAMA_CPP_BASE_URL="${LLAMA_CPP_BASE_URL:-http://127.0.0.1:8000/v1}"
+DEFAULT_HERMES_INFERENCE_MODEL="${DEFAULT_HERMES_INFERENCE_MODEL:-HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:IQ4_XS}"
 API_SERVER_HOST="${API_SERVER_HOST:-${HERMES_API_HOST:-0.0.0.0}}"
 API_SERVER_PORT="${API_SERVER_PORT:-${HERMES_API_PORT:-8642}}"
 HERMES_API_HOST="$API_SERVER_HOST"
@@ -39,6 +41,9 @@ default_inference_base_url() {
   case "$HERMES_INFERENCE_PROVIDER" in
     vllm)
       printf '%s/v1\n' "${VLLM_BASE_URL%/}"
+      ;;
+    custom|llama.cpp|llamacpp)
+      printf '%s\n' "${LLAMA_CPP_BASE_URL%/}"
       ;;
     *)
       printf '%s/v1\n' "${LM_STUDIO_BASE_URL%/}"
@@ -119,7 +124,7 @@ elif [ "$HERMES_INFERENCE_PROVIDER" = "lmstudio" ] || [ "$HERMES_INFERENCE_PROVI
 else
   MODEL_ID="$(detect_openai_model || true)"
 fi
-MODEL_ID="${MODEL_ID:-hermes-agent}"
+MODEL_ID="${MODEL_ID:-$DEFAULT_HERMES_INFERENCE_MODEL}"
 
 cat > "$HERMES_ENV" <<EOF
 API_SERVER_ENABLED=true
