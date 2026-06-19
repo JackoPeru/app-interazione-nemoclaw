@@ -193,8 +193,8 @@ data class StreamingState(
             .withActivity("Evento Hermes: ${event.name} ${event.json.take(300)}")
         is ChatStreamEvent.PromptProgress -> copy(
             promptProgressPercent = event.percent.coerceIn(0, 100),
-            status = event.label.ifBlank { "Processing prompt..." }
-        ).withActivity("Processing prompt ${event.percent}%")
+            status = event.label.ifBlank { "llama.cpp: prefill prompt" }
+        ).withActivity("Prefill prompt ${event.percent}%")
         is ChatStreamEvent.Done -> copy(
             stats = event.stats,
             isDone = true,
@@ -273,7 +273,7 @@ sealed class ChatStreamEvent {
     data class RawHermesEvent(val name: String, val json: String) : ChatStreamEvent()
     data class Usage(val promptTokens: Int?, val completionTokens: Int?, val tokensPerSecond: Double? = null) : ChatStreamEvent()
     data class ContextUsage(val tokens: Int?, val length: Int?, val percent: Int?) : ChatStreamEvent()
-    data class PromptProgress(val percent: Int, val label: String = "Processing prompt...") : ChatStreamEvent()
+    data class PromptProgress(val percent: Int, val label: String = "llama.cpp: prefill prompt") : ChatStreamEvent()
     data class Done(val stats: ChatStreamStats) : ChatStreamEvent()
     data class Error(val message: String) : ChatStreamEvent()
 }
@@ -389,7 +389,7 @@ fun streamChatRequest(
 
     if (shouldUseResponsesFirst(settings, mode)) {
         emit(ChatStreamEvent.Status(if (nativeMode) "Protocollo effettivo: Hermes Native via Responses. Context delegato a Hermes." else "Invio diretto a Hermes Responses API..."))
-        emit(ChatStreamEvent.Status("Processing prompt su llama.cpp..."))
+        emit(ChatStreamEvent.Status("llama.cpp: prefill prompt..."))
 
         fun buildResponsePayload(candidatePreviousResponseId: String?): JSONObject {
             val payload = JSONObject()

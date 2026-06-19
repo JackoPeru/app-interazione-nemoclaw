@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.87 Release Hermes Hub 0.6.87 llama.cpp stream stability
+v0.6.88 Release Hermes Hub 0.6.88 Android stream wording polish
 ```
 
 ## Regola Linux Gateway Update
@@ -135,6 +135,13 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.88 (Android stream wording polish):
+
+Release 0.6.88:
+- Polish Android stato streaming: rimossi residui user-facing `Processing prompt` da default/event/activity log; ora usa `llama.cpp: prefill prompt` e `Prefill prompt X%` anche nelle righe diagnostiche.
+- Mantiene tutte le ottimizzazioni 0.6.87 per burst llama.cpp, batching, metriche conservative, raw events, checkpoint e protezioni anti-freeze.
+- Release bump: Windows/AdminBridge `0.6.88`, Android `versionName 0.6.88`, `versionCode 93`.
 
 Hermes Hub 0.6.87 (Windows + Android llama.cpp stream stability):
 
