@@ -58,6 +58,7 @@ public static class ChatStreamClient
         int? contextLength = null;
         int? contextPercent = null;
         bool sawAnyDelta = false;
+        bool retriedWithoutPreviousResponseId = false;
         string? lastError = null;
         var nativeMode = HermesHubProtocol.IsNativePreferred(settings);
         await GatewayService.EnsureReachableGatewayAsync(settings);
@@ -67,7 +68,7 @@ public static class ChatStreamClient
             yield return new StreamStatus(nativeMode
                 ? "Protocollo effettivo: Hermes Native via Responses. Context delegato a Hermes."
                 : "Protocollo effettivo: Hermes Responses compat.");
-            var responsesPayload = JsonSerializer.Serialize(new
+            string BuildResponsesPayload(string? candidatePreviousResponseId) => JsonSerializer.Serialize(new
             {
                 model = settings.Model,
                 input = prompt,
@@ -75,63 +76,88 @@ public static class ChatStreamClient
                 store = true,
                 stream = true,
                 conversation = string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
-                previous_response_id = string.IsNullOrWhiteSpace(previousResponseId) ? null : previousResponseId,
+                previous_response_id = string.IsNullOrWhiteSpace(candidatePreviousResponseId) ? null : candidatePreviousResponseId,
                 metadata = HermesHubProtocol.Metadata(settings)
             });
 
             var responsesUrl = $"{settings.GatewayUrl.TrimEnd('/')}/responses";
-            await foreach (var ev in OpenStreamAsync(
-                               responsesUrl,
-                               responsesPayload,
-                               "Hermes Responses API stream",
-                               true,
-                               cancellationToken))
+            var previousCandidates = string.IsNullOrWhiteSpace(previousResponseId)
+                ? new string?[] { null }
+                : [previousResponseId, null];
+            foreach (var candidatePreviousResponseId in previousCandidates)
             {
-                if (ev is StreamError err)
+                if (candidatePreviousResponseId is null && !string.IsNullOrWhiteSpace(previousResponseId))
                 {
-                    lastError = err.Message;
+                    retriedWithoutPreviousResponseId = true;
+                    yield return new StreamStatus("Contesto server rifiutato. Riprovo senza previous_response_id...");
+                }
+
+                lastError = null;
+                await foreach (var ev in OpenStreamAsync(
+                                   responsesUrl,
+                                   BuildResponsesPayload(candidatePreviousResponseId),
+                                   "Hermes Responses API stream",
+                                   true,
+                                   cancellationToken))
+                {
+                    if (ev is StreamError err)
+                    {
+                        lastError = err.Message;
+                        break;
+                    }
+
+                    if (ev is StreamTextDelta td)
+                    {
+                        if (!sawAnyDelta)
+                        {
+                            ttft = stopwatch.Elapsed.TotalMilliseconds;
+                            sawAnyDelta = true;
+                        }
+                        accumulatedText.Append(td.Delta);
+                    }
+                    else if (ev is StreamThinkingDelta th)
+                    {
+                        if (!sawAnyDelta)
+                        {
+                            ttft = stopwatch.Elapsed.TotalMilliseconds;
+                            sawAnyDelta = true;
+                        }
+                        accumulatedThinking.Append(th.Delta);
+                    }
+                    else if (ev is StreamResponseId rid)
+                    {
+                        responseId = rid.Id;
+                    }
+                    else if (ev is StreamVisualBlocks vb)
+                    {
+                        visualBlocks = vb.Blocks;
+                    }
+                    else if (ev is StreamUsage u)
+                    {
+                        promptTokens = u.PromptTokens;
+                        completionTokens = u.CompletionTokens;
+                    }
+                    else if (ev is StreamContextUsage cu)
+                    {
+                        contextTokens = cu.ContextTokens ?? contextTokens;
+                        contextLength = cu.ContextLength ?? contextLength;
+                        contextPercent = cu.ContextPercent ?? contextPercent;
+                    }
+
+                    yield return ev;
+                }
+
+                if (sawAnyDelta || lastError is null)
+                {
                     break;
                 }
 
-                if (ev is StreamTextDelta td)
+                if (candidatePreviousResponseId is not null && GatewayService.IsRecoverablePreviousResponseError(lastError))
                 {
-                    if (!sawAnyDelta)
-                    {
-                        ttft = stopwatch.Elapsed.TotalMilliseconds;
-                        sawAnyDelta = true;
-                    }
-                    accumulatedText.Append(td.Delta);
-                }
-                else if (ev is StreamThinkingDelta th)
-                {
-                    if (!sawAnyDelta)
-                    {
-                        ttft = stopwatch.Elapsed.TotalMilliseconds;
-                        sawAnyDelta = true;
-                    }
-                    accumulatedThinking.Append(th.Delta);
-                }
-                else if (ev is StreamResponseId rid)
-                {
-                    responseId = rid.Id;
-                }
-                else if (ev is StreamVisualBlocks vb)
-                {
-                    visualBlocks = vb.Blocks;
-                }
-                else if (ev is StreamUsage u)
-                {
-                    promptTokens = u.PromptTokens;
-                    completionTokens = u.CompletionTokens;
-                }
-                else if (ev is StreamContextUsage cu)
-                {
-                    contextTokens = cu.ContextTokens ?? contextTokens;
-                    contextLength = cu.ContextLength ?? contextLength;
-                    contextPercent = cu.ContextPercent ?? contextPercent;
+                    continue;
                 }
 
-                yield return ev;
+                break;
             }
         }
 
@@ -253,6 +279,10 @@ public static class ChatStreamClient
         if (responseId is not null)
         {
             yield return new StreamResponseId(responseId);
+        }
+        else if (retriedWithoutPreviousResponseId)
+        {
+            yield return new StreamResponseId(string.Empty);
         }
 
         yield return new StreamDone(

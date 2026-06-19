@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.73 Release Hermes Hub 0.6.73 hardware bottom nav
+v0.6.81 Release Hermes Hub 0.6.81 app stability
 ```
 
 ## Regola Linux Gateway Update
@@ -134,6 +134,15 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.81 (Windows + Android stability):
+
+Release 0.6.81:
+- Android: se Hermes/Gateway risponde 401 o errore recuperabile quando viene inviato `previous_response_id`, il client ritenta automaticamente lo stesso prompt senza `previous_response_id` prima di dichiarare API key rifiutata. Questo evita il blocco dopo il primo messaggio quando il contesto server e' sporco o non allineato.
+- Android/Windows: se il retry senza `previous_response_id` sblocca la risposta e il gateway non restituisce un nuovo response id, il client cancella l'id vecchio invece di ripresentarlo al turno successivo.
+- Windows: streaming chat reso piu' stabile sotto risposte lunghe; durante lo stream mostra testo plain leggero e renderizza Markdown solo a risposta completata, evitando render completo a ogni token.
+- Windows: salvataggi snapshot chat spostati fuori dal thread UI e refresh recenti reso dispatcher-safe, riducendo rischio freeze/"Non risponde" durante messaggi lunghi.
+- Release bump: Windows/AdminBridge `0.6.81`, Android `versionName 0.6.81`, `versionCode 86`.
 
 Hermes Hub 0.6.80 (Linux Gateway):
 

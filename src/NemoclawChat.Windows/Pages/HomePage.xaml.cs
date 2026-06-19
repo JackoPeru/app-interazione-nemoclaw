@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using NemoclawChat_Windows.Services;
 using System.Collections.ObjectModel;
+using System.Text;
 using System.Text.Json;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
@@ -314,7 +315,7 @@ public sealed partial class HomePage : Page
             AddBubble("Tu", prompt, "UserBubbleBrush", HorizontalAlignment.Right);
             _messageHistory.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
             PromptBox.Text = string.Empty;
-            var initialSave = ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, _messageHistory, "Hermes in corso", _previousResponseId);
+            var initialSave = await Task.Run(() => ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, _messageHistory.ToList(), "Hermes in corso", _previousResponseId));
             _conversationId = initialSave.Id;
             _previousResponseId = initialSave.PreviousResponseId;
 
@@ -325,8 +326,8 @@ public sealed partial class HomePage : Page
             IReadOnlyList<VisualBlockRecord>? finalBlocks = null;
             int? finalBlocksVersion = null;
             string? finalResponseId = null;
-            string finalText = string.Empty;
-            string finalThinking = string.Empty;
+            var finalTextBuilder = new StringBuilder();
+            var finalThinkingBuilder = new StringBuilder();
             string statusMessage = "Risposta ricevuta da Hermes.";
             string source = "Hermes";
             bool usedFallback = false;
@@ -341,11 +342,11 @@ public sealed partial class HomePage : Page
                 {
                     case StreamTextDelta td:
                         bubble.AppendText(td.Delta);
-                        finalText += td.Delta;
+                        finalTextBuilder.Append(td.Delta);
                         break;
                     case StreamThinkingDelta th:
                         bubble.AppendThinking(th.Delta);
-                        finalThinking += th.Delta;
+                        finalThinkingBuilder.Append(th.Delta);
                         break;
                     case StreamToolCallStart tcs:
                         bubble.StartToolCall(tcs.Id, tcs.Name);
@@ -386,13 +387,13 @@ public sealed partial class HomePage : Page
                         finalStats = done.Stats;
                         bubble.Complete(done.Stats);
                         UpdateContextMeter(done.Stats);
-                        if (string.IsNullOrEmpty(finalText) && !string.IsNullOrEmpty(done.AccumulatedText))
+                        if (finalTextBuilder.Length == 0 && !string.IsNullOrEmpty(done.AccumulatedText))
                         {
-                            finalText = done.AccumulatedText;
+                            finalTextBuilder.Append(done.AccumulatedText);
                         }
-                        if (string.IsNullOrEmpty(finalThinking) && !string.IsNullOrEmpty(done.AccumulatedThinking))
+                        if (finalThinkingBuilder.Length == 0 && !string.IsNullOrEmpty(done.AccumulatedThinking))
                         {
-                            finalThinking = done.AccumulatedThinking;
+                            finalThinkingBuilder.Append(done.AccumulatedThinking);
                         }
                         break;
                     case StreamError se:
@@ -401,15 +402,16 @@ public sealed partial class HomePage : Page
                 }
 
                 if ((DateTimeOffset.Now - lastCheckpointAt).TotalSeconds >= 2 &&
-                    (!string.IsNullOrWhiteSpace(finalText) || finalBlocks is { Count: > 0 }))
+                    (finalTextBuilder.Length > 0 || finalBlocks is { Count: > 0 }))
                 {
                     lastCheckpointAt = DateTimeOffset.Now;
+                    var checkpointText = finalTextBuilder.ToString();
                     var partialMessages = _messageHistory
                         .Concat(new[]
                         {
                             new ChatMessageRecord(
                                 "Hermes",
-                                string.IsNullOrWhiteSpace(finalText) ? "Hermes sta lavorando..." : finalText,
+                                string.IsNullOrWhiteSpace(checkpointText) ? "Hermes sta lavorando..." : checkpointText,
                                 DateTimeOffset.Now,
                                 finalBlocksVersion,
                                 finalBlocks?.ToList(),
@@ -417,12 +419,14 @@ public sealed partial class HomePage : Page
                                 rawEvents.ToList())
                         })
                         .ToList();
-                    var checkpoint = ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, partialMessages, "Hermes in corso", finalResponseId ?? _previousResponseId);
+                    var checkpoint = await Task.Run(() => ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, partialMessages, "Hermes in corso", finalResponseId ?? _previousResponseId));
                     _conversationId = checkpoint.Id;
                     _previousResponseId = checkpoint.PreviousResponseId;
                 }
             }
 
+            var finalText = finalTextBuilder.ToString();
+            var finalThinking = finalThinkingBuilder.ToString();
             if (string.IsNullOrEmpty(finalText) && streamError is not null && settings.DemoMode)
             {
                 finalText = $"Hermes assente, fallback locale: {streamError}";
@@ -447,7 +451,7 @@ public sealed partial class HomePage : Page
             {
                 _messageHistory[^1] = _messageHistory[^1] with { Stats = finalStats };
             }
-            var saved = ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, _messageHistory, source, finalResponseId ?? _previousResponseId);
+            var saved = await Task.Run(() => ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, _messageHistory.ToList(), source, finalResponseId ?? _previousResponseId));
             _conversationId = saved.Id;
             _previousResponseId = saved.PreviousResponseId;
             UpdateContextMeter();
@@ -465,7 +469,7 @@ public sealed partial class HomePage : Page
             var interruptedMessages = _messageHistory
                 .Concat(new[] { new ChatMessageRecord("Stato", $"Stream interrotto: {ex.Message}", DateTimeOffset.Now) })
                 .ToList();
-            var saved = ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, interruptedMessages, "Errore Hermes", _previousResponseId);
+            var saved = await Task.Run(() => ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, interruptedMessages, "Errore Hermes", _previousResponseId));
             _conversationId = saved.Id;
             _previousResponseId = saved.PreviousResponseId;
         }

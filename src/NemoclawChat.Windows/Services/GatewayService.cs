@@ -981,6 +981,25 @@ public static class GatewayService
                body.Contains("invalidapikey", StringComparison.OrdinalIgnoreCase);
     }
 
+    internal static bool IsRecoverablePreviousResponseError(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        return message.Contains("401", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("invalid api key", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("invalid_api_key", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("invalidapikey", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("API key rifiutata", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("previous_response_id", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("previous response", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("conversation", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("response not found", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("not found", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static async Task<BufferedHermesResponse> SendBufferedAsync(
         Func<string?, HttpRequestMessage> requestFactory,
         CancellationToken cancellationToken = default,

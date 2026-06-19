@@ -276,6 +276,8 @@ fun streamChatRequest(
     var contextTokens: Int? = null
     var contextLength: Int? = null
     var contextPercent: Int? = null
+    var emittedResponseId: String? = null
+    var retriedWithoutPreviousResponseId = false
     val accumText = StringBuilder()
     val accumThink = StringBuilder()
     var lastError: String? = null
@@ -309,6 +311,9 @@ fun streamChatRequest(
                 contextPercent = ev.percent ?: contextPercent
                 return false
             }
+            is ChatStreamEvent.ResponseId -> {
+                emittedResponseId = ev.id
+            }
             is ChatStreamEvent.Error -> {
                 lastError = ev.message
                 return true
@@ -321,44 +326,67 @@ fun streamChatRequest(
 
     if (shouldUseResponsesFirst(settings, mode)) {
         emit(ChatStreamEvent.Status(if (nativeMode) "Protocollo effettivo: Hermes Native via Responses. Context delegato a Hermes." else "Invio diretto a Hermes Responses API..."))
-        val responsePayload = JSONObject()
-            .put("model", settings.model)
-            .put("input", prompt)
-            .put("store", true)
-            .put("stream", true)
-            .put("conversation", conversationId ?: JSONObject.NULL)
-            .put("previous_response_id", previousResponseId ?: JSONObject.NULL)
-            .put("metadata", visualBlocksMetadataJson(settings))
-        if (!nativeMode) {
-            responsePayload.put(
-                "instructions",
-                (if (mode.equals("Agente", ignoreCase = true))
-                    hermesHubAgentInstructions()
-                else
-                    hermesHubChatInstructions()) + if (videoMode) "\n\n" + hermesHubVideoInstructions(settings) else ""
-            )
+
+        fun buildResponsePayload(candidatePreviousResponseId: String?): JSONObject {
+            val payload = JSONObject()
+                .put("model", settings.model)
+                .put("input", prompt)
+                .put("store", true)
+                .put("stream", true)
+                .put("conversation", conversationId ?: JSONObject.NULL)
+                .put("previous_response_id", candidatePreviousResponseId ?: JSONObject.NULL)
+                .put("metadata", visualBlocksMetadataJson(settings))
+            if (!nativeMode) {
+                payload.put(
+                    "instructions",
+                    (if (mode.equals("Agente", ignoreCase = true))
+                        hermesHubAgentInstructions()
+                    else
+                        hermesHubChatInstructions()) + if (videoMode) "\n\n" + hermesHubVideoInstructions(settings) else ""
+                )
+            }
+            return payload
         }
 
         val responseUrl = "${settings.gatewayUrl.trimEnd('/')}/responses"
-        var responsesAttempt = 0
-        while (responsesAttempt < 2 && !sawDelta) {
-            responsesAttempt++
-            lastError = null
-            val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey, true) { ev ->
-                emitAndTrack(ev)
+        val previousResponseCandidates = if (previousResponseId.isNullOrBlank()) {
+            listOf<String?>(null)
+        } else {
+            listOf(previousResponseId, null)
+        }
+        responseCandidateLoop@ for (candidatePreviousResponseId in previousResponseCandidates) {
+            if (candidatePreviousResponseId == null && !previousResponseId.isNullOrBlank()) {
+                retriedWithoutPreviousResponseId = true
+                emit(ChatStreamEvent.Status("Contesto server rifiutato. Riprovo senza previous_response_id..."))
             }
-            if (!terminated || sawDelta) {
+            val responsePayload = buildResponsePayload(candidatePreviousResponseId)
+            var responsesAttempt = 0
+            while (responsesAttempt < 2 && !sawDelta) {
+                responsesAttempt++
+                lastError = null
+                val terminated = openSseStream(responseUrl, responsePayload, "Hermes Responses API", apiKey, true) { ev ->
+                    emitAndTrack(ev)
+                }
+                if (!terminated || sawDelta) {
+                    break
+                }
+                if (lastError != null && responsesAttempt < 2) {
+                    kotlinx.coroutines.delay(500L)
+                    emit(ChatStreamEvent.Status("Riconnessione Hermes (tentativo ${responsesAttempt + 1})..."))
+                }
+            }
+            if (sawDelta || lastError == null) {
                 break
             }
-            if (lastError != null && responsesAttempt < 2) {
-                kotlinx.coroutines.delay(500L)
-                emit(ChatStreamEvent.Status("Riconnessione Hermes (tentativo ${responsesAttempt + 1})..."))
+            if (candidatePreviousResponseId != null && isRecoverablePreviousResponseError(lastError)) {
+                continue@responseCandidateLoop
             }
+            break
         }
         if (lastError != null && !sawDelta) {
             Log.w("ChatStream", "Responses API fallback: $lastError")
             if (nativeMode && isHermesAuthError(lastError)) {
-                emit(ChatStreamEvent.Error("Hermes ha rifiutato l'API key. Ho provato API key salvata, hermes-hub e no-auth. Ripristina API key in Impostazioni o allinea HERMES_API_KEY sul gateway."))
+                emit(ChatStreamEvent.Error("Hermes ha rifiutato l'API key anche dopo retry con key salvata, hermes-hub, no-auth e senza previous_response_id. Ripristina API key in Impostazioni o allinea HERMES_API_KEY sul gateway."))
                 return@flow
             }
             if (nativeMode && settings.strictNativeMode) {
@@ -420,6 +448,9 @@ fun streamChatRequest(
     val ttftSnapshot = ttftMs
     val sinceFirst = if (ttftSnapshot != null) max(1.0, totalMs - ttftSnapshot) else totalMs
     val tps = if (tokensOut > 0 && sinceFirst > 0) tokensOut / (sinceFirst / 1000.0) else null
+    if (retriedWithoutPreviousResponseId && emittedResponseId.isNullOrBlank()) {
+        emit(ChatStreamEvent.ResponseId(""))
+    }
     emit(ChatStreamEvent.Done(ChatStreamStats(ttftMs, totalMs, tokensOut, tps, promptTokens, contextTokens, contextLength, contextPercent)))
 }.flowOn(Dispatchers.IO)
 

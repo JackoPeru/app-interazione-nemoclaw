@@ -160,6 +160,12 @@ public sealed partial class MainWindow : Window
 
     private void RefreshRecentChats()
     {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            DispatcherQueue.TryEnqueue(RefreshRecentChats);
+            return;
+        }
+
         RecentChatsPanel.Children.Clear();
         var recent = ChatArchiveStore.Recent(5);
 

@@ -153,9 +153,9 @@ public static class ChatArchiveStore
             ? $"Conversazione agente via {source}."
             : $"Conversazione chat via {source}.";
         conversation.Prompt = prompt;
-        if (!string.IsNullOrWhiteSpace(previousResponseId))
+        if (previousResponseId is not null)
         {
-            conversation.PreviousResponseId = previousResponseId;
+            conversation.PreviousResponseId = previousResponseId.Trim();
         }
         conversation.UpdatedAt = DateTimeOffset.Now;
         conversation.Messages.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
@@ -193,9 +193,9 @@ public static class ChatArchiveStore
             ? $"Conversazione agente via {source}."
             : $"Conversazione chat via {source}.";
         conversation.Prompt = prompt;
-        if (!string.IsNullOrWhiteSpace(previousResponseId))
+        if (previousResponseId is not null)
         {
-            conversation.PreviousResponseId = previousResponseId;
+            conversation.PreviousResponseId = previousResponseId.Trim();
         }
         conversation.UpdatedAt = DateTimeOffset.Now;
         conversation.Messages = messages.ToList();

@@ -23,6 +23,7 @@ internal sealed class StreamingBubble
     private readonly StackPanel _toolCallsPanel;
     private readonly StackPanel _rawEventsPanel;
     private readonly ContentControl _assistantContainer;
+    private readonly TextBlock _assistantTextPreview;
     private readonly TextBlock _statsText;
     private readonly bool _showAdvanced;
     private readonly LinearGradientBrush _shimmerBrush;
@@ -110,6 +111,13 @@ internal sealed class StreamingBubble
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Visibility = Visibility.Collapsed
         };
+        _assistantTextPreview = new TextBlock
+        {
+            Text = string.Empty,
+            Foreground = new SolidColorBrush(Colors.White),
+            TextWrapping = TextWrapping.WrapWholeWords
+        };
+        _assistantContainer.Content = _assistantTextPreview;
         _content.Children.Add(_assistantContainer);
 
         _statsText = new TextBlock
@@ -159,7 +167,7 @@ internal sealed class StreamingBubble
             return;
         }
         _textBuilder.Append(delta);
-        _assistantContainer.Content = MarkdownRenderer.Render(_textBuilder.ToString(), Colors.White);
+        _assistantTextPreview.Text = _textBuilder.ToString();
         if (!_hasText)
         {
             _hasText = true;
@@ -469,6 +477,11 @@ internal sealed class StreamingBubble
         {
             _assistantContainer.Visibility = Visibility.Visible;
             _hasText = true;
+        }
+
+        if (_textBuilder.Length > 0)
+        {
+            _assistantContainer.Content = MarkdownRenderer.Render(_textBuilder.ToString(), Colors.White);
         }
 
         var parts = new List<string>();

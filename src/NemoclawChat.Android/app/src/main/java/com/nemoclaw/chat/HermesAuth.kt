@@ -36,3 +36,13 @@ internal fun isHermesAuthError(message: String?): Boolean {
         normalized.contains("invalid_api_key") ||
         normalized.contains("invalidapikey")
 }
+
+internal fun isRecoverablePreviousResponseError(message: String?): Boolean {
+    val normalized = message?.lowercase().orEmpty()
+    return isHermesAuthError(message) ||
+        normalized.contains("previous_response_id") ||
+        normalized.contains("previous response") ||
+        normalized.contains("conversation") ||
+        normalized.contains("response not found") ||
+        normalized.contains("not found")
+}
