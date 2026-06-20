@@ -707,7 +707,7 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
             if (blocks.isNotEmpty()) out += ChatStreamEvent.VisualBlocks(blocks, VISUAL_BLOCKS_VERSION)
             return out
         }
-        t.contains("hermes.tool.progress") || t.contains("tool.progress") -> {
+        isToolEnvelopeType(t) -> {
             val id = obj.optString("toolCallId", obj.optString("call_id", obj.optString("id", "tool")))
             val name = obj.optString("tool", obj.optString("name", "tool"))
             val status = obj.optString("status", "").lowercase()
@@ -716,7 +716,8 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
             if (label.isNotBlank() && label != name) out += ChatStreamEvent.ToolCallArgs(id, label)
             val result = extractToolOutput(obj)
             if (result.isNotBlank()) out += ChatStreamEvent.ToolResult(id, name, result)
-            if (status.contains("complete") || status.contains("done") || status.contains("success") || status.contains("failed") || status.contains("error")) {
+            if (t.contains("completed") || t.contains("done") || t.contains("failed") || t.contains("error") ||
+                status.contains("complete") || status.contains("done") || status.contains("success") || status.contains("failed") || status.contains("error")) {
                 out += ChatStreamEvent.ToolCallEnd(id)
             }
             return out
@@ -878,13 +879,35 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
             out += ChatStreamEvent.VisualBlocks(blocks, VISUAL_BLOCKS_VERSION)
         }
     } else {
-        val text = extractTextFromAnyJson(obj)
-        if (text.isNotBlank()) {
-            out += ChatStreamEvent.TextDelta(text)
+        if (!isToolPayload(obj, t)) {
+            val text = extractTextFromAnyJson(obj)
+            if (text.isNotBlank()) {
+                out += ChatStreamEvent.TextDelta(text)
+            }
         }
     }
 
     return out
+}
+
+private fun isToolEnvelopeType(type: String): Boolean {
+    return type.contains("hermes.tool.") ||
+        type.contains("tool.progress") ||
+        type.contains("tool.started") ||
+        type.contains("tool.completed") ||
+        type.contains("tool.failed") ||
+        type.contains("tool.error") ||
+        type.contains("tool_result") ||
+        type.contains("tool.output") ||
+        type.contains("function_call_output")
+}
+
+private fun isToolPayload(obj: JSONObject, type: String): Boolean {
+    if (isToolEnvelopeType(type)) return true
+    val objectType = obj.optString("type", "").lowercase()
+    if (isToolEnvelopeType(objectType)) return true
+    if (obj.has("tool") || obj.has("tool_call_id") || obj.has("toolCallId") || obj.has("call_id")) return true
+    return obj.has("is_error") && (obj.has("result") || obj.has("output"))
 }
 
 private fun streamHermesNativeInstructions(mode: String): String {

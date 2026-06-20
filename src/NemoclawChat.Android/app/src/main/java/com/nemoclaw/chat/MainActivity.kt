@@ -941,10 +941,13 @@ private fun ChatScreen(
         }
     }
     val streamingTextLen = state.streamingState?.text?.length ?: 0
-    LaunchedEffect(state.messages.size, streamingTextLen, state.streamingState != null) {
-        val totalItems = state.messages.size + if (state.streamingState != null) 1 else 0
+    LaunchedEffect(isStreaming) {
+        if (!isStreaming) {
+            return@LaunchedEffect
+        }
+        val totalItems = state.messages.size + 1
         if (totalItems > 0) {
-            listState.animateScrollToItem(totalItems - 1)
+            listState.scrollToItem(totalItems - 1)
         }
     }
     val contextUsage = remember(

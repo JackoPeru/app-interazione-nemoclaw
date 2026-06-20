@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.91 Release Hermes Hub 0.6.91 Markdown ordered list preservation
+v0.6.92 Release Hermes Hub 0.6.92 Android tool UX stability
 ```
 
 ## Regola Linux Gateway Update
@@ -135,6 +135,13 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.92 (Android tool UX stability):
+
+Release 0.6.92:
+- Hotfix Android tool UX: eventi/tool payload (`hermes.tool.*`, `tool.completed`, `tool_result`, `function_call_output`) non possono piu' cadere nel fallback `TextDelta`; i risultati tool restano nel pannello tool collassabile invece di allungare il messaggio finale.
+- Hotfix Android scroll: rimosso autoscroll a ogni token/tool update. Ora la chat scrolla al fondo solo quando nasce lo stream, poi l'utente puo' scorrere liberamente senza essere riportato al banner tool.
+- Release bump: Windows/AdminBridge `0.6.92`, Android `versionName 0.6.92`, `versionCode 97`.
 
 Hermes Hub 0.6.91 (Markdown ordered list preservation):
 
