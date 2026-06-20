@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.93 Release Hermes Hub 0.6.93 gateway status endpoints
+v0.6.94 Release Hermes Hub 0.6.94 vision input and detached runs
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,17 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.94 (Vision input and detached runs):
+
+Release 0.6.94:
+- Windows: il menu `+` allega immagini reali (`PNG/JPEG/WebP/BMP`, max 6 MB) e le invia a Hermes come `input_image` data URL nel payload Responses; non passa piu' solo path locali inutilizzabili dal server.
+- Android: il menu `+` apre picker immagini reale, mostra chip allegati nel composer e invia immagini a Hermes vision come `input_image` data URL; invio consentito anche con sola immagine.
+- Modalita `Agente`: Windows e Android avviano `/v1/runs` server-side invece di tenere solo uno stream Responses legato al client. Se l'app viene chiusa o la connessione eventi cade, il run continua sul gateway/server e resta interrogabile da `/v1/runs/{run_id}`.
+- Gateway Linux patcher: run stream TTL portato a 6h e sweep orphan non rimuove riferimenti a run ancora attivi; evita di rompere lavori lunghi senza client collegato.
+- Verifica live 2026-06-20: Ubuntu server headless accetta immagine inline su `/v1/responses` e modello vision risponde `VISION_OK`; non serve GUI sul server, serve solo payload immagine passato al provider.
+- Nota costo: anche immagini piccole possono consumare molti token input sul modello vision; client limita immagini a 6 MB per evitare payload/gateway troppo grandi.
+- Release bump: Windows/AdminBridge `0.6.94`, Android `versionName 0.6.94`, `versionCode 99`.
 
 Hermes Hub 0.6.93 (Gateway status endpoints):
 

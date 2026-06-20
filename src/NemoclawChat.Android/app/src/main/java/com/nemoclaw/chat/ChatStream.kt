@@ -278,6 +278,13 @@ sealed class ChatStreamEvent {
     data class Error(val message: String) : ChatStreamEvent()
 }
 
+data class ChatInputAttachment(
+    val filename: String,
+    val mimeType: String,
+    val dataUrl: String,
+    val sizeBytes: Long
+)
+
 fun streamChatRequest(
     settings: AppSettings,
     mode: String,
@@ -285,6 +292,7 @@ fun streamChatRequest(
     history: List<ChatMessage>,
     conversationId: String?,
     previousResponseId: String?,
+    attachments: List<ChatInputAttachment>,
     apiKey: String?
 ): Flow<ChatStreamEvent> = flow {
     val start = System.nanoTime()
@@ -387,6 +395,11 @@ fun streamChatRequest(
         return false
     }
 
+    if (mode.equals("Agente", ignoreCase = true)) {
+        runDetachedAgent(settings, prompt, history, conversationId, attachments, apiKey).collect { emit(it) }
+        return@flow
+    }
+
     if (shouldUseResponsesFirst(settings, mode)) {
         emit(ChatStreamEvent.Status(if (nativeMode) "Protocollo effettivo: Hermes Native via Responses. Context delegato a Hermes." else "Invio diretto a Hermes Responses API..."))
         emit(ChatStreamEvent.Status("llama.cpp: prefill prompt..."))
@@ -394,7 +407,7 @@ fun streamChatRequest(
         fun buildResponsePayload(candidatePreviousResponseId: String?): JSONObject {
             val payload = JSONObject()
                 .put("model", settings.model)
-                .put("input", prompt)
+                .put("input", buildMultimodalInput(prompt, attachments))
                 .put("store", true)
                 .put("stream", true)
                 .put("conversation", serverConversationId ?: JSONObject.NULL)
@@ -643,6 +656,136 @@ private suspend fun openSseStream(
     } finally {
         cancellationHook?.dispose()
     }
+}
+
+private fun buildMultimodalInput(prompt: String, attachments: List<ChatInputAttachment>): Any {
+    val imageAttachments = attachments.filter { it.mimeType.startsWith("image/", ignoreCase = true) }
+    if (imageAttachments.isEmpty()) return prompt
+    val content = JSONArray()
+        .put(JSONObject().put("type", "input_text").put("text", prompt))
+    imageAttachments.forEach { attachment ->
+        content.put(
+            JSONObject()
+                .put("type", "input_image")
+                .put("image_url", attachment.dataUrl)
+                .put("detail", "auto")
+        )
+    }
+    return JSONArray().put(JSONObject().put("role", "user").put("content", content))
+}
+
+private fun runDetachedAgent(
+    settings: AppSettings,
+    prompt: String,
+    history: List<ChatMessage>,
+    conversationId: String?,
+    attachments: List<ChatInputAttachment>,
+    apiKey: String?
+): Flow<ChatStreamEvent> = flow {
+    val startedAt = System.nanoTime()
+    val payload = JSONObject()
+        .put("model", settings.model)
+        .put("input", buildMultimodalInput(prompt, attachments))
+        .put("session_id", hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, conversationId) ?: JSONObject.NULL)
+        .put("metadata", visualBlocksMetadataJson(settings, conversationId))
+        .put("conversation_history", JSONArray(history.takeLast(30).mapNotNull { msg ->
+            if (msg.isAction || (msg.fromUser && msg.text == prompt)) {
+                null
+            } else {
+                JSONObject()
+                    .put("role", if (msg.fromUser) "user" else "assistant")
+                    .put("content", msg.text)
+            }
+        }))
+    emit(ChatStreamEvent.Status("Modalita Agente: avvio run server-side persistente..."))
+    val startResponse = executeRunJsonRequest("${settings.gatewayUrl.trimEnd('/')}/runs", payload, apiKey, "POST")
+    if (startResponse.first !in 200..299) {
+        emit(ChatStreamEvent.Error("Hermes Runs HTTP ${startResponse.first}: ${startResponse.second.take(240)}"))
+        return@flow
+    }
+    val runId = runCatching { JSONObject(startResponse.second).optString("run_id") }.getOrDefault("")
+    if (runId.isBlank()) {
+        emit(ChatStreamEvent.Error("Hermes Runs: run_id assente nella risposta."))
+        return@flow
+    }
+    emit(ChatStreamEvent.Status("Run server-side avviata: $runId. Se chiudi l'app, Hermes continua sul server."))
+
+    var lastStatus = ""
+    var finalText = ""
+    while (true) {
+        kotlinx.coroutines.delay(2_000L)
+        val statusResponse = executeRunJsonRequest("${settings.gatewayUrl.trimEnd('/')}/runs/$runId", null, apiKey, "GET")
+        if (statusResponse.first == 404) {
+            val message = "Run $runId non piu' in cache gateway; se era lunga puo' ancora lavorare sul processo Hermes."
+            if (message != lastStatus) {
+                lastStatus = message
+                emit(ChatStreamEvent.Status(message))
+            }
+            continue
+        }
+        if (statusResponse.first !in 200..299) {
+            val message = "Run $runId polling HTTP ${statusResponse.first}"
+            if (message != lastStatus) {
+                lastStatus = message
+                emit(ChatStreamEvent.Status(message))
+            }
+            continue
+        }
+        val root = JSONObject(statusResponse.second)
+        val state = root.optString("status", "running")
+        val lastEvent = root.optString("last_event")
+        val message = if (lastEvent.isBlank()) "Run $runId: $state" else "Run $runId: $state ($lastEvent)"
+        if (message != lastStatus) {
+            lastStatus = message
+            emit(ChatStreamEvent.Status(message))
+        }
+        finalText = root.optString("output", finalText)
+        if (state == "completed" || state == "failed" || state == "cancelled") {
+            if (finalText.isNotBlank()) {
+                emit(ChatStreamEvent.TextDelta(finalText))
+            } else if (state != "completed") {
+                emit(ChatStreamEvent.Error(root.optString("error", "Run $runId: $state")))
+                return@flow
+            }
+            val totalMs = (System.nanoTime() - startedAt) / 1_000_000.0
+            val usage = root.optJSONObject("usage")
+            val completionTokens = usage?.optInt("output_tokens")?.takeIf { it > 0 } ?: max(1, finalText.length / 4)
+            val promptTokens = usage?.optInt("input_tokens")?.takeIf { it > 0 }
+            emit(ChatStreamEvent.Done(ChatStreamStats(null, totalMs, completionTokens, null, promptTokens, null, null, null)))
+            return@flow
+        }
+    }
+}.flowOn(Dispatchers.IO)
+
+private fun executeRunJsonRequest(url: String, payload: JSONObject?, apiKey: String?, method: String): Pair<Int, String> {
+    var last: Pair<Int, String>? = null
+    val authCandidates = hermesAuthCandidates(apiKey, true)
+    for (candidateUrl in plugAndPlayStreamUrlCandidates(url)) {
+        for ((index, token) in authCandidates.withIndex()) {
+            val builder = Request.Builder()
+                .url(candidateUrl)
+                .header("Accept", "application/json")
+                .header("User-Agent", "HermesHub-Android")
+            token?.let { builder.header("Authorization", "Bearer $it") }
+            val request = when (method.uppercase()) {
+                "GET" -> builder.get().build()
+                else -> builder.post((payload ?: JSONObject()).toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+            }
+            try {
+                streamHttpClient.newCall(request).execute().use { response ->
+                    val body = response.body.string()
+                    last = response.code to body
+                    if (index < authCandidates.lastIndex && shouldRetryHermesWithBearerAuth(response.code, body)) {
+                        return@use
+                    }
+                    return response.code to body
+                }
+            } catch (ex: Exception) {
+                last = 0 to (ex.message ?: ex.javaClass.simpleName)
+            }
+        }
+    }
+    return last ?: (0 to "")
 }
 
 private fun plugAndPlayStreamUrlCandidates(url: String): List<String> {

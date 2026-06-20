@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 
 internal class ChatStateHolder {
     val messages: SnapshotStateList<ChatMessage> = mutableStateListOf()
+    val pendingAttachments: SnapshotStateList<ChatInputAttachment> = mutableStateListOf()
     var draft: String by mutableStateOf("")
     var mode: String by mutableStateOf("Chat")
     var activeConversationId: String? by mutableStateOf(null)
@@ -21,6 +22,7 @@ internal class ChatStateHolder {
         activeStreamJob?.cancel()
         activeStreamJob = null
         messages.clear()
+        pendingAttachments.clear()
         activeConversationId = null
         previousResponseId = null
         streamingState = null

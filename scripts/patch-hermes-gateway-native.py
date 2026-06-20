@@ -592,6 +592,29 @@ def _multimodal_validation_error(exc: ValueError, *, param: str) -> "web.Respons
         )
         changes.append("capabilities hub support features")
 
+    if "_RUN_STREAM_TTL = 21600" not in text:
+        patched = text.replace("_RUN_STREAM_TTL = 300", "_RUN_STREAM_TTL = 21600", 1)
+        if patched != text:
+            text = patched
+            changes.append("runs stream ttl 6h")
+
+    if "task = self._active_run_tasks.get(run_id)" not in text:
+        text, _ = _replace_once(
+            text,
+            '            for run_id in stale:\n'
+            '                logger.debug("[api_server] sweeping orphaned run %s", run_id)\n'
+            '                try:\n',
+            '            for run_id in stale:\n'
+            '                task = self._active_run_tasks.get(run_id)\n'
+            '                if task is not None and not task.done():\n'
+            '                    self._run_streams_created[run_id] = now\n'
+            '                    continue\n'
+            '                logger.debug("[api_server] sweeping orphaned run %s", run_id)\n'
+            '                try:\n',
+            "runs sweep keeps active tasks",
+        )
+        changes.append("runs sweep keeps active tasks")
+
     if '"hardware": {"method": "GET", "path": "/v1/hub/hardware"}' not in text:
         text, _ = _replace_regex_once(
             text,

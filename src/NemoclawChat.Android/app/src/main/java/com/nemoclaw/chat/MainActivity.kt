@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.StrictMode
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -26,6 +27,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
@@ -935,6 +938,22 @@ private fun ChatScreen(
     val haptics = LocalHapticFeedback.current
     val online by rememberOnlineState(context)
     val isStreaming = state.streamingState != null
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val attachment = withContext(Dispatchers.IO) { createImageAttachmentFromUri(context, uri) }
+                if (attachment != null) {
+                    state.pendingAttachments.add(attachment)
+                    state.messages.add(ChatMessage("Allegato vision", "${attachment.filename} pronto per Hermes vision (${attachment.sizeBytes / 1024} KB).", fromUser = false, isAction = true))
+                    if (state.draft.isBlank()) {
+                        state.draft = "Analizza l'immagine allegata."
+                    }
+                } else {
+                    state.messages.add(ChatMessage("Allegato", "Immagine non supportata o troppo grande. Usa PNG/JPEG/WebP sotto 6 MB.", fromUser = false, isAction = true))
+                }
+            }
+        }
+    }
     LaunchedEffect(isStreaming) {
         if (!isStreaming && state.messages.isNotEmpty()) {
             runCatching { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
@@ -1048,7 +1067,10 @@ private fun ChatScreen(
         Composer(
             context = context,
             value = state.draft,
+            attachments = state.pendingAttachments,
             onValueChange = { state.draft = it },
+            onAttachImage = { imagePicker.launch("image/*") },
+            onRemoveAttachment = { attachment -> state.pendingAttachments.remove(attachment) },
             onAction = { title, text, prompt ->
                 state.messages.add(ChatMessage(title, text, fromUser = false, isAction = true))
                 if (prompt.isNotBlank()) {
@@ -1057,14 +1079,24 @@ private fun ChatScreen(
             },
             onModeChange = { state.mode = it },
             onSend = {
-                val text = state.draft.trim()
+                var text = state.draft.trim()
                 if (!online) {
                     state.messages.add(ChatMessage("Stato", "Offline. Hermes non raggiungibile.", fromUser = false, isAction = true))
                     return@Composer
                 }
-                if (text.isNotEmpty() && !state.sending && state.activeStreamJob == null) {
+                if ((text.isNotEmpty() || state.pendingAttachments.isNotEmpty()) && !state.sending && state.activeStreamJob == null) {
+                    if (text.isBlank()) {
+                        text = "Analizza l'immagine allegata."
+                    }
+                    val attachments = state.pendingAttachments.toList()
+                    state.pendingAttachments.clear()
+                    val displayText = if (attachments.isEmpty()) {
+                        text
+                    } else {
+                        "$text\n\n[Allegati vision: ${attachments.joinToString { it.filename }}]"
+                    }
                     state.sending = true
-                    state.messages.add(ChatMessage("Tu", text, true))
+                    state.messages.add(ChatMessage("Tu", displayText, true))
                     state.draft = ""
                     state.streamingState = StreamingState()
 
@@ -1081,7 +1113,7 @@ private fun ChatScreen(
                                 context = context,
                                 conversationId = convId,
                                 mode = mode,
-                                prompt = text,
+                                prompt = displayText,
                                 messages = state.messages.toList(),
                                 source = "Hermes in corso",
                                 responseId = prevId
@@ -1089,7 +1121,7 @@ private fun ChatScreen(
                         }
                         state.activeConversationId = initialConversation.id
                         try {
-                            streamChatRequest(settings, mode, text, state.messages.takeLast(CHAT_HISTORY_MAX_MESSAGES).toList(), state.activeConversationId, prevId, loadGatewaySecret(context))
+                            streamChatRequest(settings, mode, text, state.messages.takeLast(CHAT_HISTORY_MAX_MESSAGES).toList(), state.activeConversationId, prevId, attachments, loadGatewaySecret(context))
                                 .collect { event ->
                                     if (event is ChatStreamEvent.RawHermesEvent) {
                                         rawEvents += HermesRawEvent(event.name, event.json)
@@ -1110,7 +1142,7 @@ private fun ChatScreen(
                                                 context = context,
                                                 conversationId = state.activeConversationId,
                                                 mode = mode,
-                                                prompt = text,
+                                                    prompt = displayText,
                                                 messages = state.messages.toList() + ChatMessage(
                                                     "Hermes",
                                                     localState.text.streamingCheckpointPreview().ifBlank { "Hermes sta lavorando..." },
@@ -1164,7 +1196,7 @@ private fun ChatScreen(
                                     saveWorkspaceRequest(
                                         context = context,
                                         kind = workspaceKind,
-                                        prompt = text,
+                                        prompt = displayText,
                                         result = workspaceResult.result.ifBlank { finalText },
                                         source = workspaceResult.source,
                                         status = workspaceResult.status,
@@ -1188,7 +1220,7 @@ private fun ChatScreen(
                                     context = context,
                                     conversationId = state.activeConversationId,
                                     mode = mode,
-                                    prompt = text,
+                                    prompt = displayText,
                                     messages = state.messages.toList(),
                                     source = if (interrupted) "Hermes interrotto" else if (finalState.error != null) "Errore Hermes" else "Hermes",
                                     responseId = finalState.responseId ?: prevId
@@ -2021,7 +2053,10 @@ private fun CalloutBlock(block: VisualBlock) {
 private fun Composer(
     context: Context,
     value: String,
+    attachments: List<ChatInputAttachment>,
     onValueChange: (String) -> Unit,
+    onAttachImage: () -> Unit,
+    onRemoveAttachment: (ChatInputAttachment) -> Unit,
     onAction: (String, String, String) -> Unit,
     onModeChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -2061,22 +2096,11 @@ private fun Composer(
                 containerColor = AppColors.Elevated
             ) {
                 DropdownMenuItem(
-                    text = { Text("Aggiungi file al task", color = Color.White) },
+                    text = { Text("Allega immagine vision", color = Color.White) },
                     leadingIcon = { Icon(Icons.Rounded.AttachFile, null, tint = Color.White) },
                     onClick = {
                         expanded = false
-                        val opened = openAndroidIntent(
-                            context,
-                            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE)
-                                type = "*/*"
-                            }
-                        )
-                        queueAction(
-                            "File task",
-                            if (opened) "File picker Android aperto. Seleziona il file e descrivilo nel prompt del task." else "Nessun file picker disponibile. Descrivi percorso o contenuto del file nel prompt.",
-                            "Allega un file al prossimo job e analizzalo nel contesto Hermes."
-                        )
+                        onAttachImage()
                     }
                 )
                 DropdownMenuItem(
@@ -2201,13 +2225,37 @@ private fun Composer(
                     .padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
-                Box(
+                Column(
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = (38 * fontScale).dp, max = (138 * fontScale).dp)
-                        .padding(vertical = 5.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .padding(vertical = 5.dp)
                 ) {
+                    if (attachments.isNotEmpty()) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            attachments.forEach { attachment ->
+                                Surface(
+                                    color = AppColors.Surface,
+                                    shape = RoundedCornerShape(14.dp),
+                                    border = BorderStroke(1.dp, AppColors.Border)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(start = 9.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Image, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(14.dp))
+                                        Text(attachment.filename, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp))
+                                        IconButton(onClick = { onRemoveAttachment(attachment) }, modifier = Modifier.size(22.dp)) {
+                                            Icon(Icons.Rounded.Delete, contentDescription = "Rimuovi allegato", tint = AppColors.Muted, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.fillMaxWidth()) {
                     BasicTextField(
                         value = value,
                         onValueChange = onValueChange,
@@ -2230,9 +2278,10 @@ private fun Composer(
                     if (value.isEmpty()) {
                         Text("Fai una domanda", color = AppColors.Muted, fontSize = 18.sp)
                     }
+                    }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                val canSend = value.isNotBlank() && !isBusy
+                val canSend = (value.isNotBlank() || attachments.isNotEmpty()) && !isBusy
                 val canPress = isBusy || canSend
                 Surface(
                     modifier = Modifier
@@ -5361,6 +5410,29 @@ private fun executeHttpGet(url: String, bearerToken: String?): Pair<Int, String>
     return apiHttpClient.newCall(request).execute().use { response ->
         response.code to response.body.string()
     }
+}
+
+private fun createImageAttachmentFromUri(context: Context, uri: Uri): ChatInputAttachment? {
+    val resolver = context.contentResolver
+    val mimeType = resolver.getType(uri)?.takeIf { it.startsWith("image/", ignoreCase = true) } ?: return null
+    val filename = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+    } ?: (uri.lastPathSegment ?: "immagine")
+    val bytes = resolver.openInputStream(uri)?.use { input ->
+        input.readBytes()
+    } ?: return null
+    val maxBytes = 6 * 1024 * 1024
+    if (bytes.isEmpty() || bytes.size > maxBytes) {
+        return null
+    }
+    val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    return ChatInputAttachment(
+        filename = filename,
+        mimeType = mimeType,
+        dataUrl = "data:$mimeType;base64,$encoded",
+        sizeBytes = bytes.size.toLong()
+    )
 }
 
 private fun executeJsonRequest(url: String, payload: JSONObject, method: String, bearerToken: String?, sessionId: String? = null): Pair<Int, String> {

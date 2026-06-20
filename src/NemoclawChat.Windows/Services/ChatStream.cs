@@ -16,6 +16,8 @@ public sealed record ChatStreamStats(
     int? ContextLength = null,
     int? ContextPercent = null);
 
+public sealed record ChatInputAttachment(string FileName, string MimeType, string DataUrl, long SizeBytes);
+
 public abstract record ChatStreamEvent;
 public sealed record StreamTextDelta(string Delta) : ChatStreamEvent;
 public sealed record StreamThinkingDelta(string Delta) : ChatStreamEvent;
@@ -46,6 +48,7 @@ public static class ChatStreamClient
         IReadOnlyList<ChatMessageRecord> history,
         string? conversationId,
         string? previousResponseId,
+        IReadOnlyList<ChatInputAttachment>? attachments = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -66,7 +69,17 @@ public static class ChatStreamClient
         bool retriedWithoutPreviousResponseId = false;
         string? lastError = null;
         var nativeMode = HermesHubProtocol.IsNativePreferred(settings);
+        attachments ??= Array.Empty<ChatInputAttachment>();
         await GatewayService.EnsureReachableGatewayAsync(settings);
+
+        if (string.Equals(mode, "Agente", StringComparison.OrdinalIgnoreCase))
+        {
+            await foreach (var ev in RunDetachedAgentAsync(settings, prompt, history, conversationId, attachments, cancellationToken))
+            {
+                yield return ev;
+            }
+            yield break;
+        }
 
         if (GatewayService.ShouldUseResponsesFirst(settings, mode))
         {
@@ -78,7 +91,7 @@ public static class ChatStreamClient
             string BuildResponsesPayload(string? candidatePreviousResponseId) => JsonSerializer.Serialize(new
             {
                 model = settings.Model,
-                input = prompt,
+                input = BuildResponsesInput(prompt, attachments),
                 instructions = nativeMode ? null : HermesHubProtocol.Instructions(settings, mode),
                 store = true,
                 stream = true,
@@ -195,20 +208,25 @@ public static class ChatStreamClient
                 yield return new StreamStatus("Protocollo effettivo: Hermes Chat Completions compat.");
             }
             var serverConversationId = HermesHubProtocol.ServerConversationId(conversationId);
-            var chatMessages = (nativeMode
-                ? Enumerable.Empty<object>()
-                : new object[]
+            var chatMessages = new List<Dictionary<string, object?>>();
+            if (!nativeMode)
+            {
+                chatMessages.Add(new Dictionary<string, object?>
                 {
-                    new
-                    {
-                        role = "system",
-                        content = HermesHubProtocol.Instructions(settings, mode)
-                    }
-                }).Concat(history.Select(m => new
+                    ["role"] = "system",
+                    ["content"] = HermesHubProtocol.Instructions(settings, mode)
+                });
+            }
+            for (var i = 0; i < history.Count; i++)
+            {
+                var m = history[i];
+                var isLastUser = i == history.Count - 1 && string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase);
+                chatMessages.Add(new Dictionary<string, object?>
                 {
-                    role = string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
-                    content = m.Text
-                }));
+                    ["role"] = string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
+                    ["content"] = isLastUser ? BuildContentParts(prompt, attachments) : m.Text
+                });
+            }
             var chatPayload = JsonSerializer.Serialize(new
             {
                 model = settings.Model,
@@ -477,6 +495,187 @@ public static class ChatStreamClient
         }
 
         yield return new StreamError($"{label}: errore sconosciuto");
+    }
+
+    private static async IAsyncEnumerable<ChatStreamEvent> RunDetachedAgentAsync(
+        AppSettings settings,
+        string prompt,
+        IReadOnlyList<ChatMessageRecord> history,
+        string? conversationId,
+        IReadOnlyList<ChatInputAttachment> attachments,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var serverConversationId = HermesHubProtocol.ServerConversationId(conversationId);
+        var payload = JsonSerializer.Serialize(new
+        {
+            model = settings.Model,
+            input = BuildResponsesInput(prompt, attachments),
+            session_id = serverConversationId,
+            metadata = HermesHubProtocol.Metadata(settings, conversationId: conversationId),
+            conversation_history = history
+                .Where(m => !string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ||
+                            !string.Equals(m.Text, prompt, StringComparison.Ordinal))
+                .TakeLast(30)
+                .Select(m => new
+                {
+                    role = string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
+                    content = m.Text
+                })
+        });
+
+        yield return new StreamStatus("Modalita Agente: avvio run server-side persistente...");
+        var started = await SendJsonAsync(HttpMethod.Post, $"{settings.GatewayUrl.TrimEnd('/')}/runs", payload, true, cancellationToken);
+        if (started.StatusCode is < 200 or > 299)
+        {
+            yield return new StreamError($"Hermes Runs: HTTP {started.StatusCode}: {Trim(started.Body)}");
+            yield break;
+        }
+
+        string? runId = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(started.Body);
+            runId = GetString(doc.RootElement, "run_id") ?? GetString(doc.RootElement, "id");
+        }
+        catch
+        {
+            // handled below
+        }
+
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            yield return new StreamError("Hermes Runs: run_id assente nella risposta.");
+            yield break;
+        }
+
+        yield return new StreamStatus($"Run server-side avviata: {runId}. Se chiudi l'app, Hermes continua sul server.");
+
+        string? lastOutput = null;
+        ChatStreamStats? finalStats = null;
+        var lastStatus = string.Empty;
+        var startedAt = Stopwatch.StartNew();
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            var status = await SendJsonAsync(HttpMethod.Get, $"{settings.GatewayUrl.TrimEnd('/')}/runs/{runId}", null, true, cancellationToken);
+            if (status.StatusCode == 404)
+            {
+                yield return new StreamStatus($"Run {runId}: non piu' in cache gateway. Se il lavoro era lungo, puo' essere ancora in esecuzione sul processo Hermes.");
+                continue;
+            }
+            if (status.StatusCode is < 200 or > 299)
+            {
+                yield return new StreamStatus($"Run {runId}: polling HTTP {status.StatusCode}");
+                continue;
+            }
+
+            using var doc = JsonDocument.Parse(status.Body);
+            var root = doc.RootElement;
+            var state = GetString(root, "status") ?? "running";
+            var lastEvent = GetString(root, "last_event");
+            var message = string.IsNullOrWhiteSpace(lastEvent) ? $"Run {runId}: {state}" : $"Run {runId}: {state} ({lastEvent})";
+            if (!string.Equals(message, lastStatus, StringComparison.Ordinal))
+            {
+                lastStatus = message;
+                yield return new StreamStatus(message);
+            }
+
+            if (root.TryGetProperty("output", out var outputElement))
+            {
+                lastOutput = ExtractText(outputElement);
+            }
+            if (root.TryGetProperty("usage", out var usageElement) && usageElement.ValueKind == JsonValueKind.Object)
+            {
+                var usage = ExtractUsage(usageElement);
+                finalStats = new ChatStreamStats(null, startedAt.Elapsed.TotalMilliseconds, usage.CompletionTokens, usage.TokensPerSecond, usage.PromptTokens);
+            }
+
+            if (state is "completed" or "failed" or "cancelled")
+            {
+                if (!string.IsNullOrWhiteSpace(lastOutput))
+                {
+                    yield return new StreamTextDelta(lastOutput);
+                }
+                else if (state != "completed")
+                {
+                    yield return new StreamError(GetString(root, "error") ?? $"Run {runId}: {state}");
+                    yield break;
+                }
+                yield return new StreamDone(
+                    finalStats ?? new ChatStreamStats(null, startedAt.Elapsed.TotalMilliseconds, EstimateTokens(lastOutput ?? ""), null, null),
+                    lastOutput ?? "",
+                    "");
+                yield break;
+            }
+        }
+    }
+
+    private static object BuildResponsesInput(string prompt, IReadOnlyList<ChatInputAttachment> attachments)
+    {
+        if (attachments.Count == 0)
+        {
+            return prompt;
+        }
+
+        return new object[]
+        {
+            new Dictionary<string, object?>
+            {
+                ["role"] = "user",
+                ["content"] = BuildContentParts(prompt, attachments)
+            }
+        };
+    }
+
+    private static List<Dictionary<string, object?>> BuildContentParts(string prompt, IReadOnlyList<ChatInputAttachment> attachments)
+    {
+        var content = new List<Dictionary<string, object?>>
+        {
+            new()
+            {
+                ["type"] = "input_text",
+                ["text"] = prompt
+            }
+        };
+        foreach (var attachment in attachments.Where(a => a.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
+        {
+            content.Add(new Dictionary<string, object?>
+            {
+                ["type"] = "input_image",
+                ["image_url"] = attachment.DataUrl,
+                ["detail"] = "auto"
+            });
+        }
+        return content;
+    }
+
+    private static async Task<(int StatusCode, string Body)> SendJsonAsync(HttpMethod method, string url, string? jsonPayload, bool allowCompatAuth, CancellationToken cancellationToken)
+    {
+        var authCandidates = GatewayService.BuildHermesAuthCandidates(allowCompatAuth).ToArray();
+        foreach (var token in authCandidates)
+        {
+            using var request = new HttpRequestMessage(method, url);
+            request.Headers.TryAddWithoutValidation("Accept", "application/json");
+            request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            }
+            if (jsonPayload is not null)
+            {
+                request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+            }
+
+            using var response = await StreamClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (GatewayService.ShouldRetryWithBearerAuth((int)response.StatusCode, body))
+            {
+                continue;
+            }
+            return ((int)response.StatusCode, body);
+        }
+
+        return (0, "Nessuna credenziale Hermes valida.");
     }
 
     private static IEnumerable<ChatStreamEvent> ParseSseEvent(string? eventName, string data)

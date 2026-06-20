@@ -42,6 +42,7 @@ public sealed partial class HomePage : Page
     private int? _lastServerContextPercent;
     private volatile bool _isSending;
     private StreamingBubble? _currentStreamingBubble;
+    private readonly List<ChatInputAttachment> _pendingAttachments = [];
 
     private Popup? _slashPopup;
     private ListView? _slashList;
@@ -178,7 +179,11 @@ public sealed partial class HomePage : Page
     private async void AttachFile_Click(object sender, RoutedEventArgs e)
     {
         var picker = new FileOpenPicker();
-        picker.FileTypeFilter.Add("*");
+        picker.FileTypeFilter.Add(".png");
+        picker.FileTypeFilter.Add(".jpg");
+        picker.FileTypeFilter.Add(".jpeg");
+        picker.FileTypeFilter.Add(".webp");
+        picker.FileTypeFilter.Add(".bmp");
 
         if (App.MainWindow is not null)
         {
@@ -192,8 +197,16 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        AddAction("File task", $"File selezionato: {file.Name}");
-        PromptBox.Text = AppendPrompt($"Usa questo file come contesto per il task: {file.Path}");
+        var attachment = await TryCreateImageAttachmentAsync(file);
+        if (attachment is null)
+        {
+            AddAction("Allegato", "Formato immagine non supportato o file troppo grande. Usa PNG/JPEG/WebP sotto 6 MB.");
+            return;
+        }
+
+        _pendingAttachments.Add(attachment);
+        AddAction("Allegato vision", $"{file.Name} pronto per Hermes vision ({attachment.SizeBytes / 1024} KB).");
+        PromptBox.Text = AppendPrompt("Analizza l'immagine allegata.");
     }
 
     private async void CaptureScreenshot_Click(object sender, RoutedEventArgs e)
@@ -303,11 +316,15 @@ public sealed partial class HomePage : Page
         SendButton.IsEnabled = false;
 
         var prompt = PromptBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(prompt))
+        if (string.IsNullOrWhiteSpace(prompt) && _pendingAttachments.Count == 0)
         {
             _isSending = false;
             SendButton.IsEnabled = true;
             return;
+        }
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            prompt = "Analizza l'immagine allegata.";
         }
 
         CloseSlashPopup();
@@ -318,10 +335,15 @@ public sealed partial class HomePage : Page
         try
         {
             EmptyState.Visibility = Visibility.Collapsed;
-            AddBubble("Tu", prompt, "UserBubbleBrush", HorizontalAlignment.Right);
-            _messageHistory.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
+            var attachments = _pendingAttachments.ToList();
+            _pendingAttachments.Clear();
+            var displayPrompt = attachments.Count == 0
+                ? prompt
+                : $"{prompt}\n\n[Allegati vision: {string.Join(", ", attachments.Select(a => a.FileName))}]";
+            AddBubble("Tu", displayPrompt, "UserBubbleBrush", HorizontalAlignment.Right);
+            _messageHistory.Add(new ChatMessageRecord("Tu", displayPrompt, DateTimeOffset.Now));
             PromptBox.Text = string.Empty;
-            var initialSave = await Task.Run(() => ChatArchiveStore.SaveSnapshot(_conversationId, _mode, prompt, _messageHistory.ToList(), "Hermes in corso", _previousResponseId));
+            var initialSave = await Task.Run(() => ChatArchiveStore.SaveSnapshot(_conversationId, _mode, displayPrompt, _messageHistory.ToList(), "Hermes in corso", _previousResponseId));
             _conversationId = initialSave.Id;
             _previousResponseId = initialSave.PreviousResponseId;
 
@@ -346,7 +368,7 @@ public sealed partial class HomePage : Page
             double? uiFirstTextMs = null;
             double? uiLastTextMs = null;
             streamCts = new CancellationTokenSource();
-            var streamEvents = StartStreamProducer(settings, _mode, prompt, _messageHistory.ToList(), _conversationId, _previousResponseId, streamCts.Token);
+            var streamEvents = StartStreamProducer(settings, _mode, prompt, _messageHistory.ToList(), _conversationId, _previousResponseId, attachments, streamCts.Token);
 
             void AddRawEventIfEnabled(string name, string json)
             {
@@ -547,6 +569,7 @@ public sealed partial class HomePage : Page
         IReadOnlyList<ChatMessageRecord> history,
         string? conversationId,
         string? previousResponseId,
+        IReadOnlyList<ChatInputAttachment> attachments,
         CancellationToken cancellationToken)
     {
         var channel = Channel.CreateBounded<ChatStreamEvent>(new BoundedChannelOptions(512)
@@ -591,7 +614,7 @@ public sealed partial class HomePage : Page
             try
             {
                 await foreach (var ev in ChatStreamClient
-                                   .StreamChatAsync(settings, mode, prompt, history, conversationId, previousResponseId, cancellationToken)
+                                   .StreamChatAsync(settings, mode, prompt, history, conversationId, previousResponseId, attachments, cancellationToken)
                                    .WithCancellation(cancellationToken)
                                    .ConfigureAwait(false))
                 {
@@ -674,6 +697,37 @@ public sealed partial class HomePage : Page
 
         builder.Append(text, 0, remaining);
         builder.Append("\n\n[…troncato: limite 2000000 caratteri raggiunto.]");
+    }
+
+    private static async Task<ChatInputAttachment?> TryCreateImageAttachmentAsync(StorageFile file)
+    {
+        var mimeType = ImageMimeType(file.FileType);
+        if (mimeType is null)
+        {
+            return null;
+        }
+
+        var bytes = await File.ReadAllBytesAsync(file.Path);
+        const int maxBytes = 6 * 1024 * 1024;
+        if (bytes.Length <= 0 || bytes.Length > maxBytes)
+        {
+            return null;
+        }
+
+        var dataUrl = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
+        return new ChatInputAttachment(file.Name, mimeType, dataUrl, bytes.LongLength);
+    }
+
+    private static string? ImageMimeType(string extension)
+    {
+        return extension.ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            ".bmp" => "image/bmp",
+            _ => null
+        };
     }
 
     private static bool IsShiftPressed()
