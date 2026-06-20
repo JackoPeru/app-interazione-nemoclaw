@@ -9,118 +9,50 @@
     Unloaded="Page_Unloaded"
     mc:Ignorable="d">
 
-    <ScrollViewer Background="{StaticResource AppBackgroundBrush}" VerticalScrollBarVisibility="Auto">
-        <Grid Padding="44,36" RowSpacing="22">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+    <Grid Background="{StaticResource AppBackgroundBrush}" Padding="36" RowSpacing="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-            <StackPanel Spacing="8">
+        <Grid ColumnSpacing="14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="6">
                 <TextBlock
                     FontSize="30"
                     FontWeight="SemiBold"
                     Foreground="White"
                     Text="Prestazioni" />
-                <TextBlock
-                    MaxWidth="920"
-                    Foreground="{StaticResource MutedTextBrush}"
-                    Text="Vista tipo Gestione attivita del server Hermes via gateway. Aggiornamento automatico ogni secondo." />
+                <TextBlock x:Name="HostText" Foreground="White" TextWrapping="Wrap" />
+                <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
             </StackPanel>
+            <Button
+                Grid.Column="1"
+                Click="Refresh_Click"
+                Content="Aggiorna"
+                VerticalAlignment="Top" />
+        </Grid>
 
-            <Border Grid.Row="1" Style="{StaticResource PremiumCardBorderStyle}">
-                <Grid ColumnSpacing="14" RowSpacing="10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Spacing="6">
-                        <TextBlock FontWeight="SemiBold" Foreground="White" Text="Host remoto" />
-                        <TextBlock x:Name="HostText" Foreground="White" TextWrapping="Wrap" />
-                        <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
-                    </StackPanel>
-                    <Button
-                        Grid.Column="1"
-                        Click="Refresh_Click"
-                        Content="Aggiorna"
-                        VerticalAlignment="Top" />
-                </Grid>
+        <Grid Grid.Row="1" ColumnSpacing="18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Style="{StaticResource PremiumCardBorderStyle}" Padding="10">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="ComponentsPanel" Spacing="8" />
+                </ScrollViewer>
             </Border>
 
-            <Grid Grid.Row="2" ColumnSpacing="16" RowSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-
-                <Border Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="CPU" />
-                        <TextBlock x:Name="CpuText" Foreground="White" FontSize="28" FontWeight="SemiBold" />
-                        <ProgressBar x:Name="CpuBar" Maximum="100" />
-                        <TextBlock x:Name="CpuDetailText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border Grid.Column="1" Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Memoria RAM" />
-                        <TextBlock x:Name="MemoryText" Foreground="White" FontSize="28" FontWeight="SemiBold" />
-                        <ProgressBar x:Name="MemoryBar" Maximum="100" />
-                        <TextBlock x:Name="MemoryDetailText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border Grid.Row="1" Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Swap" />
-                        <TextBlock x:Name="SwapText" Foreground="White" FontSize="28" FontWeight="SemiBold" />
-                        <ProgressBar x:Name="SwapBar" Maximum="100" />
-                        <TextBlock x:Name="SwapDetailText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Rete" />
-                        <TextBlock x:Name="NetworkText" Foreground="White" FontSize="24" FontWeight="SemiBold" />
-                        <TextBlock x:Name="NetworkDetailText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Border Grid.Row="2" Grid.ColumnSpan="2" Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="GPU" />
-                        <StackPanel x:Name="GpusPanel" Spacing="10" />
-                    </StackPanel>
-                </Border>
-            </Grid>
-
-            <Grid Grid.Row="3" ColumnSpacing="16" RowSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Border Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Dischi" />
-                        <StackPanel x:Name="DisksPanel" Spacing="10" />
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="1" Style="{StaticResource PremiumCardBorderStyle}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Temperature" />
-                        <StackPanel x:Name="TemperaturesPanel" Spacing="10" />
-                    </StackPanel>
-                </Border>
-            </Grid>
+            <Border Grid.Column="1" Style="{StaticResource PremiumCardBorderStyle}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="DetailPanel" Spacing="18" />
+                </ScrollViewer>
+            </Border>
         </Grid>
-    </ScrollViewer>
+    </Grid>
 </Page>

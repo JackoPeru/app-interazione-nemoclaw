@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.96 Release Hermes Hub 0.6.96 GPU performance monitoring
+v0.6.97 Release Hermes Hub 0.6.97 Task Manager hardware layout
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,16 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.97 (Task Manager hardware layout):
+
+Release 0.6.97:
+- Windows/Android Prestazioni ridisegnata in stile Gestione attivita: lista verticale a sinistra con CPU, Memoria, Swap, Ethernet, GPU e dischi; pannello dettaglio a destra per il componente selezionato.
+- Ogni riquadro laterale mostra valore live e barra utilizzo; il pannello dettaglio mostra titolo, sottotitolo, valore principale, grafico utilizzo realtime e grafico temperatura quando il sensore esiste.
+- Storia grafici locale mantenuta per circa 120 campioni, aggiornata ogni secondo dal polling hardware.
+- Dettagli per componente: CPU core/frequenza/processi/uptime, RAM usata/totale/disponibile, rete down/up/totali, GPU VRAM/temp/power/driver, dischi spazio usato/libero/totale/device.
+- Nota tecnica: per i dischi il grafico usa percentuale spazio usato finche' il gateway non espone I/O disco/activity time.
+- Release bump: Windows/AdminBridge `0.6.97`, Android `versionName 0.6.97`, `versionCode 102`.
 
 Hermes Hub 0.6.96 (GPU performance monitoring):
 

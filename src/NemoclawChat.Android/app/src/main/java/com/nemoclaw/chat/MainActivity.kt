@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -523,6 +524,26 @@ private data class HardwareGpu(
     val powerDrawWatts: Double?,
     val powerLimitWatts: Double?,
     val driverVersion: String
+)
+
+private data class HardwareComponentView(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val primaryValue: String,
+    val utilizationPercent: Double,
+    val temperatureC: Double?,
+    val stats: List<HardwareStatView>
+)
+
+private data class HardwareStatView(
+    val label: String,
+    val value: String
+)
+
+private data class HardwareHistoryPoint(
+    val utilizationPercent: Double,
+    val temperatureC: Double?
 )
 
 private data class HardwareSnapshot(
@@ -2901,6 +2922,8 @@ private fun ServerMetric(title: String, value: String, detail: String) {
 private fun HardwareScreen(context: Context, settings: AppSettings) {
     var snapshot by remember(settings) { mutableStateOf(HardwareSnapshot()) }
     var previous by remember(settings) { mutableStateOf<HardwareSnapshot?>(null) }
+    var selectedComponentId by rememberSaveable { mutableStateOf("cpu") }
+    var history by remember { mutableStateOf<Map<String, List<HardwareHistoryPoint>>>(emptyMap()) }
     val apiKey = remember(settings.gatewayUrl) { loadGatewaySecret(context) }
 
     LaunchedEffect(settings.gatewayUrl, apiKey) {
@@ -2916,6 +2939,24 @@ private fun HardwareScreen(context: Context, settings: AppSettings) {
     val downRate = previous?.let { ((snapshot.networkBytesReceived - it.networkBytesReceived).coerceAtLeast(0) / dtSeconds).toLong() } ?: 0L
     val upRate = previous?.let { ((snapshot.networkBytesSent - it.networkBytesSent).coerceAtLeast(0) / dtSeconds).toLong() } ?: 0L
     val temperatureViews = remember(snapshot.temperatures) { snapshot.temperatures.toHardwareTemperatureViews() }
+    val components = remember(snapshot, previous, downRate, upRate, temperatureViews) {
+        buildHardwareComponents(snapshot, temperatureViews, downRate, upRate)
+    }
+    val selectedComponent = components.firstOrNull { it.id == selectedComponentId } ?: components.firstOrNull()
+
+    LaunchedEffect(snapshot.timestampMs, components) {
+        if (components.isNotEmpty()) {
+            if (components.none { it.id == selectedComponentId }) {
+                selectedComponentId = components.first().id
+            }
+            val next = history.toMutableMap()
+            components.forEach { component ->
+                val points = next[component.id].orEmpty()
+                next[component.id] = (points + HardwareHistoryPoint(component.utilizationPercent, component.temperatureC)).takeLast(120)
+            }
+            history = next
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -2926,114 +2967,249 @@ private fun HardwareScreen(context: Context, settings: AppSettings) {
         item {
             Text("Prestazioni", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Vista tipo Gestione attivita del server Hermes. Polling ogni secondo.", color = AppColors.Muted)
+            Text("${snapshot.hostname} - ${snapshot.operatingSystem} ${snapshot.architecture}. Uptime ${formatHardwareUptime(snapshot.uptimeSeconds)}. Processi ${snapshot.processCount}.", color = AppColors.Muted)
         }
         item {
-            ServerMetric(
-                "Host",
-                "${snapshot.hostname} - ${snapshot.operatingSystem} ${snapshot.architecture}",
-                "${snapshot.message} Uptime ${formatHardwareUptime(snapshot.uptimeSeconds)}. Processi ${snapshot.processCount}. ${snapshot.platform}"
-            )
-        }
-        item {
-            HardwareGauge(
-                title = "CPU",
-                percent = snapshot.cpuPercent,
-                value = "${snapshot.cpuPercent.roundToInt().coerceIn(0, 100)}%",
-                detail = "${snapshot.physicalCores} core fisici / ${snapshot.logicalCores} thread. ${formatMhz(snapshot.currentMhz)} / max ${formatMhz(snapshot.maxMhz)}. ${snapshot.processor}"
-            )
-        }
-        item {
-            HardwareGauge(
-                title = "Memoria RAM",
-                percent = snapshot.memoryPercent,
-                value = "${snapshot.memoryPercent.roundToInt().coerceIn(0, 100)}%",
-                detail = "${snapshot.memoryUsedBytes.toReadableFileSize()} usati / ${snapshot.memoryTotalBytes.toReadableFileSize()} totali. Disponibili ${snapshot.memoryAvailableBytes.toReadableFileSize()}."
-            )
-        }
-        item {
-            HardwareGauge(
-                title = "Swap",
-                percent = snapshot.swapPercent,
-                value = "${snapshot.swapPercent.roundToInt().coerceIn(0, 100)}%",
-                detail = "${snapshot.swapUsedBytes.toReadableFileSize()} usati / ${snapshot.swapTotalBytes.toReadableFileSize()} totali."
-            )
-        }
-        item {
-            ServerMetric(
-                "Rete",
-                "Down ${downRate.toReadableFileSize()}/s - Up ${upRate.toReadableFileSize()}/s",
-                "Totale ricevuto ${snapshot.networkBytesReceived.toReadableFileSize()} - inviato ${snapshot.networkBytesSent.toReadableFileSize()}."
-            )
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("GPU", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    if (snapshot.gpus.isEmpty()) {
-                        Text("Nessuna GPU esposta dal gateway. Su Linux serve nvidia-smi disponibile nel PATH del servizio.", color = AppColors.Muted, fontSize = 12.sp)
-                    } else {
-                        snapshot.gpus.sortedBy { it.index }.forEach { gpu ->
-                            val memoryPercent = if (gpu.memoryTotalBytes > 0) {
-                                (gpu.memoryUsedBytes.toDouble() / gpu.memoryTotalBytes.toDouble() * 100.0).coerceIn(0.0, 100.0)
-                            } else {
-                                gpu.memoryUtilizationPercent
-                            }
-                            HardwareGauge(
-                                title = "GPU ${gpu.index} - ${gpu.name.removePrefix("NVIDIA ").trim()}",
-                                percent = gpu.utilizationPercent,
-                                value = "${gpu.utilizationPercent.roundToInt().coerceIn(0, 100)}% (${formatTemperature(gpu.temperatureC)})",
-                                detail = "VRAM ${gpu.memoryUsedBytes.toReadableFileSize()} / ${gpu.memoryTotalBytes.toReadableFileSize()} (${memoryPercent.roundToInt().coerceIn(0, 100)}%). Power ${formatWatts(gpu.powerDrawWatts)} / ${formatWatts(gpu.powerLimitWatts)}. Driver ${gpu.driverVersion}.",
-                                compact = true
-                            )
-                        }
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                if (maxWidth > 720.dp) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        HardwareComponentList(
+                            components = components,
+                            selectedId = selectedComponent?.id.orEmpty(),
+                            onSelect = { selectedComponentId = it },
+                            modifier = Modifier.width(240.dp)
+                        )
+                        HardwareComponentDetail(
+                            component = selectedComponent,
+                            history = selectedComponent?.let { history[it.id].orEmpty() }.orEmpty(),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else {
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        HardwareComponentList(
+                            components = components,
+                            selectedId = selectedComponent?.id.orEmpty(),
+                            onSelect = { selectedComponentId = it },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        HardwareComponentDetail(
+                            component = selectedComponent,
+                            history = selectedComponent?.let { history[it.id].orEmpty() }.orEmpty(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
         }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Dischi", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    if (snapshot.disks.isEmpty()) {
-                        Text("Nessun disco esposto dal gateway.", color = AppColors.Muted, fontSize = 12.sp)
-                    } else {
-                        snapshot.disks.forEach { disk ->
-                            HardwareGauge(
-                                title = "${disk.mountpoint} (${disk.fileSystem})",
-                                percent = disk.percent,
-                                value = "${disk.percent.roundToInt().coerceIn(0, 100)}%",
-                                detail = "${disk.usedBytes.toReadableFileSize()} usati / ${disk.totalBytes.toReadableFileSize()} totali. Libero ${disk.freeBytes.toReadableFileSize()}. ${disk.device}",
-                                compact = true
-                            )
+    }
+}
+
+@Composable
+private fun HardwareComponentList(
+    components: List<HardwareComponentView>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(modifier = modifier, color = AppColors.Surface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, AppColors.Border)) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            components.forEach { component ->
+                val selected = component.id == selectedId
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(component.id) },
+                    color = if (selected) AppColors.Accent.copy(alpha = 0.18f) else AppColors.Panel,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (selected) AppColors.Accent else AppColors.Border)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(component.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text(component.primaryValue, color = AppColors.Accent, fontWeight = FontWeight.SemiBold)
                         }
+                        Text(component.subtitle, color = AppColors.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        LinearProgressIndicator(
+                            progress = { (component.utilizationPercent / 100.0).toFloat().coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = AppColors.Accent,
+                            trackColor = Color(0xFF424242)
+                        )
                     }
                 }
             }
         }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Temperature", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    if (temperatureViews.isEmpty()) {
-                        Text("Sensori non disponibili o non esposti. Stato: ${snapshot.temperatureSupport}. Su Windows spesso servono driver/tool vendor; su Ubuntu installa psutil e abilita lm-sensors.", color = AppColors.Muted, fontSize = 12.sp)
-                    } else {
-                        temperatureViews.forEach { temp ->
-                            Surface(color = AppColors.Panel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AppColors.Border)) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text(temp.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                        Text("${String.format(java.util.Locale.US, "%.1f", temp.currentC)} C", color = AppColors.Accent, fontWeight = FontWeight.SemiBold)
-                                    }
-                                    Text("${temp.source}. Limite ${formatTemperature(temp.highC)}, critico ${formatTemperature(temp.criticalC)}.", color = AppColors.Muted, fontSize = 12.sp)
-                                }
-                            }
+    }
+}
+
+@Composable
+private fun HardwareComponentDetail(component: HardwareComponentView?, history: List<HardwareHistoryPoint>, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, color = AppColors.Surface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, AppColors.Border)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (component == null) {
+                Text("Nessun componente disponibile.", color = AppColors.Muted)
+                return@Column
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(component.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+                    Text(component.subtitle, color = AppColors.Muted)
+                }
+                Text(component.primaryValue, color = AppColors.Accent, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+            }
+            HardwareLineChart("Utilizzo", history.map { it.utilizationPercent }, 100.0, "%", AppColors.Accent)
+            HardwareLineChart("Temperatura", history.mapNotNull { it.temperatureC }, 100.0, " C", Color(0xFFFF7062))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                component.stats.forEach { stat ->
+                    Surface(color = AppColors.Panel, shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, AppColors.Border)) {
+                        Column(modifier = Modifier.widthIn(min = 120.dp, max = 220.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stat.label, color = AppColors.Muted, fontSize = 12.sp)
+                            Text(stat.value, color = Color.White, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun HardwareLineChart(title: String, values: List<Double>, maxValue: Double, unit: String, color: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(if (values.isEmpty()) "$title: n/d" else "$title: ${String.format(java.util.Locale.US, "%.1f", values.last())}$unit", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Canvas(modifier = Modifier.fillMaxWidth().height(170.dp).background(AppColors.Panel, RoundedCornerShape(10.dp)).border(1.dp, AppColors.Border, RoundedCornerShape(10.dp)).padding(8.dp)) {
+            val chartWidth = size.width
+            val chartHeight = size.height
+            repeat(5) { index ->
+                val y = chartHeight * index / 4f
+                drawLine(color = AppColors.Border, start = Offset(0f, y), end = Offset(chartWidth, y), strokeWidth = 1f)
+            }
+            if (values.size < 2) return@Canvas
+            val clamped = values.takeLast(120).map { it.coerceIn(0.0, maxValue) }
+            val step = chartWidth / (clamped.size - 1).coerceAtLeast(1)
+            for (i in 1 until clamped.size) {
+                val x1 = step * (i - 1)
+                val x2 = step * i
+                val y1 = chartHeight - (clamped[i - 1] / maxValue * chartHeight).toFloat()
+                val y2 = chartHeight - (clamped[i] / maxValue * chartHeight).toFloat()
+                drawLine(color = color, start = Offset(x1, y1), end = Offset(x2, y2), strokeWidth = 4f, cap = StrokeCap.Round)
+            }
+        }
+    }
+}
+
+private fun buildHardwareComponents(
+    snapshot: HardwareSnapshot,
+    temperatures: List<HardwareTemperatureView>,
+    downRate: Long,
+    upRate: Long
+): List<HardwareComponentView> {
+    val tempByTitle = temperatures.associateBy { it.title }
+    val components = mutableListOf<HardwareComponentView>()
+    val cpuTemp = tempByTitle["CPU package"]?.currentC
+    components += HardwareComponentView(
+        id = "cpu",
+        title = "CPU",
+        subtitle = snapshot.processor.takeUnless { it == "-" } ?: "${snapshot.physicalCores} core / ${snapshot.logicalCores} thread",
+        primaryValue = "${snapshot.cpuPercent.roundToInt().coerceIn(0, 100)}%",
+        utilizationPercent = snapshot.cpuPercent,
+        temperatureC = cpuTemp,
+        stats = listOf(
+            HardwareStatView("Utilizzo", "${snapshot.cpuPercent.roundToInt().coerceIn(0, 100)}%"),
+            HardwareStatView("Temperatura", formatTemperature(cpuTemp)),
+            HardwareStatView("Core", "${snapshot.physicalCores} fisici / ${snapshot.logicalCores} thread"),
+            HardwareStatView("Frequenza", "${formatMhz(snapshot.currentMhz)} / max ${formatMhz(snapshot.maxMhz)}"),
+            HardwareStatView("Processi", "${snapshot.processCount}"),
+            HardwareStatView("Uptime", formatHardwareUptime(snapshot.uptimeSeconds))
+        )
+    )
+    components += HardwareComponentView(
+        id = "memory",
+        title = "Memoria",
+        subtitle = "${snapshot.memoryUsedBytes.toReadableFileSize()} / ${snapshot.memoryTotalBytes.toReadableFileSize()}",
+        primaryValue = "${snapshot.memoryPercent.roundToInt().coerceIn(0, 100)}%",
+        utilizationPercent = snapshot.memoryPercent,
+        temperatureC = null,
+        stats = listOf(
+            HardwareStatView("Uso RAM", "${snapshot.memoryPercent.roundToInt().coerceIn(0, 100)}%"),
+            HardwareStatView("Usata", snapshot.memoryUsedBytes.toReadableFileSize()),
+            HardwareStatView("Totale", snapshot.memoryTotalBytes.toReadableFileSize()),
+            HardwareStatView("Disponibile", snapshot.memoryAvailableBytes.toReadableFileSize())
+        )
+    )
+    if (snapshot.swapTotalBytes > 0L) {
+        components += HardwareComponentView(
+            id = "swap",
+            title = "Swap",
+            subtitle = "${snapshot.swapUsedBytes.toReadableFileSize()} / ${snapshot.swapTotalBytes.toReadableFileSize()}",
+            primaryValue = "${snapshot.swapPercent.roundToInt().coerceIn(0, 100)}%",
+            utilizationPercent = snapshot.swapPercent,
+            temperatureC = null,
+            stats = listOf(
+                HardwareStatView("Uso swap", "${snapshot.swapPercent.roundToInt().coerceIn(0, 100)}%"),
+                HardwareStatView("Usata", snapshot.swapUsedBytes.toReadableFileSize()),
+                HardwareStatView("Totale", snapshot.swapTotalBytes.toReadableFileSize())
+            )
+        )
+    }
+    val networkPercent = ((downRate + upRate).toDouble() / (125.0 * 1024.0 * 1024.0) * 100.0).coerceIn(0.0, 100.0)
+    components += HardwareComponentView(
+        id = "network",
+        title = "Ethernet",
+        subtitle = "Down ${downRate.toReadableFileSize()}/s / Up ${upRate.toReadableFileSize()}/s",
+        primaryValue = "${(downRate + upRate).toReadableFileSize()}/s",
+        utilizationPercent = networkPercent,
+        temperatureC = temperatures.firstOrNull { it.title.startsWith("Ethernet") }?.currentC,
+        stats = listOf(
+            HardwareStatView("Ricezione", "${downRate.toReadableFileSize()}/s"),
+            HardwareStatView("Invio", "${upRate.toReadableFileSize()}/s"),
+            HardwareStatView("Totale ricevuto", snapshot.networkBytesReceived.toReadableFileSize()),
+            HardwareStatView("Totale inviato", snapshot.networkBytesSent.toReadableFileSize())
+        )
+    )
+    snapshot.gpus.sortedBy { it.index }.forEach { gpu ->
+        val memoryPercent = if (gpu.memoryTotalBytes > 0L) {
+            (gpu.memoryUsedBytes.toDouble() / gpu.memoryTotalBytes.toDouble() * 100.0).coerceIn(0.0, 100.0)
+        } else {
+            gpu.memoryUtilizationPercent
+        }
+        components += HardwareComponentView(
+            id = "gpu-${gpu.index}",
+            title = "GPU ${gpu.index}",
+            subtitle = gpu.name.removePrefix("NVIDIA ").trim(),
+            primaryValue = "${gpu.utilizationPercent.roundToInt().coerceIn(0, 100)}%",
+            utilizationPercent = gpu.utilizationPercent,
+            temperatureC = gpu.temperatureC,
+            stats = listOf(
+                HardwareStatView("Utilizzo GPU", "${gpu.utilizationPercent.roundToInt().coerceIn(0, 100)}%"),
+                HardwareStatView("Temperatura", formatTemperature(gpu.temperatureC)),
+                HardwareStatView("VRAM", "${gpu.memoryUsedBytes.toReadableFileSize()} / ${gpu.memoryTotalBytes.toReadableFileSize()} (${memoryPercent.roundToInt().coerceIn(0, 100)}%)"),
+                HardwareStatView("Power", "${formatWatts(gpu.powerDrawWatts)} / ${formatWatts(gpu.powerLimitWatts)}"),
+                HardwareStatView("Driver", gpu.driverVersion)
+            )
+        )
+    }
+    snapshot.disks.sortedBy { it.mountpoint }.forEachIndexed { index, disk ->
+        val diskTemp = if (disk.device.contains("nvme", ignoreCase = true)) tempByTitle["SSD NVMe"]?.currentC else null
+        components += HardwareComponentView(
+            id = "disk-$index",
+            title = if (disk.device.contains("nvme", ignoreCase = true)) "SSD $index" else "Disco $index",
+            subtitle = "${disk.mountpoint} (${disk.fileSystem})",
+            primaryValue = "${disk.percent.roundToInt().coerceIn(0, 100)}%",
+            utilizationPercent = disk.percent,
+            temperatureC = diskTemp,
+            stats = listOf(
+                HardwareStatView("Spazio usato", "${disk.percent.roundToInt().coerceIn(0, 100)}%"),
+                HardwareStatView("Usato", disk.usedBytes.toReadableFileSize()),
+                HardwareStatView("Libero", disk.freeBytes.toReadableFileSize()),
+                HardwareStatView("Totale", disk.totalBytes.toReadableFileSize()),
+                HardwareStatView("Temperatura", formatTemperature(diskTemp)),
+                HardwareStatView("Device", disk.device)
+            )
+        )
+    }
+    return components
 }
 
 @Composable

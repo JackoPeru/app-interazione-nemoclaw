@@ -1,15 +1,23 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using NemoclawChat_Windows.Services;
+using Windows.Foundation;
 
 namespace NemoclawChat_Windows.Pages;
 
 public sealed partial class HardwarePage : Page
 {
+    private const int HistoryLimit = 120;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly Dictionary<string, List<HardwareSample>> _history = [];
     private AppSettings _settings = new();
     private HardwareSnapshot? _previous;
+    private HardwareSnapshot? _lastSnapshot;
+    private IReadOnlyList<HardwareComponent> _components = [];
+    private string _selectedComponentId = "cpu";
     private bool _loading;
 
     public HardwarePage()
@@ -63,132 +71,360 @@ public sealed partial class HardwarePage : Page
 
     private void Render(HardwareSnapshot snapshot, HardwareSnapshot? previous)
     {
+        _lastSnapshot = snapshot;
+        _components = BuildComponents(snapshot, previous);
+        if (_components.Count > 0 && !_components.Any(item => item.Id == _selectedComponentId))
+        {
+            _selectedComponentId = _components[0].Id;
+        }
+
+        foreach (var component in _components)
+        {
+            AddHistory(component);
+        }
+
         HostText.Text = $"{snapshot.Hostname} - {snapshot.OperatingSystem} {snapshot.Architecture}";
         StatusText.Text = $"{snapshot.Message} Ultimo update: {snapshot.Timestamp.LocalDateTime:g}. Uptime: {FormatDuration(snapshot.UptimeSeconds)}. Processi: {snapshot.ProcessCount}.";
 
-        CpuText.Text = $"{snapshot.CpuPercent:0}%";
-        CpuBar.Value = ClampPercent(snapshot.CpuPercent);
-        CpuDetailText.Text = $"{snapshot.PhysicalCores} core fisici / {snapshot.LogicalCores} thread. Frequenza: {FormatMhz(snapshot.CurrentMhz)} / max {FormatMhz(snapshot.MaxMhz)}. CPU: {snapshot.Processor}";
+        RenderComponentList();
+        RenderDetail();
+    }
 
-        MemoryText.Text = $"{snapshot.MemoryPercent:0}%";
-        MemoryBar.Value = ClampPercent(snapshot.MemoryPercent);
-        MemoryDetailText.Text = $"{FormatBytes(snapshot.MemoryUsedBytes)} usati / {FormatBytes(snapshot.MemoryTotalBytes)} totali. Disponibili: {FormatBytes(snapshot.MemoryAvailableBytes)}.";
+    private void RenderComponentList()
+    {
+        ComponentsPanel.Children.Clear();
+        foreach (var component in _components)
+        {
+            var selected = component.Id == _selectedComponentId;
+            var button = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(10),
+                MinHeight = 78,
+                CornerRadius = new CornerRadius(10),
+                BorderThickness = new Thickness(1),
+                Background = selected ? AccentBrush(0.18) : PanelBrush(),
+                BorderBrush = selected ? AccentBrush() : UiBorderBrush(),
+                Content = ComponentCard(component)
+            };
+            var componentId = component.Id;
+            button.Click += (_, _) =>
+            {
+                _selectedComponentId = componentId;
+                RenderComponentList();
+                RenderDetail();
+            };
+            ComponentsPanel.Children.Add(button);
+        }
+    }
 
-        SwapText.Text = $"{snapshot.SwapPercent:0}%";
-        SwapBar.Value = ClampPercent(snapshot.SwapPercent);
-        SwapDetailText.Text = $"{FormatBytes(snapshot.SwapUsedBytes)} usati / {FormatBytes(snapshot.SwapTotalBytes)} totali.";
+    private static UIElement ComponentCard(HardwareComponent component)
+    {
+        var root = new Grid { RowSpacing = 6 };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var title = new TextBlock
+        {
+            Text = component.Title,
+            Foreground = WhiteBrush(),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis
+        };
+        var value = new TextBlock
+        {
+            Text = component.PrimaryValue,
+            Foreground = AccentBrush(),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        };
+        var subtitle = new TextBlock
+        {
+            Text = component.Subtitle,
+            Foreground = MutedBrush(),
+            FontSize = 12,
+            TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis
+        };
+        var bar = new ProgressBar { Maximum = 100, Value = ClampPercent(component.UtilizationPercent), Height = 4 };
+
+        Grid.SetColumn(value, 1);
+        Grid.SetRow(subtitle, 1);
+        Grid.SetColumnSpan(subtitle, 2);
+        Grid.SetRow(bar, 2);
+        Grid.SetColumnSpan(bar, 2);
+        root.Children.Add(title);
+        root.Children.Add(value);
+        root.Children.Add(subtitle);
+        root.Children.Add(bar);
+        return root;
+    }
+
+    private void RenderDetail()
+    {
+        DetailPanel.Children.Clear();
+        var component = _components.FirstOrDefault(item => item.Id == _selectedComponentId);
+        if (component is null)
+        {
+            DetailPanel.Children.Add(MutedText("Nessun componente disponibile."));
+            return;
+        }
+
+        var header = new Grid { ColumnSpacing = 16 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var titleStack = new StackPanel { Spacing = 4 };
+        titleStack.Children.Add(new TextBlock { Text = component.Title, Foreground = WhiteBrush(), FontSize = 32, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        titleStack.Children.Add(new TextBlock { Text = component.Subtitle, Foreground = MutedBrush(), TextWrapping = TextWrapping.Wrap });
+        var primary = new TextBlock { Text = component.PrimaryValue, Foreground = AccentBrush(), FontSize = 30, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+        Grid.SetColumn(primary, 1);
+        header.Children.Add(titleStack);
+        header.Children.Add(primary);
+        DetailPanel.Children.Add(header);
+
+        var points = _history.TryGetValue(component.Id, out var history) ? history : [];
+        DetailPanel.Children.Add(ChartBlock("Utilizzo", points.Select(item => (double?)item.UtilizationPercent).ToList(), 100, "%", AccentBrush()));
+        DetailPanel.Children.Add(ChartBlock("Temperatura", points.Select(item => item.TemperatureC).ToList(), 100, " C", new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 255, 112, 98))));
+        DetailPanel.Children.Add(StatsGrid(component.Stats));
+    }
+
+    private static UIElement ChartBlock(string title, IReadOnlyList<double?> values, double maxValue, string unit, Brush lineBrush)
+    {
+        const double width = 900;
+        const double height = 220;
+        var validValues = values.Where(item => item is not null).Select(item => item!.Value).ToList();
+        var root = new Border
+        {
+            Background = PanelBrush(),
+            BorderBrush = UiBorderBrush(),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12)
+        };
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(new TextBlock { Text = validValues.Count == 0 ? $"{title}: n/d" : $"{title}: {validValues[^1]:0.#}{unit}", Foreground = WhiteBrush(), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+
+        var canvas = new Canvas { Height = height, MinWidth = 640, HorizontalAlignment = HorizontalAlignment.Stretch };
+        for (var i = 0; i <= 4; i++)
+        {
+            var y = height * i / 4;
+            canvas.Children.Add(new Line
+            {
+                X1 = 0,
+                X2 = width,
+                Y1 = y,
+                Y2 = y,
+                Stroke = UiBorderBrush(),
+                StrokeThickness = 1
+            });
+        }
+
+        var plotValues = values.Count == 0 ? Array.Empty<double?>() : values;
+        if (plotValues.Any(item => item is not null))
+        {
+            var points = new PointCollection();
+            var count = Math.Max(2, plotValues.Count);
+            for (var i = 0; i < plotValues.Count; i++)
+            {
+                var value = Math.Clamp(plotValues[i] ?? 0, 0, maxValue);
+                var x = plotValues.Count == 1 ? width : width * i / (count - 1);
+                var y = height - (value / maxValue * height);
+                points.Add(new Point(x, y));
+            }
+            canvas.Children.Add(new Polyline
+            {
+                Points = points,
+                Stroke = lineBrush,
+                StrokeThickness = 2.5
+            });
+        }
+        else
+        {
+            canvas.Children.Add(new TextBlock
+            {
+                Text = "Sensore non disponibile",
+                Foreground = MutedBrush(),
+                Margin = new Thickness(12, 92, 0, 0)
+            });
+        }
+
+        stack.Children.Add(canvas);
+        root.Child = stack;
+        return root;
+    }
+
+    private static UIElement StatsGrid(IReadOnlyList<HardwareStat> stats)
+    {
+        var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        for (var i = 0; i < stats.Count; i++)
+        {
+            if (i % 3 == 0)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            }
+            var stat = stats[i];
+            var card = new Border
+            {
+                Background = PanelBrush(),
+                BorderBrush = UiBorderBrush(),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(12)
+            };
+            var stack = new StackPanel { Spacing = 4 };
+            stack.Children.Add(new TextBlock { Text = stat.Label, Foreground = MutedBrush(), FontSize = 12 });
+            stack.Children.Add(new TextBlock { Text = stat.Value, Foreground = WhiteBrush(), FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            card.Child = stack;
+            Grid.SetRow(card, i / 3);
+            Grid.SetColumn(card, i % 3);
+            grid.Children.Add(card);
+        }
+
+        return grid;
+    }
+
+    private void AddHistory(HardwareComponent component)
+    {
+        if (!_history.TryGetValue(component.Id, out var points))
+        {
+            points = [];
+            _history[component.Id] = points;
+        }
+        points.Add(new HardwareSample(component.UtilizationPercent, component.TemperatureC));
+        if (points.Count > HistoryLimit)
+        {
+            points.RemoveRange(0, points.Count - HistoryLimit);
+        }
+    }
+
+    private static IReadOnlyList<HardwareComponent> BuildComponents(HardwareSnapshot snapshot, HardwareSnapshot? previous)
+    {
+        var components = new List<HardwareComponent>();
+        var temperatures = NormalizeTemperatures(snapshot.Temperatures);
+        var tempByTitle = temperatures.ToDictionary(item => item.Title, item => item.CurrentC, StringComparer.OrdinalIgnoreCase);
+        var cpuTemp = tempByTitle.TryGetValue("CPU package", out var cpuTempValue) ? cpuTempValue : (double?)null;
+
+        components.Add(new HardwareComponent(
+            "cpu",
+            "CPU",
+            snapshot.Processor == "-" ? $"{snapshot.PhysicalCores} core / {snapshot.LogicalCores} thread" : snapshot.Processor,
+            $"{snapshot.CpuPercent:0}%",
+            snapshot.CpuPercent,
+            cpuTemp,
+            [
+                new("Utilizzo", $"{snapshot.CpuPercent:0}%"),
+                new("Temperatura", FormatTemp(cpuTemp)),
+                new("Core", $"{snapshot.PhysicalCores} fisici / {snapshot.LogicalCores} thread"),
+                new("Frequenza", $"{FormatMhz(snapshot.CurrentMhz)} / max {FormatMhz(snapshot.MaxMhz)}"),
+                new("Processi", $"{snapshot.ProcessCount}"),
+                new("Uptime", FormatDuration(snapshot.UptimeSeconds))
+            ]));
+
+        components.Add(new HardwareComponent(
+            "memory",
+            "Memoria",
+            $"{FormatBytes(snapshot.MemoryUsedBytes)} / {FormatBytes(snapshot.MemoryTotalBytes)}",
+            $"{snapshot.MemoryPercent:0}%",
+            snapshot.MemoryPercent,
+            null,
+            [
+                new("Uso RAM", $"{snapshot.MemoryPercent:0}%"),
+                new("Usata", FormatBytes(snapshot.MemoryUsedBytes)),
+                new("Totale", FormatBytes(snapshot.MemoryTotalBytes)),
+                new("Disponibile", FormatBytes(snapshot.MemoryAvailableBytes))
+            ]));
+
+        if (snapshot.SwapTotalBytes > 0)
+        {
+            components.Add(new HardwareComponent(
+                "swap",
+                "Swap",
+                $"{FormatBytes(snapshot.SwapUsedBytes)} / {FormatBytes(snapshot.SwapTotalBytes)}",
+                $"{snapshot.SwapPercent:0}%",
+                snapshot.SwapPercent,
+                null,
+                [
+                    new("Uso swap", $"{snapshot.SwapPercent:0}%"),
+                    new("Usata", FormatBytes(snapshot.SwapUsedBytes)),
+                    new("Totale", FormatBytes(snapshot.SwapTotalBytes))
+                ]));
+        }
 
         var seconds = previous is null ? 0 : Math.Max(0.1, (snapshot.Timestamp - previous.Timestamp).TotalSeconds);
         var downRate = previous is null ? 0 : Math.Max(0, snapshot.NetworkBytesReceived - previous.NetworkBytesReceived) / seconds;
         var upRate = previous is null ? 0 : Math.Max(0, snapshot.NetworkBytesSent - previous.NetworkBytesSent) / seconds;
-        NetworkText.Text = $"Down {FormatBytesPerSecond(downRate)} / Up {FormatBytesPerSecond(upRate)}";
-        NetworkDetailText.Text = $"Totale ricevuto {FormatBytes(snapshot.NetworkBytesReceived)} - inviato {FormatBytes(snapshot.NetworkBytesSent)}.";
+        var networkPercent = Math.Min(100, (downRate + upRate) / (125 * 1024 * 1024) * 100);
+        components.Add(new HardwareComponent(
+            "network",
+            "Ethernet",
+            $"Down {FormatBytesPerSecond(downRate)} / Up {FormatBytesPerSecond(upRate)}",
+            FormatBytesPerSecond(downRate + upRate),
+            networkPercent,
+            temperatures.FirstOrDefault(item => item.Title.StartsWith("Ethernet", StringComparison.OrdinalIgnoreCase))?.CurrentC,
+            [
+                new("Ricezione", FormatBytesPerSecond(downRate)),
+                new("Invio", FormatBytesPerSecond(upRate)),
+                new("Totale ricevuto", FormatBytes(snapshot.NetworkBytesReceived)),
+                new("Totale inviato", FormatBytes(snapshot.NetworkBytesSent))
+            ]));
 
-        RenderGpus(snapshot.Gpus);
-        RenderDisks(snapshot.Disks);
-        RenderTemperatures(snapshot);
-    }
-
-    private void RenderGpus(IReadOnlyList<HardwareGpuRecord> gpus)
-    {
-        GpusPanel.Children.Clear();
-        if (gpus.Count == 0)
+        foreach (var gpu in snapshot.Gpus.OrderBy(item => item.Index))
         {
-            GpusPanel.Children.Add(MutedText("Nessuna GPU esposta dal gateway. Su Linux serve nvidia-smi disponibile nel PATH del servizio."));
-            return;
-        }
-
-        foreach (var gpu in gpus.OrderBy(item => item.Index))
-        {
-            var temp = gpu.TemperatureC is null ? "n/d" : $"{gpu.TemperatureC:0} C";
             var memoryPercent = gpu.MemoryTotalBytes > 0
                 ? Math.Clamp((double)gpu.MemoryUsedBytes / gpu.MemoryTotalBytes * 100.0, 0, 100)
                 : gpu.MemoryUtilizationPercent;
-            var power = gpu.PowerDrawWatts is null || gpu.PowerLimitWatts is null
-                ? "Power n/d"
-                : $"{gpu.PowerDrawWatts:0} W / {gpu.PowerLimitWatts:0} W";
-
-            GpusPanel.Children.Add(new StackPanel
-            {
-                Spacing = 6,
-                Children =
-                {
-                    new TextBlock { Text = $"GPU {gpu.Index} - {TrimGpuName(gpu.Name)}", Foreground = WhiteBrush(), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
-                    new ProgressBar { Maximum = 100, Value = ClampPercent(gpu.UtilizationPercent) },
-                    MutedText($"{gpu.UtilizationPercent:0}% uso GPU. VRAM {FormatBytes(gpu.MemoryUsedBytes)} / {FormatBytes(gpu.MemoryTotalBytes)} ({memoryPercent:0}%). Temp {temp}. {power}. Driver {gpu.DriverVersion}.")
-                }
-            });
+            components.Add(new HardwareComponent(
+                $"gpu-{gpu.Index}",
+                $"GPU {gpu.Index}",
+                TrimGpuName(gpu.Name),
+                $"{gpu.UtilizationPercent:0}%",
+                gpu.UtilizationPercent,
+                gpu.TemperatureC,
+                [
+                    new("Utilizzo GPU", $"{gpu.UtilizationPercent:0}%"),
+                    new("Temperatura", FormatTemp(gpu.TemperatureC)),
+                    new("VRAM", $"{FormatBytes(gpu.MemoryUsedBytes)} / {FormatBytes(gpu.MemoryTotalBytes)} ({memoryPercent:0}%)"),
+                    new("Power", gpu.PowerDrawWatts is null || gpu.PowerLimitWatts is null ? "n/d" : $"{gpu.PowerDrawWatts:0} W / {gpu.PowerLimitWatts:0} W"),
+                    new("Driver", gpu.DriverVersion)
+                ]));
         }
+
+        var diskIndex = 0;
+        foreach (var disk in snapshot.Disks.OrderBy(item => item.Mountpoint))
+        {
+            var diskTemp = disk.Device.Contains("nvme", StringComparison.OrdinalIgnoreCase) && tempByTitle.TryGetValue("SSD NVMe", out var ssdTemp)
+                ? ssdTemp
+                : (double?)null;
+            components.Add(new HardwareComponent(
+                $"disk-{diskIndex}",
+                disk.Device.Contains("nvme", StringComparison.OrdinalIgnoreCase) ? $"SSD {diskIndex}" : $"Disco {diskIndex}",
+                $"{disk.Mountpoint} ({disk.FileSystem})",
+                $"{disk.Percent:0}%",
+                disk.Percent,
+                diskTemp,
+                [
+                    new("Spazio usato", $"{disk.Percent:0}%"),
+                    new("Usato", FormatBytes(disk.UsedBytes)),
+                    new("Libero", FormatBytes(disk.FreeBytes)),
+                    new("Totale", FormatBytes(disk.TotalBytes)),
+                    new("Temperatura", FormatTemp(diskTemp)),
+                    new("Device", disk.Device)
+                ]));
+            diskIndex++;
+        }
+
+        return components;
     }
 
-    private void RenderDisks(IReadOnlyList<HardwareDiskRecord> disks)
-    {
-        DisksPanel.Children.Clear();
-        if (disks.Count == 0)
-        {
-            DisksPanel.Children.Add(MutedText("Nessun disco esposto dal gateway."));
-            return;
-        }
-
-        foreach (var disk in disks)
-        {
-            DisksPanel.Children.Add(new StackPanel
-            {
-                Spacing = 6,
-                Children =
-                {
-                    new TextBlock { Text = $"{disk.Mountpoint} ({disk.FileSystem})", Foreground = WhiteBrush(), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
-                    new ProgressBar { Maximum = 100, Value = ClampPercent(disk.Percent) },
-                    MutedText($"{disk.Percent:0}% - {FormatBytes(disk.UsedBytes)} usati / {FormatBytes(disk.TotalBytes)} totali - libero {FormatBytes(disk.FreeBytes)} - {disk.Device}")
-                }
-            });
-        }
-    }
-
-    private void RenderTemperatures(HardwareSnapshot snapshot)
-    {
-        TemperaturesPanel.Children.Clear();
-        var temperatures = NormalizeTemperatures(snapshot.Temperatures);
-        if (temperatures.Count == 0)
-        {
-            TemperaturesPanel.Children.Add(MutedText($"Sensori non disponibili o non esposti. Stato: {snapshot.TemperatureSupport}. Su Windows spesso servono driver/tool vendor; su Ubuntu installa psutil e abilita lm-sensors."));
-            return;
-        }
-
-        foreach (var temp in temperatures)
-        {
-            var row = new Grid { ColumnSpacing = 10 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var title = new TextBlock
-            {
-                Text = temp.Title,
-                Foreground = WhiteBrush(),
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis
-            };
-            var value = new TextBlock
-            {
-                Text = $"{temp.CurrentC:0.0} C",
-                Foreground = (Brush)Application.Current.Resources["AccentGreenBrush"],
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-            };
-            Grid.SetColumn(value, 1);
-            row.Children.Add(title);
-            row.Children.Add(value);
-
-            TemperaturesPanel.Children.Add(new StackPanel
-            {
-                Spacing = 4,
-                Children =
-                {
-                    row,
-                    MutedText($"{temp.Source}. Limite {FormatTemp(temp.HighC)}, critico {FormatTemp(temp.CriticalC)}.")
-                }
-            });
-        }
-    }
-
+    private sealed record HardwareComponent(string Id, string Title, string Subtitle, string PrimaryValue, double UtilizationPercent, double? TemperatureC, IReadOnlyList<HardwareStat> Stats);
+    private sealed record HardwareStat(string Label, string Value);
+    private sealed record HardwareSample(double UtilizationPercent, double? TemperatureC);
     private sealed record TemperatureView(string Title, string Source, double CurrentC, double? HighC, double? CriticalC, int SortKey);
 
     private static IReadOnlyList<TemperatureView> NormalizeTemperatures(IReadOnlyList<HardwareTemperatureRecord> temperatures)
@@ -264,12 +500,16 @@ public sealed partial class HardwarePage : Page
     private static TextBlock MutedText(string text) => new()
     {
         Text = text,
-        Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
+        Foreground = MutedBrush(),
         FontSize = 12,
         TextWrapping = TextWrapping.Wrap
     };
 
-    private static Brush WhiteBrush() => new SolidColorBrush(Microsoft.UI.Colors.White);
+    private static Brush WhiteBrush() => new SolidColorBrush(Colors.White);
+    private static Brush MutedBrush() => (Brush)Application.Current.Resources["MutedTextBrush"];
+    private static Brush AccentBrush(double alpha = 1.0) => new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb((byte)(255 * alpha), 245, 165, 36));
+    private static Brush UiBorderBrush() => (Brush)Application.Current.Resources["BorderBrushSoft"];
+    private static Brush PanelBrush() => new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 21, 25, 34));
 
     private static double ClampPercent(double value) => double.IsFinite(value) ? Math.Clamp(value, 0, 100) : 0;
 
