@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.97 Release Hermes Hub 0.6.97 Task Manager hardware layout
+v0.6.98 Release Hermes Hub 0.6.98 physical SSD grouping
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,16 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.98 (Physical SSD grouping):
+
+Release 0.6.98:
+- Windows/Android Prestazioni raggruppa le partizioni dello stesso disco fisico: `/`, `/boot`, `/boot/efi` su `nvme0n1` diventano un solo riquadro `SSD 0`, non tre dischi separati.
+- Logica grouping: partizioni `nvme...pN` vengono aggregate al device base; se esiste un solo disco fisico NVMe, anche root LVM `/dev/mapper/...` viene associato a quello stesso SSD.
+- Il dettaglio SSD mostra spazio usato/libero/totale aggregato, partizioni e device sottostanti, mantenendo grafico utilizzo e temperatura SSD quando disponibile.
+- Pulizia codice hardware: rimosso vecchio gauge Android inutilizzato e campo Windows non usato; helper disk grouping isolati per migliorare manutenzione.
+- Controllo generale release: build Windows, build Android debug/release e patcher gateway passano; endpoint live hardware server resta sano.
+- Release bump: Windows/AdminBridge `0.6.98`, Android `versionName 0.6.98`, `versionCode 103`.
 
 Hermes Hub 0.6.97 (Task Manager hardware layout):
 

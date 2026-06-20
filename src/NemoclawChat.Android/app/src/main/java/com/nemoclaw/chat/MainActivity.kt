@@ -496,6 +496,18 @@ private data class HardwareDisk(
     val percent: Double
 )
 
+private data class HardwareDiskGroup(
+    val key: String,
+    val isSsd: Boolean,
+    val subtitle: String,
+    val totalBytes: Long,
+    val usedBytes: Long,
+    val freeBytes: Long,
+    val percent: Double,
+    val partitionsText: String,
+    val devicesText: String
+)
+
 private data class HardwareTemperature(
     val name: String,
     val label: String,
@@ -3190,12 +3202,12 @@ private fun buildHardwareComponents(
             )
         )
     }
-    snapshot.disks.sortedBy { it.mountpoint }.forEachIndexed { index, disk ->
-        val diskTemp = if (disk.device.contains("nvme", ignoreCase = true)) tempByTitle["SSD NVMe"]?.currentC else null
+    buildHardwareDiskGroups(snapshot.disks).forEachIndexed { index, disk ->
+        val diskTemp = if (disk.isSsd) tempByTitle["SSD NVMe"]?.currentC else null
         components += HardwareComponentView(
             id = "disk-$index",
-            title = if (disk.device.contains("nvme", ignoreCase = true)) "SSD $index" else "Disco $index",
-            subtitle = "${disk.mountpoint} (${disk.fileSystem})",
+            title = if (disk.isSsd) "SSD $index" else "Disco $index",
+            subtitle = disk.subtitle,
             primaryValue = "${disk.percent.roundToInt().coerceIn(0, 100)}%",
             utilizationPercent = disk.percent,
             temperatureC = diskTemp,
@@ -3205,31 +3217,69 @@ private fun buildHardwareComponents(
                 HardwareStatView("Libero", disk.freeBytes.toReadableFileSize()),
                 HardwareStatView("Totale", disk.totalBytes.toReadableFileSize()),
                 HardwareStatView("Temperatura", formatTemperature(diskTemp)),
-                HardwareStatView("Device", disk.device)
+                HardwareStatView("Partizioni", disk.partitionsText),
+                HardwareStatView("Device", disk.devicesText)
             )
         )
     }
     return components
 }
 
-@Composable
-private fun HardwareGauge(title: String, percent: Double, value: String, detail: String, compact: Boolean = false) {
-    val safePercent = (percent / 100.0).toFloat().coerceIn(0f, 1f)
-    Surface(color = AppColors.Panel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AppColors.Border)) {
-        Column(modifier = Modifier.padding(if (compact) 12.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(value, color = AppColors.Accent, fontWeight = FontWeight.SemiBold)
+private fun buildHardwareDiskGroups(disks: List<HardwareDisk>): List<HardwareDiskGroup> {
+    val physicalKeys = disks.mapNotNull { tryHardwarePhysicalDiskKey(it.device) }.distinct()
+    val singlePhysicalKey = physicalKeys.singleOrNull()
+    return disks
+        .groupBy { hardwarePhysicalDiskKey(it.device, singlePhysicalKey) }
+        .toSortedMap()
+        .map { (key, itemsRaw) ->
+            val items = itemsRaw.sortedBy { diskMountSortKey(it.mountpoint) }
+            val total = items.sumOf { it.totalBytes.coerceAtLeast(0L) }
+            val used = items.sumOf { it.usedBytes.coerceAtLeast(0L) }
+            val free = items.sumOf { it.freeBytes.coerceAtLeast(0L) }
+            val percent = if (total > 0L) used.toDouble() / total.toDouble() * 100.0 else 0.0
+            val isSsd = key.contains("nvme", ignoreCase = true) || items.any { it.device.contains("nvme", ignoreCase = true) }
+            val filesystems = items.map { it.fileSystem }.filter { it.isNotBlank() }.distinct().joinToString(", ")
+            val subtitle = if (items.size == 1) {
+                "${items.first().mountpoint} (${items.first().fileSystem})"
+            } else {
+                "${items.size} partizioni - $filesystems"
             }
-            LinearProgressIndicator(
-                progress = { safePercent },
-                modifier = Modifier.fillMaxWidth(),
-                color = AppColors.Accent,
-                trackColor = Color(0xFF424242)
+            HardwareDiskGroup(
+                key = key,
+                isSsd = isSsd,
+                subtitle = subtitle,
+                totalBytes = total,
+                usedBytes = used,
+                freeBytes = free,
+                percent = percent,
+                partitionsText = items.joinToString(", ") { it.mountpoint },
+                devicesText = items.map { it.device }.distinct().joinToString(", ")
             )
-            Text(detail, color = AppColors.Muted, fontSize = 12.sp)
         }
+}
+
+private fun hardwarePhysicalDiskKey(device: String, singlePhysicalKey: String?): String {
+    val direct = tryHardwarePhysicalDiskKey(device)
+    if (!direct.isNullOrBlank()) return direct
+    if (!singlePhysicalKey.isNullOrBlank() && device.startsWith("/dev/mapper/", ignoreCase = true)) return singlePhysicalKey
+    return device
+}
+
+private fun tryHardwarePhysicalDiskKey(device: String): String? {
+    val name = device.trim().replace("\\", "/").substringAfterLast("/")
+    if (name.startsWith("nvme", ignoreCase = true)) {
+        val partitionIndex = name.indexOf('p')
+        return if (partitionIndex > 0) name.substring(0, partitionIndex) else name
     }
+    if (name.startsWith("sd", ignoreCase = true)) {
+        val base = name.dropLastWhile { it.isDigit() }
+        return base.ifBlank { name }
+    }
+    return null
+}
+
+private fun diskMountSortKey(mountpoint: String): String {
+    return if (mountpoint == "/") " " else mountpoint
 }
 
 private fun List<HardwareTemperature>.toHardwareTemperatureViews(): List<HardwareTemperatureView> {

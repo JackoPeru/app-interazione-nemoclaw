@@ -15,7 +15,6 @@ public sealed partial class HardwarePage : Page
     private readonly Dictionary<string, List<HardwareSample>> _history = [];
     private AppSettings _settings = new();
     private HardwareSnapshot? _previous;
-    private HardwareSnapshot? _lastSnapshot;
     private IReadOnlyList<HardwareComponent> _components = [];
     private string _selectedComponentId = "cpu";
     private bool _loading;
@@ -71,7 +70,6 @@ public sealed partial class HardwarePage : Page
 
     private void Render(HardwareSnapshot snapshot, HardwareSnapshot? previous)
     {
-        _lastSnapshot = snapshot;
         _components = BuildComponents(snapshot, previous);
         if (_components.Count > 0 && !_components.Any(item => item.Id == _selectedComponentId))
         {
@@ -396,15 +394,15 @@ public sealed partial class HardwarePage : Page
         }
 
         var diskIndex = 0;
-        foreach (var disk in snapshot.Disks.OrderBy(item => item.Mountpoint))
+        foreach (var disk in BuildDiskGroups(snapshot.Disks))
         {
-            var diskTemp = disk.Device.Contains("nvme", StringComparison.OrdinalIgnoreCase) && tempByTitle.TryGetValue("SSD NVMe", out var ssdTemp)
+            var diskTemp = disk.IsSsd && tempByTitle.TryGetValue("SSD NVMe", out var ssdTemp)
                 ? ssdTemp
                 : (double?)null;
             components.Add(new HardwareComponent(
                 $"disk-{diskIndex}",
-                disk.Device.Contains("nvme", StringComparison.OrdinalIgnoreCase) ? $"SSD {diskIndex}" : $"Disco {diskIndex}",
-                $"{disk.Mountpoint} ({disk.FileSystem})",
+                disk.IsSsd ? $"SSD {diskIndex}" : $"Disco {diskIndex}",
+                disk.Subtitle,
                 $"{disk.Percent:0}%",
                 disk.Percent,
                 diskTemp,
@@ -414,7 +412,8 @@ public sealed partial class HardwarePage : Page
                     new("Libero", FormatBytes(disk.FreeBytes)),
                     new("Totale", FormatBytes(disk.TotalBytes)),
                     new("Temperatura", FormatTemp(diskTemp)),
-                    new("Device", disk.Device)
+                    new("Partizioni", disk.PartitionsText),
+                    new("Device", disk.DevicesText)
                 ]));
             diskIndex++;
         }
@@ -425,7 +424,77 @@ public sealed partial class HardwarePage : Page
     private sealed record HardwareComponent(string Id, string Title, string Subtitle, string PrimaryValue, double UtilizationPercent, double? TemperatureC, IReadOnlyList<HardwareStat> Stats);
     private sealed record HardwareStat(string Label, string Value);
     private sealed record HardwareSample(double UtilizationPercent, double? TemperatureC);
+    private sealed record DiskGroup(string Key, bool IsSsd, string Subtitle, long TotalBytes, long UsedBytes, long FreeBytes, double Percent, string PartitionsText, string DevicesText);
     private sealed record TemperatureView(string Title, string Source, double CurrentC, double? HighC, double? CriticalC, int SortKey);
+
+    private static IReadOnlyList<DiskGroup> BuildDiskGroups(IReadOnlyList<HardwareDiskRecord> disks)
+    {
+        var physicalKeys = disks
+            .Select(disk => TryPhysicalDiskKey(disk.Device))
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var singlePhysicalKey = physicalKeys.Count == 1 ? physicalKeys[0] : null;
+
+        return disks
+            .GroupBy(disk => PhysicalDiskKey(disk.Device, singlePhysicalKey), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var items = group.OrderBy(disk => DiskMountSortKey(disk.Mountpoint)).ToList();
+                var total = items.Sum(disk => Math.Max(0, disk.TotalBytes));
+                var used = items.Sum(disk => Math.Max(0, disk.UsedBytes));
+                var free = items.Sum(disk => Math.Max(0, disk.FreeBytes));
+                var percent = total > 0 ? (double)used / total * 100.0 : 0.0;
+                var isSsd = group.Key.Contains("nvme", StringComparison.OrdinalIgnoreCase) || items.Any(disk => disk.Device.Contains("nvme", StringComparison.OrdinalIgnoreCase));
+                var filesystems = string.Join(", ", items.Select(disk => disk.FileSystem).Where(text => !string.IsNullOrWhiteSpace(text)).Distinct(StringComparer.OrdinalIgnoreCase));
+                var mounts = string.Join(", ", items.Select(disk => disk.Mountpoint));
+                var devices = string.Join(", ", items.Select(disk => disk.Device).Distinct(StringComparer.OrdinalIgnoreCase));
+                var subtitle = items.Count == 1
+                    ? $"{items[0].Mountpoint} ({items[0].FileSystem})"
+                    : $"{items.Count} partizioni - {filesystems}";
+                return new DiskGroup(group.Key, isSsd, subtitle, total, used, free, percent, mounts, devices);
+            })
+            .ToList();
+    }
+
+    private static string PhysicalDiskKey(string device, string? singlePhysicalKey)
+    {
+        var direct = TryPhysicalDiskKey(device);
+        if (!string.IsNullOrWhiteSpace(direct))
+        {
+            return direct;
+        }
+
+        if (!string.IsNullOrWhiteSpace(singlePhysicalKey) && device.StartsWith("/dev/mapper/", StringComparison.OrdinalIgnoreCase))
+        {
+            return singlePhysicalKey;
+        }
+
+        return device;
+    }
+
+    private static string? TryPhysicalDiskKey(string device)
+    {
+        var name = device.Trim().Replace("\\", "/").Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? device;
+        if (name.StartsWith("nvme", StringComparison.OrdinalIgnoreCase))
+        {
+            var partitionIndex = name.IndexOf('p');
+            return partitionIndex > 0 ? name[..partitionIndex] : name;
+        }
+
+        if (name.StartsWith("sd", StringComparison.OrdinalIgnoreCase) && name.Length > 3 && char.IsDigit(name[^1]))
+        {
+            return name.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+        }
+
+        return null;
+    }
+
+    private static string DiskMountSortKey(string mountpoint)
+    {
+        return mountpoint == "/" ? " " : mountpoint;
+    }
 
     private static IReadOnlyList<TemperatureView> NormalizeTemperatures(IReadOnlyList<HardwareTemperatureRecord> temperatures)
     {
