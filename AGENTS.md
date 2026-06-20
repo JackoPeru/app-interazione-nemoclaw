@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.95 Release Hermes Hub 0.6.95 hardware performance polish
+v0.6.96 Release Hermes Hub 0.6.96 GPU performance monitoring
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,15 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.96 (GPU performance monitoring):
+
+Release 0.6.96:
+- Gateway Linux hardware endpoint espone `gpus[]` usando `nvidia-smi` quando disponibile nel PATH del servizio.
+- Metriche GPU incluse: index, nome modello, utilizzo GPU, utilizzo memoria, VRAM usata/totale, temperatura, power draw/limit e driver NVIDIA.
+- Windows/Android Prestazioni mostrano sezione `GPU` con righe `GPU 0`, `GPU 1`, progress bar uso GPU, VRAM, temperatura, watt e driver, piu' vicina alla vista Prestazioni di Gestione attivita.
+- Fallback pulito: se `nvidia-smi` manca o non risponde, UI mostra messaggio diagnostico invece di nascondere silenziosamente il problema.
+- Release bump: Windows/AdminBridge `0.6.96`, Android `versionName 0.6.96`, `versionCode 101`.
 
 Hermes Hub 0.6.95 (Hardware performance polish):
 

@@ -57,6 +57,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <Border Style="{StaticResource PremiumCardBorderStyle}">
@@ -91,6 +92,13 @@
                         <TextBlock Foreground="White" FontWeight="SemiBold" Text="Rete" />
                         <TextBlock x:Name="NetworkText" Foreground="White" FontSize="24" FontWeight="SemiBold" />
                         <TextBlock x:Name="NetworkDetailText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="2" Grid.ColumnSpan="2" Style="{StaticResource PremiumCardBorderStyle}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="GPU" />
+                        <StackPanel x:Name="GpusPanel" Spacing="10" />
                     </StackPanel>
                 </Border>
             </Grid>

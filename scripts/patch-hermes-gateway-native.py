@@ -164,6 +164,8 @@ def _patch_text(text: str) -> tuple[str, list[str]]:
             '        "network": {},\n'
             '        "temperatures": [],\n'
             '        "temperature_support": "unavailable",\n'
+            '        "gpus": [],\n'
+            '        "gpu_support": "unavailable",\n'
             '        "notes": [],\n'
             "    }\n"
             "\n"
@@ -275,6 +277,54 @@ def _patch_text(text: str) -> tuple[str, list[str]]:
             "            })\n"
             '    snapshot["temperatures"] = flattened\n'
             '    snapshot["temperature_support"] = "available" if flattened else "no_sensors_reported"\n'
+            "\n"
+            "    try:\n"
+            "        import csv as _csv\n"
+            "        import subprocess as _subprocess\n"
+            "        query = \"index,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw,power.limit,driver_version\"\n"
+            "        result = _subprocess.run(\n"
+            "            [\"nvidia-smi\", f\"--query-gpu={query}\", \"--format=csv,noheader,nounits\"],\n"
+            "            capture_output=True,\n"
+            "            text=True,\n"
+            "            timeout=2,\n"
+            "        )\n"
+            "        if result.returncode == 0:\n"
+            "            gpu_rows = []\n"
+            "            for row in _csv.reader(result.stdout.splitlines()):\n"
+            "                if len(row) < 10:\n"
+            "                    continue\n"
+            "                def _gpu_float(value: Any) -> Optional[float]:\n"
+            "                    try:\n"
+            "                        raw = str(value).strip()\n"
+            "                        if not raw or raw.upper() in {\"N/A\", \"[N/A]\"}:\n"
+            "                            return None\n"
+            "                        return float(raw)\n"
+            "                    except Exception:\n"
+            "                        return None\n"
+            "                def _gpu_int(value: Any, fallback: int = 0) -> int:\n"
+            "                    parsed = _gpu_float(value)\n"
+            "                    return fallback if parsed is None else int(parsed)\n"
+            "                gpu_rows.append({\n"
+            '                    "index": _gpu_int(row[0], len(gpu_rows)),\n'
+            '                    "name": str(row[1]).strip() or "GPU",\n'
+            '                    "utilization_gpu_percent": _gpu_float(row[2]) or 0.0,\n'
+            '                    "utilization_memory_percent": _gpu_float(row[3]) or 0.0,\n'
+            '                    "memory_used_mb": _gpu_float(row[4]) or 0.0,\n'
+            '                    "memory_total_mb": _gpu_float(row[5]) or 0.0,\n'
+            '                    "temperature_c": _gpu_float(row[6]),\n'
+            '                    "power_draw_watts": _gpu_float(row[7]),\n'
+            '                    "power_limit_watts": _gpu_float(row[8]),\n'
+            '                    "driver_version": str(row[9]).strip() or "-",\n'
+            "                })\n"
+            '            snapshot["gpus"] = gpu_rows\n'
+            '            snapshot["gpu_support"] = "available" if gpu_rows else "no_gpus_reported"\n'
+            "        else:\n"
+            '            snapshot["gpu_support"] = "nvidia_smi_error"\n'
+            "    except FileNotFoundError:\n"
+            '        snapshot["gpu_support"] = "nvidia_smi_unavailable"\n'
+            "    except Exception as exc:\n"
+            '        snapshot["gpu_support"] = "error"\n'
+            '        snapshot["notes"].append(f"gpu telemetry unavailable: {exc}")\n'
             "\n"
             "    try:\n"
             "        snapshot[\"process_count\"] = len(psutil.pids())\n"
@@ -484,6 +534,86 @@ def _multimodal_validation_error(exc: ValueError, *, param: str) -> "web.Respons
             "hardware temperature sanity filter",
         )
         changes.append("hardware temperature sanity filter")
+
+    if '"gpus": []' not in text and '"temperature_support": "unavailable",' in text:
+        text, _ = _replace_once(
+            text,
+            '        "temperatures": [],\n'
+            '        "temperature_support": "unavailable",\n'
+            '        "notes": [],\n',
+            '        "temperatures": [],\n'
+            '        "temperature_support": "unavailable",\n'
+            '        "gpus": [],\n'
+            '        "gpu_support": "unavailable",\n'
+            '        "notes": [],\n',
+            "hardware gpu telemetry fields",
+        )
+        changes.append("hardware gpu telemetry fields")
+
+    if '"gpu_support"] = "available" if gpu_rows else "no_gpus_reported"' not in text and 'snapshot["temperature_support"] = "available" if flattened else "no_sensors_reported"' in text:
+        text, _ = _replace_once(
+            text,
+            '    snapshot["temperatures"] = flattened\n'
+            '    snapshot["temperature_support"] = "available" if flattened else "no_sensors_reported"\n'
+            '\n'
+            '    try:\n'
+            '        snapshot["process_count"] = len(psutil.pids())\n',
+            '    snapshot["temperatures"] = flattened\n'
+            '    snapshot["temperature_support"] = "available" if flattened else "no_sensors_reported"\n'
+            '\n'
+            '    try:\n'
+            '        import csv as _csv\n'
+            '        import subprocess as _subprocess\n'
+            '        query = "index,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw,power.limit,driver_version"\n'
+            '        result = _subprocess.run(\n'
+            '            ["nvidia-smi", f"--query-gpu={query}", "--format=csv,noheader,nounits"],\n'
+            '            capture_output=True,\n'
+            '            text=True,\n'
+            '            timeout=2,\n'
+            '        )\n'
+            '        if result.returncode == 0:\n'
+            '            gpu_rows = []\n'
+            '            for row in _csv.reader(result.stdout.splitlines()):\n'
+            '                if len(row) < 10:\n'
+            '                    continue\n'
+            '                def _gpu_float(value: Any) -> Optional[float]:\n'
+            '                    try:\n'
+            '                        raw = str(value).strip()\n'
+            '                        if not raw or raw.upper() in {"N/A", "[N/A]"}:\n'
+            '                            return None\n'
+            '                        return float(raw)\n'
+            '                    except Exception:\n'
+            '                        return None\n'
+            '                def _gpu_int(value: Any, fallback: int = 0) -> int:\n'
+            '                    parsed = _gpu_float(value)\n'
+            '                    return fallback if parsed is None else int(parsed)\n'
+            '                gpu_rows.append({\n'
+            '                    "index": _gpu_int(row[0], len(gpu_rows)),\n'
+            '                    "name": str(row[1]).strip() or "GPU",\n'
+            '                    "utilization_gpu_percent": _gpu_float(row[2]) or 0.0,\n'
+            '                    "utilization_memory_percent": _gpu_float(row[3]) or 0.0,\n'
+            '                    "memory_used_mb": _gpu_float(row[4]) or 0.0,\n'
+            '                    "memory_total_mb": _gpu_float(row[5]) or 0.0,\n'
+            '                    "temperature_c": _gpu_float(row[6]),\n'
+            '                    "power_draw_watts": _gpu_float(row[7]),\n'
+            '                    "power_limit_watts": _gpu_float(row[8]),\n'
+            '                    "driver_version": str(row[9]).strip() or "-",\n'
+            '                })\n'
+            '            snapshot["gpus"] = gpu_rows\n'
+            '            snapshot["gpu_support"] = "available" if gpu_rows else "no_gpus_reported"\n'
+            '        else:\n'
+            '            snapshot["gpu_support"] = "nvidia_smi_error"\n'
+            '    except FileNotFoundError:\n'
+            '        snapshot["gpu_support"] = "nvidia_smi_unavailable"\n'
+            '    except Exception as exc:\n'
+            '        snapshot["gpu_support"] = "error"\n'
+            '        snapshot["notes"].append(f"gpu telemetry unavailable: {exc}")\n'
+            '\n'
+            '    try:\n'
+            '        snapshot["process_count"] = len(psutil.pids())\n',
+            "hardware gpu telemetry collector",
+        )
+        changes.append("hardware gpu telemetry collector")
 
     if "def _is_hermes_hub_request" not in text:
         text, _ = _replace_once(

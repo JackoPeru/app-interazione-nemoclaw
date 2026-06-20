@@ -84,8 +84,41 @@ public sealed partial class HardwarePage : Page
         NetworkText.Text = $"Down {FormatBytesPerSecond(downRate)} / Up {FormatBytesPerSecond(upRate)}";
         NetworkDetailText.Text = $"Totale ricevuto {FormatBytes(snapshot.NetworkBytesReceived)} - inviato {FormatBytes(snapshot.NetworkBytesSent)}.";
 
+        RenderGpus(snapshot.Gpus);
         RenderDisks(snapshot.Disks);
         RenderTemperatures(snapshot);
+    }
+
+    private void RenderGpus(IReadOnlyList<HardwareGpuRecord> gpus)
+    {
+        GpusPanel.Children.Clear();
+        if (gpus.Count == 0)
+        {
+            GpusPanel.Children.Add(MutedText("Nessuna GPU esposta dal gateway. Su Linux serve nvidia-smi disponibile nel PATH del servizio."));
+            return;
+        }
+
+        foreach (var gpu in gpus.OrderBy(item => item.Index))
+        {
+            var temp = gpu.TemperatureC is null ? "n/d" : $"{gpu.TemperatureC:0} C";
+            var memoryPercent = gpu.MemoryTotalBytes > 0
+                ? Math.Clamp((double)gpu.MemoryUsedBytes / gpu.MemoryTotalBytes * 100.0, 0, 100)
+                : gpu.MemoryUtilizationPercent;
+            var power = gpu.PowerDrawWatts is null || gpu.PowerLimitWatts is null
+                ? "Power n/d"
+                : $"{gpu.PowerDrawWatts:0} W / {gpu.PowerLimitWatts:0} W";
+
+            GpusPanel.Children.Add(new StackPanel
+            {
+                Spacing = 6,
+                Children =
+                {
+                    new TextBlock { Text = $"GPU {gpu.Index} - {TrimGpuName(gpu.Name)}", Foreground = WhiteBrush(), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap },
+                    new ProgressBar { Maximum = 100, Value = ClampPercent(gpu.UtilizationPercent) },
+                    MutedText($"{gpu.UtilizationPercent:0}% uso GPU. VRAM {FormatBytes(gpu.MemoryUsedBytes)} / {FormatBytes(gpu.MemoryTotalBytes)} ({memoryPercent:0}%). Temp {temp}. {power}. Driver {gpu.DriverVersion}.")
+                }
+            });
+        }
     }
 
     private void RenderDisks(IReadOnlyList<HardwareDiskRecord> disks)
@@ -243,6 +276,11 @@ public sealed partial class HardwarePage : Page
     private static string FormatMhz(double? value) => value is > 0 ? $"{value:0} MHz" : "n/d";
 
     private static string FormatTemp(double? value) => value is null ? "n/d" : $"{value:0.0} C";
+
+    private static string TrimGpuName(string name)
+    {
+        return name.Replace("NVIDIA ", "", StringComparison.OrdinalIgnoreCase).Trim();
+    }
 
     private static string FormatDuration(long seconds)
     {

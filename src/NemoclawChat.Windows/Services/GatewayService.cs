@@ -57,6 +57,18 @@ public sealed record HardwareTemperatureRecord(
     double? HighC,
     double? CriticalC);
 
+public sealed record HardwareGpuRecord(
+    int Index,
+    string Name,
+    double UtilizationPercent,
+    double MemoryUtilizationPercent,
+    long MemoryUsedBytes,
+    long MemoryTotalBytes,
+    double? TemperatureC,
+    double? PowerDrawWatts,
+    double? PowerLimitWatts,
+    string DriverVersion);
+
 public sealed record HardwareSnapshot(
     string Status,
     DateTimeOffset Timestamp,
@@ -84,6 +96,7 @@ public sealed record HardwareSnapshot(
     string TemperatureSupport,
     IReadOnlyList<HardwareDiskRecord> Disks,
     IReadOnlyList<HardwareTemperatureRecord> Temperatures,
+    IReadOnlyList<HardwareGpuRecord> Gpus,
     string Message);
 
 public static class GatewayService
@@ -539,6 +552,7 @@ public static class GatewayService
             "unavailable",
             [],
             [],
+            [],
             message);
     }
 
@@ -590,6 +604,29 @@ public static class GatewayService
             }
         }
 
+        var gpus = new List<HardwareGpuRecord>();
+        if (root.TryGetProperty("gpus", out var gpuArray) && gpuArray.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in gpuArray.EnumerateArray())
+            {
+                var memoryTotalMb = ExtractDouble(item, "memory_total_mb");
+                var memoryUsedMb = ExtractDouble(item, "memory_used_mb");
+                var memoryTotalBytes = memoryTotalMb > 0 ? (long)(memoryTotalMb * 1024 * 1024) : ExtractLong(item, "memory_total_bytes");
+                var memoryUsedBytes = memoryUsedMb > 0 ? (long)(memoryUsedMb * 1024 * 1024) : ExtractLong(item, "memory_used_bytes");
+                gpus.Add(new HardwareGpuRecord(
+                    ExtractInt(item, "index"),
+                    ExtractString(item, "name") ?? "GPU",
+                    ExtractDouble(item, "utilization_gpu_percent"),
+                    ExtractDouble(item, "utilization_memory_percent"),
+                    memoryUsedBytes,
+                    memoryTotalBytes,
+                    SanitizeNullableRange(ExtractNullableDouble(item, "temperature_c"), 0, 150),
+                    SanitizeNullableRange(ExtractNullableDouble(item, "power_draw_watts"), 0, 1000),
+                    SanitizeNullableRange(ExtractNullableDouble(item, "power_limit_watts"), 0, 1000),
+                    ExtractString(item, "driver_version") ?? "-"));
+            }
+        }
+
         return new HardwareSnapshot(
             ExtractString(root, "status") ?? "ok",
             timestamp,
@@ -617,7 +654,13 @@ public static class GatewayService
             ExtractString(root, "temperature_support") ?? "unavailable",
             disks,
             temperatures,
+            gpus,
             "Statistiche aggiornate dal gateway Hermes.");
+    }
+
+    private static double? SanitizeNullableRange(double? value, double min, double max)
+    {
+        return value is not null && double.IsFinite(value.Value) && value.Value >= min && value.Value <= max ? value : null;
     }
 
     private static GatewayTaskResult BuildTaskFallback(AppSettings settings, AgentTaskRecord task, string message)

@@ -512,6 +512,19 @@ private data class HardwareTemperatureView(
     val sortKey: Int
 )
 
+private data class HardwareGpu(
+    val index: Int,
+    val name: String,
+    val utilizationPercent: Double,
+    val memoryUtilizationPercent: Double,
+    val memoryUsedBytes: Long,
+    val memoryTotalBytes: Long,
+    val temperatureC: Double?,
+    val powerDrawWatts: Double?,
+    val powerLimitWatts: Double?,
+    val driverVersion: String
+)
+
 private data class HardwareSnapshot(
     val status: String = "loading",
     val timestampMs: Long = System.currentTimeMillis(),
@@ -539,6 +552,7 @@ private data class HardwareSnapshot(
     val temperatureSupport: String = "unavailable",
     val disks: List<HardwareDisk> = emptyList(),
     val temperatures: List<HardwareTemperature> = emptyList(),
+    val gpus: List<HardwareGpu> = emptyList(),
     val message: String = "Caricamento hardware..."
 )
 
@@ -2955,6 +2969,31 @@ private fun HardwareScreen(context: Context, settings: AppSettings) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("GPU", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    if (snapshot.gpus.isEmpty()) {
+                        Text("Nessuna GPU esposta dal gateway. Su Linux serve nvidia-smi disponibile nel PATH del servizio.", color = AppColors.Muted, fontSize = 12.sp)
+                    } else {
+                        snapshot.gpus.sortedBy { it.index }.forEach { gpu ->
+                            val memoryPercent = if (gpu.memoryTotalBytes > 0) {
+                                (gpu.memoryUsedBytes.toDouble() / gpu.memoryTotalBytes.toDouble() * 100.0).coerceIn(0.0, 100.0)
+                            } else {
+                                gpu.memoryUtilizationPercent
+                            }
+                            HardwareGauge(
+                                title = "GPU ${gpu.index} - ${gpu.name.removePrefix("NVIDIA ").trim()}",
+                                percent = gpu.utilizationPercent,
+                                value = "${gpu.utilizationPercent.roundToInt().coerceIn(0, 100)}% (${formatTemperature(gpu.temperatureC)})",
+                                detail = "VRAM ${gpu.memoryUsedBytes.toReadableFileSize()} / ${gpu.memoryTotalBytes.toReadableFileSize()} (${memoryPercent.roundToInt().coerceIn(0, 100)}%). Power ${formatWatts(gpu.powerDrawWatts)} / ${formatWatts(gpu.powerLimitWatts)}. Driver ${gpu.driverVersion}.",
+                                compact = true
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Dischi", color = Color.White, fontWeight = FontWeight.SemiBold)
                     if (snapshot.disks.isEmpty()) {
                         Text("Nessun disco esposto dal gateway.", color = AppColors.Muted, fontSize = 12.sp)
@@ -5016,6 +5055,29 @@ private fun parseHardwareSnapshot(json: JSONObject): HardwareSnapshot {
         }
     }
 
+    val gpus = buildList {
+        val array = json.optJSONArray("gpus") ?: JSONArray()
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+            val memoryTotalMb = item.optFiniteDouble("memory_total_mb") ?: 0.0
+            val memoryUsedMb = item.optFiniteDouble("memory_used_mb") ?: 0.0
+            add(
+                HardwareGpu(
+                    index = item.optInt("index", i),
+                    name = item.optString("name", "GPU"),
+                    utilizationPercent = item.optFiniteDouble("utilization_gpu_percent") ?: 0.0,
+                    memoryUtilizationPercent = item.optFiniteDouble("utilization_memory_percent") ?: 0.0,
+                    memoryUsedBytes = if (memoryUsedMb > 0.0) (memoryUsedMb * 1024.0 * 1024.0).toLong() else item.optLong("memory_used_bytes", 0L),
+                    memoryTotalBytes = if (memoryTotalMb > 0.0) (memoryTotalMb * 1024.0 * 1024.0).toLong() else item.optLong("memory_total_bytes", 0L),
+                    temperatureC = item.optFiniteDouble("temperature_c")?.takeIf { it in 0.0..150.0 },
+                    powerDrawWatts = item.optFiniteDouble("power_draw_watts")?.takeIf { it in 0.0..1000.0 },
+                    powerLimitWatts = item.optFiniteDouble("power_limit_watts")?.takeIf { it in 0.0..1000.0 },
+                    driverVersion = item.optString("driver_version", "-")
+                )
+            )
+        }
+    }
+
     return HardwareSnapshot(
         status = json.optString("status", "ok"),
         timestampMs = timestampMs,
@@ -5043,6 +5105,7 @@ private fun parseHardwareSnapshot(json: JSONObject): HardwareSnapshot {
         temperatureSupport = json.optString("temperature_support", "unavailable"),
         disks = disks,
         temperatures = temperatures,
+        gpus = gpus,
         message = "Statistiche aggiornate dal gateway Hermes."
     )
 }
@@ -6406,6 +6469,10 @@ private fun formatMhz(value: Double?): String {
 
 private fun formatTemperature(value: Double?): String {
     return if (value != null) "${String.format(java.util.Locale.US, "%.1f", value)} C" else "n/d"
+}
+
+private fun formatWatts(value: Double?): String {
+    return if (value != null) "${String.format(java.util.Locale.US, "%.0f", value)} W" else "n/d"
 }
 
 private fun loadSettings(context: Context): AppSettings {
