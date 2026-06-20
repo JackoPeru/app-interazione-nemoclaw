@@ -17,4 +17,7 @@ public sealed class AppSettings
     public bool StrictNativeMode { get; set; } = false;
     public bool DemoMode { get; set; } = false;
     public bool AdvancedChatDetails { get; set; } = false;
+    public bool ShowToolCalls { get; set; } = true;
+    public bool ShowMessageMetrics { get; set; } = false;
+    public int MaxAttachmentMb { get; set; } = 6;
 }

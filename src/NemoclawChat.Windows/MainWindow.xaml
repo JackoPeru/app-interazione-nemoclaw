@@ -94,19 +94,13 @@
                     <Button Click="Hardware_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Prestazioni hardware" AutomationProperties.Name="Prestazioni hardware">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE9D9;" />
-                            <TextBlock Text="Hardware" />
+                            <TextBlock Text="Prestazioni" />
                         </StackPanel>
                     </Button>
                     <Button Click="Operator_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Runs Hermes" AutomationProperties.Name="Runs Hermes">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE950;" />
                             <TextBlock Text="Runs" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Voice_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Modalita vocale" AutomationProperties.Name="Modalita vocale">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE720;" />
-                            <TextBlock Text="Voce" />
                         </StackPanel>
                     </Button>
                     <Button Click="Video_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Video" AutomationProperties.Name="Video">
@@ -153,45 +147,47 @@
                     <StackPanel x:Name="RecentChatsPanel" Spacing="4" />
                 </StackPanel>
 
-                <Grid Grid.Row="3" ColumnSpacing="10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Border
-                        Width="28"
-                        Height="28"
-                        Background="#FF9B59B6"
-                        CornerRadius="14">
-                        <TextBlock
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            FontSize="11"
-                            FontWeight="SemiBold"
-                            Foreground="White"
-                            Text="MP" />
-                    </Border>
-                    <StackPanel Grid.Column="1">
-                        <TextBlock
-                            FontSize="12"
-                            FontWeight="SemiBold"
-                            Foreground="White"
-                            Text="Matteo" />
-                        <TextBlock
-                            FontSize="11"
-                            Foreground="{StaticResource MutedTextBrush}"
-                            Text="Hermes locale" />
-                    </StackPanel>
-                    <Button
-                        Grid.ColumnSpan="2"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Click="About_Click"
-                        HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Stretch"
-                        ToolTipService.ToolTip="Profilo"
-                        AutomationProperties.Name="Profilo" />
-                </Grid>
+                <Button
+                    Grid.Row="3"
+                    Padding="6"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="About_Click"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch"
+                    ToolTipService.ToolTip="Profilo"
+                    AutomationProperties.Name="Profilo">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            Width="28"
+                            Height="28"
+                            Background="#FF9B59B6"
+                            CornerRadius="14">
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontSize="11"
+                                FontWeight="SemiBold"
+                                Foreground="White"
+                                Text="MP" />
+                        </Border>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock
+                                FontSize="12"
+                                FontWeight="SemiBold"
+                                Foreground="White"
+                                Text="Matteo" />
+                            <TextBlock
+                                FontSize="11"
+                                Foreground="{StaticResource MutedTextBrush}"
+                                Text="Hermes locale" />
+                        </StackPanel>
+                    </Grid>
+                </Button>
             </Grid>
         </Border>
 
@@ -230,17 +226,6 @@
                     Orientation="Horizontal"
                     Padding="0,0,16,0"
                     Spacing="10">
-                    <Border
-                        Padding="10,5"
-                        Background="{StaticResource SurfaceBrush}"
-                        BorderBrush="{StaticResource BorderBrushSoft}"
-                        BorderThickness="1"
-                        CornerRadius="18">
-                        <TextBlock
-                            FontSize="12"
-                            Foreground="{StaticResource MutedTextBrush}"
-                            Text="Hermes preset: hermes.local" />
-                    </Border>
                     <Button
                         Width="32"
                         Height="32"

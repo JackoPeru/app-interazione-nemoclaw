@@ -477,12 +477,20 @@ def _hermes_hub_video_library_payload(request: Optional["web.Request"] = None) -
                 "modified_at": float(stat.st_mtime),
                 "duration_ms": 0,
             })
+    media_roots = [
+        str(_Path(part).expanduser())
+        for part in os.environ.get("HERMES_MEDIA_ROOTS", "").split(os.pathsep)
+        if part.strip()
+    ]
+    if str(root) not in media_roots:
+        media_roots.append(str(root))
     return {
         "object": "hermes.video.library",
         "status": "ok",
         "configured": bool(raw),
         "video_library_path": str(root),
         "library_path": str(root),
+        "media_roots": media_roots,
         "items": items,
         "count": len(items),
         "description": "Feed Video Hermes Hub: file video presenti nella cartella monitorata dal server.",

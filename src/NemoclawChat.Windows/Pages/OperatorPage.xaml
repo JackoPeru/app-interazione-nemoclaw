@@ -18,7 +18,7 @@
                         Text="Runs" />
                     <TextBlock
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Operazioni reali verso Hermes Agent API: health, models, capabilities, runs e jobs." />
+                        Text="Runs = lavori server-side Hermes. Possono continuare sul gateway anche se chiudi app o perdi lo stream." />
                 </StackPanel>
 
                 <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
@@ -83,7 +83,7 @@
 
                     <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="10">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Jobs" />
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Jobs / coda" />
                             <TextBox x:Name="ApprovalIdBox" Header="Job ID" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Click="RefreshApprovals_Click" Content="Lista" />
@@ -96,7 +96,7 @@
 
                     <Border Grid.Column="1" Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="10">
-                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Runs manuali" />
+                            <TextBlock Foreground="White" FontWeight="SemiBold" Text="Runs server-side" />
                             <TextBox x:Name="ConfigBaseHashBox" Header="Run ID" />
                             <TextBox x:Name="ConfigPatchBox" AcceptsReturn="True" Header="Input JSON/string" MinHeight="96" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="8">

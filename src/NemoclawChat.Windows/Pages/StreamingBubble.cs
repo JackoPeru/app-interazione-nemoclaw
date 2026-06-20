@@ -30,6 +30,8 @@ internal sealed class StreamingBubble
     private readonly TextBlock _statusText;
     private readonly TextBlock _statsText;
     private readonly bool _showAdvanced;
+    private readonly bool _showTools;
+    private readonly bool _showMetrics;
     private readonly LinearGradientBrush _shimmerBrush;
     private readonly DispatcherTimer _shimmerTimer;
     private readonly DispatcherTimer _renderTimer;
@@ -43,12 +45,14 @@ internal sealed class StreamingBubble
     private double _shimmerPhase;
     private DateTime _started = DateTime.UtcNow;
 
-    public StreamingBubble(Page page, Action<UIElement> addElement, ScrollViewer scroll, bool showAdvanced)
+    public StreamingBubble(Page page, Action<UIElement> addElement, ScrollViewer scroll, bool showAdvanced, bool showTools, bool showMetrics)
     {
         _page = page;
         _addElement = addElement;
         _scroll = scroll;
         _showAdvanced = showAdvanced;
+        _showTools = showTools;
+        _showMetrics = showMetrics;
         _content = new StackPanel { Spacing = 10 };
 
         if (_showAdvanced)
@@ -250,7 +254,7 @@ internal sealed class StreamingBubble
 
     public void StartToolCall(string id, string name)
     {
-        if (!_showAdvanced)
+        if (!_showTools)
         {
             return;
         }
@@ -369,7 +373,7 @@ internal sealed class StreamingBubble
 
     public void AppendToolCallArguments(string id, string delta)
     {
-        if (!_showAdvanced)
+        if (!_showTools)
         {
             return;
         }
@@ -389,7 +393,7 @@ internal sealed class StreamingBubble
 
     public void EndToolCall(string id)
     {
-        if (!_showAdvanced)
+        if (!_showTools)
         {
             return;
         }
@@ -405,7 +409,7 @@ internal sealed class StreamingBubble
 
     public void AddToolResult(string? id, string? name, string output)
     {
-        if (!_showAdvanced)
+        if (!_showTools)
         {
             return;
         }
@@ -546,7 +550,7 @@ internal sealed class StreamingBubble
         {
             parts.Add($"{total / 1000.0:0.0}s");
         }
-        if (parts.Count > 0)
+        if (_showMetrics && parts.Count > 0)
         {
             _statsText.Text = string.Join("  ·  ", parts);
             _statsText.Visibility = Visibility.Visible;

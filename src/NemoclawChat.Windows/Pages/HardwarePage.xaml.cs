@@ -146,7 +146,7 @@ public sealed partial class HardwarePage : Page
             FontSize = 12,
             TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis
         };
-        var bar = new ProgressBar { Maximum = 100, Value = ClampPercent(component.UtilizationPercent), Height = 4 };
+        var bar = UsageBar(component.UtilizationPercent);
 
         Grid.SetColumn(value, 1);
         Grid.SetRow(subtitle, 1);
@@ -157,6 +157,28 @@ public sealed partial class HardwarePage : Page
         root.Children.Add(value);
         root.Children.Add(subtitle);
         root.Children.Add(bar);
+        return root;
+    }
+
+    private static FrameworkElement UsageBar(double percent)
+    {
+        var root = new Grid
+        {
+            Height = 4,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x55, 0x5D, 0x68))
+        };
+        var fill = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Background = AccentBrush(),
+            Width = 0
+        };
+        root.Children.Add(fill);
+        root.SizeChanged += (_, args) =>
+        {
+            fill.Width = args.NewSize.Width * ClampPercent(percent) / 100.0;
+        };
         return root;
     }
 

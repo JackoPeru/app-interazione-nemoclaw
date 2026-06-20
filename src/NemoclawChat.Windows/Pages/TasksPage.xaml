@@ -18,7 +18,7 @@
                         Text="Jobs" />
                     <TextBlock
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Coda Jobs persistente. Usa Hermes Jobs API quando disponibile, altrimenti fallback locale." />
+                        Text="Jobs = coda lavori tracciabile. Servono per richieste pianificate o con approvazioni; non sono la chat live." />
                 </StackPanel>
 
                 <Border

@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.98 Release Hermes Hub 0.6.98 physical SSD grouping
+v0.6.99 Release Hermes Hub 0.6.99 UI stability controls
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,20 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.99 (UI stability controls):
+
+Release 0.6.99:
+- Windows/Android: rimossa la sezione `Voce` dalle navigazioni principali e dagli slash command; la funzione sperimentale resta nel codice ma non viene piu' proposta come area attiva.
+- Windows: fix critico `ResetServerContextMeter()` che richiamava se stesso e poteva causare stack overflow su nuova chat/clear.
+- Windows/Android: aggiunte impostazioni `Tool call in chat` e `Metriche messaggi`; i tool restano in pannello compatto collassabile, metriche TTFT/token/t/s sono opzionali e non piu' obbligatorie nella UI pulita.
+- Windows/Android: limite allegati vision configurabile da 1 a 150 MB, default 6 MB per non saturare memoria/gateway con payload base64 grandi.
+- Windows: sidebar profilo resa un vero bottone invece di overlay invisibile; header rimosso `Hermes preset: hermes.local`; `Hardware` rinominato `Prestazioni`.
+- Windows: riquadri Prestazioni usano barra utilizzo custom senza animazione reset a ogni refresh da 1 secondo.
+- Windows/Android: testi Jobs/Runs chiariti: Jobs = coda lavori tracciabile; Runs = lavori server-side Hermes che possono continuare sul gateway anche se lo stream client cade.
+- Gateway Linux patcher: `video_library` espone anche `media_roots` derivati da `HERMES_MEDIA_ROOTS`, cosi' le app possono vedere le cartelle media monitorate dal server.
+- Controllo generale: build Windows, build Android debug/release e patcher gateway passano.
+- Release bump: Windows/AdminBridge `0.6.99`, Android `versionName 0.6.99`, `versionCode 104`.
 
 Hermes Hub 0.6.98 (Physical SSD grouping):
 

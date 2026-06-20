@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-internal fun StreamingBubbleView(state: StreamingState) {
+internal fun StreamingBubbleView(state: StreamingState, showToolCalls: Boolean, showMessageMetrics: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -65,9 +65,9 @@ internal fun StreamingBubbleView(state: StreamingState) {
             },
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-                val showActivity = !state.isDone || state.hasThinking || state.toolCalls.isNotEmpty()
+                val showActivity = !state.isDone || state.hasThinking || (showToolCalls && state.toolCalls.isNotEmpty())
                 if (showActivity) {
-                    HermesActivityExpander(state)
+                    HermesActivityExpander(state, showToolCalls)
                 }
 
                 if (state.text.isNotEmpty()) {
@@ -83,7 +83,7 @@ internal fun StreamingBubbleView(state: StreamingState) {
                     }
                 }
 
-                if (state.isDone) {
+                if (showMessageMetrics && state.isDone) {
                     val parts = mutableListOf<String>()
                     state.stats?.ttftMs?.takeIf { it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.0f", it)}ms" }
                     state.stats?.tokensPerSecond?.takeIf { it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s" }
@@ -115,7 +115,7 @@ internal fun StreamingBubbleView(state: StreamingState) {
 }
 
 @Composable
-internal fun HermesActivityExpander(state: StreamingState) {
+internal fun HermesActivityExpander(state: StreamingState, showToolCalls: Boolean) {
     var nowNs by remember(state.startedAtNs) { mutableStateOf(System.nanoTime()) }
     LaunchedEffect(state.startedAtNs, state.isDone) {
         while (!state.isDone) {
@@ -146,7 +146,7 @@ internal fun HermesActivityExpander(state: StreamingState) {
             )
         }
 
-        if (state.toolCalls.isNotEmpty()) {
+        if (showToolCalls && state.toolCalls.isNotEmpty()) {
             ToolGroupExpander(state.toolCalls)
         }
 
@@ -688,7 +688,7 @@ internal data class SlashCommand(
 
 internal enum class SlashAction {
     ModeChat, ModeAgent, Clear, Help, Health,
-    OpenServer, OpenHardware, OpenOperator, OpenArchive, OpenTasks, OpenVoice, OpenVideo, OpenNews, OpenSettings, OpenAbout,
+    OpenServer, OpenHardware, OpenOperator, OpenArchive, OpenTasks, OpenVideo, OpenNews, OpenSettings, OpenAbout,
     PromptSetup, PromptVisual, PromptResearch, PromptWeb, PromptImage, PromptVideo, PromptNews
 }
 
@@ -705,8 +705,6 @@ internal fun slashCommands(): List<SlashCommand> = listOf(
     SlashCommand("/runs", "Apri Operator/Runs", "Probe API Hermes", SlashAction.OpenOperator),
     SlashCommand("/archive", "Apri Archivio", "Conversazioni salvate", SlashAction.OpenArchive),
     SlashCommand("/tasks", "Apri Task agente", "Coda jobs Hermes", SlashAction.OpenTasks),
-    SlashCommand("/voce", "Modalita Voce", "Schermo particelle Hermes", SlashAction.OpenVoice),
-    SlashCommand("/voice", "Modalita Voce", "Alias di /voce", SlashAction.OpenVoice),
     SlashCommand("/video", "Video Hub", "Crea spunto o apri feed video", SlashAction.PromptVideo),
     SlashCommand("/news", "News Hub", "Crea articolo o apri feed news", SlashAction.PromptNews),
     SlashCommand("/settings", "Impostazioni", "Pagina settings", SlashAction.OpenSettings),

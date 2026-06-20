@@ -27,7 +27,10 @@ public sealed partial class SettingsPage : Page
         ModelBox.Text = settings.Model;
         VideoLibraryPathBox.Text = settings.VideoLibraryPath;
         ActiveProjectNameBox.Text = settings.ActiveProjectName;
+        MaxAttachmentMbBox.Value = settings.MaxAttachmentMb;
         StrictNativeModeSwitch.IsOn = settings.StrictNativeMode;
+        ShowToolCallsSwitch.IsOn = settings.ShowToolCalls;
+        ShowMessageMetricsSwitch.IsOn = settings.ShowMessageMetrics;
         AdvancedChatDetailsSwitch.IsOn = settings.AdvancedChatDetails;
         DemoModeSwitch.IsOn = settings.DemoMode;
         SelectComboItem(PreferredApiBox, settings.PreferredApi);
@@ -128,7 +131,10 @@ public sealed partial class SettingsPage : Page
             ActiveProjectName = ActiveProjectNameBox.Text.Trim(),
             AccessMode = SelectedComboText(AccessModeBox),
             VisualBlocksMode = SelectedComboText(VisualBlocksModeBox),
+            MaxAttachmentMb = Math.Clamp(double.IsFinite(MaxAttachmentMbBox.Value) ? (int)Math.Round(MaxAttachmentMbBox.Value) : 6, 1, 150),
             StrictNativeMode = StrictNativeModeSwitch.IsOn,
+            ShowToolCalls = ShowToolCallsSwitch.IsOn,
+            ShowMessageMetrics = ShowMessageMetricsSwitch.IsOn,
             AdvancedChatDetails = AdvancedChatDetailsSwitch.IsOn,
             DemoMode = DemoModeSwitch.IsOn
         };

@@ -80,7 +80,6 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FolderOpen
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.ManageSearch
@@ -239,7 +238,6 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Server("Hermes", Icons.Rounded.Dns),
     Hardware("Hardware", Icons.Rounded.Memory),
     Operator("Runs", Icons.Rounded.Terminal),
-    Voice("Voce", Icons.Rounded.GraphicEq),
     Video("Video", Icons.Rounded.PlayCircle),
     News("News", Icons.AutoMirrored.Rounded.Article),
     Settings("Imposta", Icons.Rounded.Tune),
@@ -428,6 +426,9 @@ data class AppSettings(
     val activeProjectId: String = AppDefaults.activeProjectId,
     val activeProjectName: String = AppDefaults.activeProjectName,
     val fontScale: Float = AppDefaults.fontScale,
+    val showToolCalls: Boolean = AppDefaults.showToolCalls,
+    val showMessageMetrics: Boolean = AppDefaults.showMessageMetrics,
+    val maxAttachmentMb: Int = AppDefaults.maxAttachmentMb,
     val strictNativeMode: Boolean = AppDefaults.strictNativeMode,
     val demoMode: Boolean = AppDefaults.demoMode
 )
@@ -684,26 +685,24 @@ private fun ChatApp() {
         Scaffold(
             containerColor = AppColors.Background,
             bottomBar = {
-                if (selectedTab != Tab.Voice) {
-                    val bottomTabs = remember {
-                        listOf(Tab.Chat, Tab.Hardware, Tab.Voice, Tab.Video, Tab.Profile)
-                    }
-                    NavigationBar(containerColor = AppColors.Sidebar) {
-                        bottomTabs.forEach { tab ->
-                            NavigationBarItem(
-                                selected = selectedTab == tab,
-                                onClick = { setSelectedTab(tab) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Color.White,
-                                    selectedTextColor = Color.White,
-                                    indicatorColor = AppColors.NavIndicator,
-                                    unselectedIconColor = AppColors.Muted,
-                                    unselectedTextColor = AppColors.Muted
-                                ),
-                                icon = { Icon(tab.icon, contentDescription = tab.label) },
-                                label = { Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            )
-                        }
+                val bottomTabs = remember {
+                    listOf(Tab.Chat, Tab.Hardware, Tab.Video, Tab.Profile)
+                }
+                NavigationBar(containerColor = AppColors.Sidebar) {
+                    bottomTabs.forEach { tab ->
+                        NavigationBarItem(
+                            selected = selectedTab == tab,
+                            onClick = { setSelectedTab(tab) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Color.White,
+                                indicatorColor = AppColors.NavIndicator,
+                                unselectedIconColor = AppColors.Muted,
+                                unselectedTextColor = AppColors.Muted
+                            ),
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
                     }
                 }
             }
@@ -711,7 +710,7 @@ private fun ChatApp() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (selectedTab == Tab.Voice) PaddingValues(0.dp) else padding)
+                    .padding(padding)
                     .background(AppColors.Background)
             ) {
                 when (selectedTab) {
@@ -741,7 +740,6 @@ private fun ChatApp() {
                     Tab.Server -> ServerScreen(context, settings)
                     Tab.Hardware -> HardwareScreen(context, settings)
                     Tab.Operator -> OperatorScreen(context, settings)
-                    Tab.Voice -> VoiceModeScreen()
                     Tab.Video -> VideoScreen(context, settings) { prompt ->
                         pendingPrompt = prompt
                         setSelectedTab(Tab.Chat)
@@ -997,7 +995,7 @@ private fun ChatScreen(
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             scope.launch {
-                val attachment = withContext(Dispatchers.IO) { createImageAttachmentFromUri(context, uri) }
+                val attachment = withContext(Dispatchers.IO) { createImageAttachmentFromUri(context, uri, settings.maxAttachmentMb) }
                 if (attachment != null) {
                     state.pendingAttachments.add(attachment)
                     state.messages.add(ChatMessage("Allegato vision", "${attachment.filename} pronto per Hermes vision (${attachment.sizeBytes / 1024} KB).", fromUser = false, isAction = true))
@@ -1087,10 +1085,10 @@ private fun ChatScreen(
                     state.messages,
                     key = { message -> message.id }
                 ) { message ->
-                    MessageBubble(message)
+                    MessageBubble(message, settings)
                 }
                 state.streamingState?.let { streaming ->
-                    item(key = "streaming") { StreamingBubbleView(streaming) }
+                    item(key = "streaming") { StreamingBubbleView(streaming, settings.showToolCalls, settings.showMessageMetrics) }
                 }
             }
         }
@@ -1337,7 +1335,6 @@ private fun executeSlashCommand(
         SlashAction.OpenOperator -> onSwitchTab(Tab.Operator)
         SlashAction.OpenArchive -> onSwitchTab(Tab.Archive)
         SlashAction.OpenTasks -> onSwitchTab(Tab.Tasks)
-        SlashAction.OpenVoice -> onSwitchTab(Tab.Voice)
         SlashAction.OpenVideo -> onSwitchTab(Tab.Video)
         SlashAction.OpenNews -> onSwitchTab(Tab.News)
         SlashAction.OpenSettings -> onSwitchTab(Tab.Settings)
@@ -1507,7 +1504,7 @@ private fun EmptyState(onPrompt: (String) -> Unit) {
         )
         Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = "Chat normale, Runs e Jobs verso Hermes Agent sul tuo home-server.",
+            text = "Chat live, Runs server-side e Jobs/coda verso Hermes Agent sul tuo home-server.",
             color = AppColors.Muted,
             fontSize = 14.sp,
             textAlign = TextAlign.Center
@@ -1569,7 +1566,7 @@ private fun Card(
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(message: ChatMessage, settings: AppSettings) {
     SelectionContainer {
         if (!message.fromUser && !message.isAction) {
             Column(
@@ -1587,7 +1584,9 @@ private fun MessageBubble(message: ChatMessage) {
                     }
                 }
                 RawHermesEventsView(message.rawEvents)
-                ChatStatsFooter(message.stats)
+                if (settings.showMessageMetrics) {
+                    ChatStatsFooter(message.stats)
+                }
             }
             return@SelectionContainer
         }
@@ -1626,7 +1625,9 @@ private fun MessageBubble(message: ChatMessage) {
                         }
                     }
                     RawHermesEventsView(message.rawEvents)
-                    ChatStatsFooter(message.stats)
+                    if (settings.showMessageMetrics) {
+                        ChatStatsFooter(message.stats)
+                    }
                 }
             }
         }
@@ -2617,7 +2618,7 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
         item {
             Text("Jobs", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Coda Jobs persistente. Usa Hermes Jobs API quando disponibile, altrimenti fallback locale.", color = AppColors.Muted)
+            Text("Jobs = coda lavori tracciabile. Servono per richieste pianificate o con approvazioni; non sono la chat live.", color = AppColors.Muted)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -3358,7 +3359,7 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
         item {
             Text("Runs", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Operazioni reali verso Hermes Agent API: health, models, capabilities, runs e jobs.", color = AppColors.Muted)
+            Text("Runs = lavori server-side Hermes. Possono continuare sul gateway anche se chiudi app o perdi lo stream.", color = AppColors.Muted)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -3393,7 +3394,7 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Jobs", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Jobs / coda", color = Color.White, fontWeight = FontWeight.SemiBold)
                     SettingsField("Job ID", approvalId, { approvalId = it })
                     OperatorActionButton("Lista") { runOperatorRpc(context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it }) }
                     OperatorActionButton("Run") { runOperatorRpc(context, settings, "POST /api/jobs/${approvalId.jsonEscaped()}/run", "{}", { status = it }, { summary = it }, { raw = it }) }
@@ -3405,7 +3406,7 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Runs manuali", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Runs server-side", color = Color.White, fontWeight = FontWeight.SemiBold)
                     SettingsField("Run ID", baseHash, { baseHash = it })
                     SettingsField("Input run", configPatch, { configPatch = it })
                     OperatorActionButton("Capabilities") { runOperatorRpc(context, settings, "GET /v1/capabilities", "", { status = it }, { summary = it }, { raw = it }) }
@@ -4249,8 +4250,8 @@ private fun ProfileScreen(
                     Text("Schermate secondarie spostate qui per lasciare la barra bassa pulita.", color = AppColors.Muted, fontSize = 12.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { onOpenTab(Tab.Server) }) { Text("Hermes") }
-                        Button(onClick = { onOpenTab(Tab.Operator) }) { Text("Runs") }
-                        Button(onClick = { onOpenTab(Tab.Hardware) }) { Text("Hardware") }
+                        Button(onClick = { onOpenTab(Tab.Operator) }) { Text("Runs server") }
+                        Button(onClick = { onOpenTab(Tab.Hardware) }) { Text("Prestazioni") }
                         Button(onClick = { onOpenTab(Tab.News) }) { Text("News") }
                         Button(onClick = { onOpenTab(Tab.Settings) }) { Text("Impostazioni") }
                         Button(onClick = { onOpenTab(Tab.Archive) }) { Text("Archivio") }
@@ -4473,6 +4474,9 @@ private fun SettingsScreen(
     var videoLibraryPath by remember(settings.videoLibraryPath) { mutableStateOf(settings.videoLibraryPath) }
     var apiKey by remember { mutableStateOf(loadGatewaySecret(context) ?: HERMES_FALLBACK_API_KEY) }
     var fontScale by remember(settings.fontScale) { mutableStateOf(settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)) }
+    var showToolCalls by remember(settings.showToolCalls) { mutableStateOf(settings.showToolCalls) }
+    var showMessageMetrics by remember(settings.showMessageMetrics) { mutableStateOf(settings.showMessageMetrics) }
+    var maxAttachmentMb by remember(settings.maxAttachmentMb) { mutableStateOf(settings.maxAttachmentMb.coerceIn(1, 150)) }
     var strictNativeMode by remember(settings.strictNativeMode) { mutableStateOf(settings.strictNativeMode) }
     var demoMode by remember(settings.demoMode) { mutableStateOf(settings.demoMode) }
     var status by remember { mutableStateOf("Pronto.") }
@@ -4493,6 +4497,9 @@ private fun SettingsScreen(
             activeProjectId = settings.activeProjectId,
             activeProjectName = settings.activeProjectName,
             fontScale = scale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
+            showToolCalls = showToolCalls,
+            showMessageMetrics = showMessageMetrics,
+            maxAttachmentMb = maxAttachmentMb.coerceIn(1, 150),
             strictNativeMode = strictNativeMode,
             demoMode = demoMode
         )
@@ -4527,6 +4534,9 @@ private fun SettingsScreen(
                         SettingsField("Hermes API URL", gatewayUrl, { gatewayUrl = it })
                         SettingsPasswordField("API key Hermes", apiKey, { apiKey = it })
                         SettingsField("Cartella video Hermes (sync server)", videoLibraryPath, { })
+                        SettingsField("Limite allegati vision (MB, max 150)", maxAttachmentMb.toString(), { value ->
+                            maxAttachmentMb = value.filter { it.isDigit() }.toIntOrNull()?.coerceIn(1, 150) ?: maxAttachmentMb
+                        })
                     }
                 }
             }
@@ -4549,6 +4559,20 @@ private fun SettingsScreen(
                         }
                     }
                 }
+            }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tool call in chat", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = showToolCalls, onCheckedChange = { showToolCalls = it })
+                }
+                Text("ON = mostra pannello tool compatto. Output lunghi restano collassati.", color = AppColors.Muted, fontSize = 12.sp)
+            }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Metriche messaggi", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = showMessageMetrics, onCheckedChange = { showMessageMetrics = it })
+                }
+                Text("ON = mostra TTFT, token e t/s nei messaggi.", color = AppColors.Muted, fontSize = 12.sp)
             }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -5768,7 +5792,7 @@ private fun executeHttpGet(url: String, bearerToken: String?): Pair<Int, String>
     }
 }
 
-private fun createImageAttachmentFromUri(context: Context, uri: Uri): ChatInputAttachment? {
+private fun createImageAttachmentFromUri(context: Context, uri: Uri, maxAttachmentMb: Int): ChatInputAttachment? {
     val resolver = context.contentResolver
     val mimeType = resolver.getType(uri)?.takeIf { it.startsWith("image/", ignoreCase = true) } ?: return null
     val filename = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
@@ -5778,7 +5802,7 @@ private fun createImageAttachmentFromUri(context: Context, uri: Uri): ChatInputA
     val bytes = resolver.openInputStream(uri)?.use { input ->
         input.readBytes()
     } ?: return null
-    val maxBytes = 6 * 1024 * 1024
+    val maxBytes = maxAttachmentMb.coerceIn(1, 150) * 1024 * 1024
     if (bytes.isEmpty() || bytes.size > maxBytes) {
         return null
     }
@@ -6717,6 +6741,9 @@ private fun loadSettings(context: Context): AppSettings {
         activeProjectId = prefs.getString("activeProjectId", AppDefaults.activeProjectId) ?: AppDefaults.activeProjectId,
         activeProjectName = prefs.getString("activeProjectName", AppDefaults.activeProjectName) ?: AppDefaults.activeProjectName,
         fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
+        showToolCalls = prefs.getBoolean("showToolCalls", AppDefaults.showToolCalls),
+        showMessageMetrics = prefs.getBoolean("showMessageMetrics", AppDefaults.showMessageMetrics),
+        maxAttachmentMb = prefs.getInt("maxAttachmentMb", AppDefaults.maxAttachmentMb).coerceIn(1, 150),
         strictNativeMode = prefs.getBoolean("strictNativeMode", AppDefaults.strictNativeMode),
         demoMode = prefs.getBoolean("demoMode", AppDefaults.demoMode)
     )
@@ -6791,6 +6818,9 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .putString("activeProjectId", settings.activeProjectId.trim())
         .putString("activeProjectName", settings.activeProjectName.trim())
         .putFloat("fontScale", settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE))
+        .putBoolean("showToolCalls", settings.showToolCalls)
+        .putBoolean("showMessageMetrics", settings.showMessageMetrics)
+        .putInt("maxAttachmentMb", settings.maxAttachmentMb.coerceIn(1, 150))
         .putBoolean("strictNativeMode", settings.strictNativeMode)
         .putBoolean("demoMode", settings.demoMode)
         .apply()
@@ -7749,6 +7779,9 @@ private object AppDefaults {
     const val activeProjectId = ""
     const val activeProjectName = ""
     const val fontScale = 1.0f
+    const val showToolCalls = true
+    const val showMessageMetrics = false
+    const val maxAttachmentMb = 6
     const val strictNativeMode = false
     const val demoMode = false
     const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"

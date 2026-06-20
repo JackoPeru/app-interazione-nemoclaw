@@ -197,10 +197,11 @@ public sealed partial class HomePage : Page
             return;
         }
 
-        var attachment = await TryCreateImageAttachmentAsync(file);
+        var settings = AppSettingsStore.Load();
+        var attachment = await TryCreateImageAttachmentAsync(file, settings.MaxAttachmentMb);
         if (attachment is null)
         {
-            AddAction("Allegato", "Formato immagine non supportato o file troppo grande. Usa PNG/JPEG/WebP sotto 6 MB.");
+            AddAction("Allegato", $"Formato immagine non supportato o file troppo grande. Usa PNG/JPEG/WebP sotto {settings.MaxAttachmentMb} MB.");
             return;
         }
 
@@ -699,7 +700,7 @@ public sealed partial class HomePage : Page
         builder.Append("\n\n[…troncato: limite 2000000 caratteri raggiunto.]");
     }
 
-    private static async Task<ChatInputAttachment?> TryCreateImageAttachmentAsync(StorageFile file)
+    private static async Task<ChatInputAttachment?> TryCreateImageAttachmentAsync(StorageFile file, int maxAttachmentMb)
     {
         var mimeType = ImageMimeType(file.FileType);
         if (mimeType is null)
@@ -708,7 +709,7 @@ public sealed partial class HomePage : Page
         }
 
         var bytes = await File.ReadAllBytesAsync(file.Path);
-        const int maxBytes = 6 * 1024 * 1024;
+        var maxBytes = Math.Clamp(maxAttachmentMb, 1, 150) * 1024 * 1024;
         if (bytes.Length <= 0 || bytes.Length > maxBytes)
         {
             return null;
@@ -843,7 +844,7 @@ public sealed partial class HomePage : Page
                 content.Children.Add(RenderRawHermesEvent(raw));
             }
         }
-        if (advanced)
+        if (advanced || AppSettingsStore.Load().ShowMessageMetrics)
         {
             AddStatsFooter(content, stats);
         }
@@ -952,11 +953,14 @@ public sealed partial class HomePage : Page
 
     private StreamingBubble CreateStreamingAssistantBubble()
     {
+        var settings = AppSettingsStore.Load();
         var bubble = new StreamingBubble(
             this,
             element => Messages.Add(new MessageViewModel(element)),
             MessagesScroll,
-            AppSettingsStore.Load().AdvancedChatDetails);
+            settings.AdvancedChatDetails,
+            settings.ShowToolCalls,
+            settings.ShowMessageMetrics);
         return bubble;
     }
 
@@ -1037,7 +1041,7 @@ public sealed partial class HomePage : Page
 
     private void ResetServerContextMeter()
     {
-        ResetServerContextMeter();
+        _lastServerContextTokens = 0;
         _lastServerContextLength = 0;
         _lastServerContextPercent = null;
     }
@@ -1225,8 +1229,6 @@ public sealed partial class HomePage : Page
             new("/runs", "Apri Operator/Runs", "Apri probe API Hermes", SlashAction.OpenOperator),
             new("/archive", "Apri Archivio", "Cerca conversazioni salvate", SlashAction.OpenArchive),
             new("/tasks", "Apri Task agente", "Coda jobs Hermes", SlashAction.OpenTasks),
-            new("/voce", "Modalita Voce", "Schermo particelle Hermes", SlashAction.OpenVoice),
-            new("/voice", "Modalita Voce", "Alias di /voce", SlashAction.OpenVoice),
             new("/settings", "Impostazioni", "Apri pagina settings", SlashAction.OpenSettings),
             new("/about", "Info app", "Versione, profilo, gateway", SlashAction.OpenAbout),
             new("/setup", "Setup Hermes", "Prompt: prepara setup", SlashAction.PromptSetup),
@@ -1443,9 +1445,6 @@ public sealed partial class HomePage : Page
                 break;
             case SlashAction.OpenTasks:
                 Frame?.Navigate(typeof(TasksPage));
-                break;
-            case SlashAction.OpenVoice:
-                Frame?.Navigate(typeof(VoicePage));
                 break;
             case SlashAction.OpenSettings:
                 Frame?.Navigate(typeof(SettingsPage));
