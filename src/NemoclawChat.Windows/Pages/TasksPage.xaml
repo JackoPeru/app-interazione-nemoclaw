@@ -15,10 +15,10 @@
                         FontSize="30"
                         FontWeight="SemiBold"
                         Foreground="White"
-                        Text="Jobs" />
+                        Text="Lavori Hermes" />
                     <TextBlock
                         Foreground="{StaticResource MutedTextBrush}"
-                        Text="Jobs = coda lavori tracciabile. Servono per richieste pianificate o con approvazioni; non sono la chat live." />
+                        Text="Qui lasci a Hermes un lavoro da fare anche se non vuoi restare nella chat. Descrivi il risultato; Hermes gestisce il resto." />
                 </StackPanel>
 
                 <Border
@@ -28,7 +28,7 @@
                     BorderThickness="1"
                     CornerRadius="18">
                     <StackPanel Spacing="14">
-                        <TextBlock Foreground="White" FontWeight="SemiBold" Text="Nuovo job" />
+                        <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="Nuovo lavoro" />
                         <Grid ColumnSpacing="12" RowSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="2*" />
@@ -42,12 +42,12 @@
 
                             <TextBox
                                 x:Name="TaskTitleBox"
-                                Header="Titolo job"
-                                PlaceholderText="Es. Analizza workspace" />
+                                Header="Nome breve"
+                                PlaceholderText="Es. Controlla wiki" />
                             <ComboBox
                                 x:Name="TaskModeBox"
                                 Grid.Column="1"
-                                Header="Modalita"
+                                Header="Dove eseguirlo"
                                 SelectedIndex="0">
                                 <ComboBoxItem Content="Locale" />
                                 <ComboBoxItem Content="Hermes" />
@@ -58,14 +58,14 @@
                                 Grid.Row="1"
                                 Grid.ColumnSpan="2"
                                 AcceptsReturn="True"
-                                Header="Istruzioni"
+                                Header="Cosa deve fare Hermes?"
                                 MaxHeight="140"
-                                PlaceholderText="Descrivi il job da eseguire tramite Hermes Agent."
+                                PlaceholderText="Scrivi in modo normale. Es. controlla la wiki, trova cosa manca, prepara una lista di prossimi passi."
                                 TextWrapping="Wrap" />
                             <ToggleSwitch
                                 x:Name="ApprovalSwitch"
                                 Grid.Row="2"
-                                Header="Richiedi conferma prima di azioni rischiose"
+                                Header="Chiedi conferma prima di azioni rischiose"
                                 IsOn="True" />
                         </Grid>
 
@@ -78,10 +78,11 @@
                                 Background="{StaticResource AccentGreenBrush}"
                                 BorderThickness="0"
                                 Click="QueueTask_Click"
-                                Content="Crea job"
+                                Content="Crea lavoro"
                                 Foreground="White" />
                             <Button Click="LoadWorkspaceTemplate_Click" Content="Template workspace" />
                             <Button Click="LoadServerTemplate_Click" Content="Template server" />
+                            <Button Click="LoadVideoTemplate_Click" Content="Template video" />
                         </StackPanel>
                     </StackPanel>
                 </Border>

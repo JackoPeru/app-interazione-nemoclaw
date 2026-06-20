@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.101 Release Hermes Hub 0.6.101 generic files hotfix
+v0.6.102 Release Hermes Hub 0.6.102 simple jobs runs video path
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,19 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.102 (Simple Jobs/Runs and video path):
+
+Release 0.6.102:
+- Windows: bottone impostazioni header abbassato sotto la titlebar estesa, con riga superiore portata a 64 px.
+- Windows Runs: aggiunta card primaria `Avvia lavoro in background` con input naturale e pulsanti `Avvia lavoro`, `Crea video`, `Controlla stato`, `Vedi lavori`; pannelli endpoint/JSON spostati sotto `Avanzate tecniche`.
+- Windows Jobs: copy e CTA resi non tecnici (`Lavori Hermes`, `Cosa deve fare Hermes?`, `Crea lavoro`) e aggiunto template video che salva in `/home/matteo/video`.
+- Android Runs: aggiunta card primaria `Avvia lavoro in background`, con input naturale e pulsanti rapidi per run generico, video e lista lavori.
+- Android Jobs: copy e CTA semplificati, template video incluso.
+- Gateway Linux: cartella video default cambiata a `/home/matteo/video`; `HERMES_MEDIA_ROOTS` la include per feed `/v1/video/library`.
+- Windows/Android: default `videoLibraryPath` e migrazione blank/vecchia cartella `.hermes/media/video` verso `/home/matteo/video`.
+- Windows Video: feed prova prima `/v1/video/library` dal gateway e poi fallback locale; evita di creare cartelle Windows false quando path server e' Linux.
+- Release bump: Windows/AdminBridge `0.6.102`, Android `versionName 0.6.102`, `versionCode 107`.
 
 Hermes Hub 0.6.101 (Generic files hotfix):
 

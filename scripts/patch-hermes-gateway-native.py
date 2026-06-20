@@ -451,7 +451,7 @@ def _hermes_hub_video_library_payload(request: Optional["web.Request"] = None) -
 
     raw = os.environ.get("HERMES_VIDEO_LIBRARY_PATH")
     if not raw:
-        raw = str(_Path(os.environ.get("HERMES_HOME", str(_Path.home() / ".hermes"))).expanduser() / "media" / "video")
+        raw = "/home/matteo/video"
     root = _Path(raw).expanduser()
     extensions = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi"}
     items: List[Dict[str, Any]] = []

@@ -2671,18 +2671,18 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("Jobs", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Text("Lavori Hermes", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Jobs = coda lavori tracciabile. Servono per richieste pianificate o con approvazioni; non sono la chat live.", color = AppColors.Muted)
+            Text("Lascia a Hermes un lavoro da fare. Scrivi cosa vuoi ottenere; non serve conoscere Jobs, Runs o API.", color = AppColors.Muted)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Nuovo job", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    SettingsField("Titolo", title, { title = it })
-                    SettingsField("Istruzioni", detail, { detail = it })
+                    Text("Nuovo lavoro", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    SettingsField("Nome breve", title, { title = it })
+                    SettingsField("Cosa deve fare Hermes?", detail, { detail = it })
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Richiedi conferma", color = Color.White, modifier = Modifier.weight(1f))
+                        Text("Chiedi conferma prima di azioni rischiose", color = Color.White, modifier = Modifier.weight(1f))
                         Switch(checked = requiresApproval, onCheckedChange = { requiresApproval = it })
                     }
                     FlowRow(
@@ -2716,7 +2716,7 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                                 status = result.message
                             }
                         }) {
-                            Text("Accoda")
+                            Text("Crea lavoro")
                         }
                         Button(onClick = {
                             title = "Analizza workspace"
@@ -2733,6 +2733,14 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
                             status = "Template server caricato."
                         }) {
                             Text("Server")
+                        }
+                        Button(onClick = {
+                            title = "Crea video"
+                            detail = "Prepara o genera un video per Matteo. Salva il file finale in /home/matteo/video cosi compare automaticamente nella sezione Video dell'app."
+                            requiresApproval = true
+                            status = "Template video caricato."
+                        }) {
+                            Text("Video")
                         }
                         Button(onClick = {
                             status = "Sincronizzo Jobs Hermes..."
@@ -2754,8 +2762,8 @@ private fun TasksScreen(context: Context, settings: AppSettings) {
         if (tasks.isEmpty()) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Nessun job in coda.", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Crea un task qui sopra o invialo da chat con /agente. Verra' salvato nella coda Hermes.", color = AppColors.Muted, fontSize = 13.sp)
+                    Text("Nessun lavoro in coda.", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Crea un lavoro qui sopra o chiedilo in chat con modalita Agente.", color = AppColors.Muted, fontSize = 13.sp)
                 }
             }
         }
@@ -2810,7 +2818,7 @@ private fun TaskCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(onClick = onApprove) { Text("Run") }
+                Button(onClick = onApprove) { Text("Avvia") }
                 Button(onClick = onDeny) { Text("Pausa") }
                 Button(onClick = onDone) { Text("Elimina") }
             }
@@ -3401,6 +3409,7 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
     var configPatch by remember { mutableStateOf("{\"ops\":[]}") }
     var workspacePath by remember { mutableStateOf("") }
     var workspaceText by remember { mutableStateOf("") }
+    var quickRunText by remember { mutableStateOf("Controlla lo stato operativo e riassumi cosa richiede attenzione.") }
     var status by remember { mutableStateOf("Pronto.") }
     var summary by remember { mutableStateOf("Nessuna risposta.") }
     var raw by remember { mutableStateOf("") }
@@ -3415,6 +3424,30 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
             Text("Runs", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
             Text("Runs = lavori server-side Hermes. Possono continuare sul gateway anche se chiudi app o perdi lo stream.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Avvia lavoro in background", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Scrivi cosa deve fare Hermes. Non serve conoscere endpoint, JSON o ID tecnici.", color = AppColors.Muted, fontSize = 13.sp)
+                    SettingsField("Cosa deve fare Hermes?", quickRunText, { quickRunText = it })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = {
+                            val input = quickRunText.ifBlank { "Controlla stato operativo Hermes e riassumi." }
+                            runOperatorRpc(context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${input.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it })
+                        }) { Text("Avvia lavoro") }
+                        Button(onClick = {
+                            val input = "Crea o prepara un video per Matteo. Salva il file finale in /home/matteo/video cosi appare nella sezione Video."
+                            quickRunText = input
+                            runOperatorRpc(context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${input.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it })
+                        }) { Text("Crea video") }
+                        Button(onClick = {
+                            runOperatorRpc(context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it })
+                        }) { Text("Vedi lavori") }
+                    }
+                    Text(status, color = AppColors.Muted, fontSize = 12.sp)
+                }
+            }
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -6912,7 +6945,8 @@ private fun loadSettings(context: Context): AppSettings {
         model = prefs.getString("model", AppDefaults.model) ?: AppDefaults.model,
         accessMode = prefs.getString("accessMode", AppDefaults.accessMode) ?: AppDefaults.accessMode,
         visualBlocksMode = prefs.getString("visualBlocksMode", AppDefaults.visualBlocksMode) ?: AppDefaults.visualBlocksMode,
-        videoLibraryPath = prefs.getString("videoLibraryPath", AppDefaults.videoLibraryPath) ?: AppDefaults.videoLibraryPath,
+        videoLibraryPath = (prefs.getString("videoLibraryPath", AppDefaults.videoLibraryPath) ?: AppDefaults.videoLibraryPath)
+            .let { if (it.isBlank() || it.endsWith("/.hermes/media/video")) AppDefaults.videoLibraryPath else it },
         activeProjectId = prefs.getString("activeProjectId", AppDefaults.activeProjectId) ?: AppDefaults.activeProjectId,
         activeProjectName = prefs.getString("activeProjectName", AppDefaults.activeProjectName) ?: AppDefaults.activeProjectName,
         fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
@@ -7962,7 +7996,7 @@ private object AppDefaults {
     const val model = "hermes-agent"
     const val accessMode = "Tailscale/LAN plug-and-play"
     const val visualBlocksMode = "auto"
-    const val videoLibraryPath = ""
+    const val videoLibraryPath = "/home/matteo/video"
     const val activeProjectId = ""
     const val activeProjectName = ""
     const val fontScale = 1.0f

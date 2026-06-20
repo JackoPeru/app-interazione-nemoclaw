@@ -120,6 +120,13 @@ public static class AppSettingsStore
         settings.GatewayUrl = settings.GatewayUrl.Trim().TrimEnd('/');
         settings.InferenceEndpoint = settings.GatewayUrl;
         settings.AdminBridgeUrl = GatewayService.HermesRoot(settings);
+        if (string.IsNullOrWhiteSpace(settings.VideoLibraryPath) ||
+            settings.VideoLibraryPath.EndsWith("/.hermes/media/video", StringComparison.OrdinalIgnoreCase) ||
+            settings.VideoLibraryPath.EndsWith("\\.hermes\\media\\video", StringComparison.OrdinalIgnoreCase))
+        {
+            settings.VideoLibraryPath = "/home/matteo/video";
+            changed = true;
+        }
         settings.MaxAttachmentMb = Math.Clamp(settings.MaxAttachmentMb <= 0 || settings.MaxAttachmentMb == 6 ? 150 : settings.MaxAttachmentMb, 1, 150);
 
         if (changed)

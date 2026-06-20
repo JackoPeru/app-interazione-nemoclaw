@@ -21,6 +21,31 @@
                         Text="Runs = lavori server-side Hermes. Possono continuare sul gateway anche se chiudi app o perdi lo stream." />
                 </StackPanel>
 
+                <Border Padding="22" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="12">
+                        <TextBlock Foreground="White" FontSize="18" FontWeight="SemiBold" Text="Avvia lavoro in background" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Scrivi cosa deve fare Hermes. Non serve conoscere endpoint, JSON o ID tecnici." TextWrapping="Wrap" />
+                        <TextBox
+                            x:Name="QuickRunBox"
+                            AcceptsReturn="True"
+                            Header="Cosa deve fare Hermes?"
+                            MinHeight="110"
+                            PlaceholderText="Es. Controlla lo stato della wiki e dimmi cosa manca."
+                            TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button
+                                Background="{StaticResource AccentGreenBrush}"
+                                BorderThickness="0"
+                                Click="QuickRun_Click"
+                                Content="Avvia lavoro"
+                                Foreground="White" />
+                            <Button Click="QuickVideoRun_Click" Content="Crea video" />
+                            <Button Click="QuickStatus_Click" Content="Controlla stato" />
+                            <Button Click="QuickJobs_Click" Content="Vedi lavori" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                     <StackPanel Spacing="12">
                         <TextBlock Foreground="White" FontWeight="SemiBold" Text="Preset Hermes" />
@@ -29,11 +54,17 @@
                     </StackPanel>
                 </Border>
 
-                <Grid ColumnSpacing="16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="360" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
+                <TextBlock
+                    Foreground="{StaticResource MutedTextBrush}"
+                    FontSize="14"
+                    Text="Avanzate tecniche"
+                    TextWrapping="Wrap" />
+
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="360" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
 
                     <Border Padding="20" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
                         <StackPanel Spacing="12">
@@ -69,7 +100,7 @@
                                 TextWrapping="NoWrap" />
                         </StackPanel>
                     </Border>
-                </Grid>
+                        </Grid>
 
                 <Grid ColumnSpacing="16" RowSpacing="16">
                     <Grid.ColumnDefinitions>

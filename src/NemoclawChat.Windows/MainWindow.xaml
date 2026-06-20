@@ -193,7 +193,7 @@
 
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
-                <RowDefinition Height="44" />
+                <RowDefinition Height="64" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
@@ -222,9 +222,9 @@
 
                 <StackPanel
                     HorizontalAlignment="Right"
-                    VerticalAlignment="Center"
+                    VerticalAlignment="Bottom"
                     Orientation="Horizontal"
-                    Padding="0,0,16,0"
+                    Padding="0,0,16,8"
                     Spacing="10">
                     <Button
                         Width="32"

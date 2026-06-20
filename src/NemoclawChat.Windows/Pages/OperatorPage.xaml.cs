@@ -68,6 +68,48 @@ public sealed partial class OperatorPage : Page
         await RunRpcAsync();
     }
 
+    private async void QuickRun_Click(object sender, RoutedEventArgs e)
+    {
+        var input = QuickRunBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            input = "Controlla stato operativo Hermes e riassumi cosa richiede attenzione.";
+            QuickRunBox.Text = input;
+        }
+
+        await CreateRunFromTextAsync(input);
+    }
+
+    private async void QuickVideoRun_Click(object sender, RoutedEventArgs e)
+    {
+        var input = QuickRunBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            input = "Crea o prepara un video per Matteo. Salva il file finale nella cartella /home/matteo/video cosi appare nella sezione Video.";
+            QuickRunBox.Text = input;
+        }
+
+        await CreateRunFromTextAsync(input);
+    }
+
+    private async void QuickStatus_Click(object sender, RoutedEventArgs e)
+    {
+        await RunHermesAsync(HttpMethod.Get, "/health/detailed", null);
+    }
+
+    private async void QuickJobs_Click(object sender, RoutedEventArgs e)
+    {
+        await RunHermesAsync(HttpMethod.Get, "/api/jobs", null);
+    }
+
+    private async Task CreateRunFromTextAsync(string input)
+    {
+        var payload = $$"""{"model":"hermes-agent","input":"{{JsonEscape(input)}}"}""";
+        MethodBox.Text = "POST /v1/runs";
+        ParamsBox.Text = payload;
+        await RunHermesAsync(HttpMethod.Post, "/v1/runs", payload);
+    }
+
     private async Task RunRpcAsync()
     {
         var settings = AppSettingsStore.Load();

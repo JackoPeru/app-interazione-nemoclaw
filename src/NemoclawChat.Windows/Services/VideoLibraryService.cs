@@ -1,8 +1,11 @@
+using System.Text.Json;
+
 namespace NemoclawChat_Windows.Services;
 
 public sealed class LocalVideoRecord
 {
     public string Path { get; init; } = string.Empty;
+    public bool IsRemote { get; init; }
     public string FileName { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public string Extension { get; init; } = string.Empty;
@@ -37,8 +40,45 @@ public static class VideoLibraryService
         {
             return string.Empty;
         }
+        if (IsRemoteLinuxPath(path))
+        {
+            return path;
+        }
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    public static async Task<(IReadOnlyList<LocalVideoRecord> Items, string Status)> LoadAsync(AppSettings settings)
+    {
+        try
+        {
+            var body = await GatewayService.SendHermesRequestAsync(settings, HttpMethod.Get, "/v1/video/library");
+            if (!body.StartsWith("HTTP ", StringComparison.OrdinalIgnoreCase))
+            {
+                var remote = ParseRemoteLibrary(settings, body);
+                if (remote.Count > 0)
+                {
+                    return (remote, $"{remote.Count} video trovati dal gateway.");
+                }
+
+                using var doc = JsonDocument.Parse(body);
+                var path = doc.RootElement.TryGetProperty("video_library_path", out var videoPath)
+                    ? videoPath.GetString()
+                    : doc.RootElement.TryGetProperty("library_path", out var libraryPath) ? libraryPath.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    settings.VideoLibraryPath = path!;
+                    AppSettingsStore.Save(settings);
+                    return ([], $"Gateway sincronizzato. Cartella monitorata: {path}");
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        var local = Scan(settings);
+        return (local, local.Count == 0 ? "Nessun video locale trovato." : $"{local.Count} video locali trovati.");
     }
 
     public static IReadOnlyList<LocalVideoRecord> Scan(AppSettings settings)
@@ -75,6 +115,67 @@ public static class VideoLibraryService
             })
             .ToList();
     }
+
+    private static List<LocalVideoRecord> ParseRemoteLibrary(AppSettings settings, string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        if (doc.RootElement.TryGetProperty("video_library_path", out var videoPath) && videoPath.GetString() is { Length: > 0 } path)
+        {
+            settings.VideoLibraryPath = path;
+            AppSettingsStore.Save(settings);
+        }
+
+        if (!doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var list = new List<LocalVideoRecord>();
+        foreach (var item in items.EnumerateArray())
+        {
+            var filename = ReadString(item, "filename");
+            var mediaUrl = ReadString(item, "media_url");
+            if (string.IsNullOrWhiteSpace(filename) || string.IsNullOrWhiteSpace(mediaUrl))
+            {
+                continue;
+            }
+
+            var resolved = GatewayService.ResolveHermesUri(settings, mediaUrl);
+            var modified = ReadDouble(item, "modified_at");
+            var modifiedAt = modified > 0
+                ? DateTimeOffset.FromUnixTimeSeconds((long)modified)
+                : DateTimeOffset.Now;
+            var sourcePath = ReadString(item, "path");
+            list.Add(new LocalVideoRecord
+            {
+                Path = resolved,
+                IsRemote = true,
+                FileName = filename,
+                Title = ReadString(item, "title") is { Length: > 0 } title ? title : Path.GetFileNameWithoutExtension(filename),
+                Extension = Path.GetExtension(filename).TrimStart('.').ToUpperInvariant(),
+                ModifiedAt = modifiedAt,
+                SizeBytes = ReadLong(item, "size_bytes"),
+                LastFeedback = string.Empty,
+                LastAgentStatus = string.Empty,
+                LastAgentResponse = string.IsNullOrWhiteSpace(sourcePath) ? resolved : sourcePath,
+                FeedbackCount = 0
+            });
+        }
+
+        return list;
+    }
+
+    private static bool IsRemoteLinuxPath(string path) =>
+        path.StartsWith("/", StringComparison.Ordinal) && OperatingSystem.IsWindows();
+
+    private static string ReadString(JsonElement item, string name) =>
+        item.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
+
+    private static long ReadLong(JsonElement item, string name) =>
+        item.TryGetProperty(name, out var value) && value.TryGetInt64(out var parsed) ? parsed : 0;
+
+    private static double ReadDouble(JsonElement item, string name) =>
+        item.TryGetProperty(name, out var value) && value.TryGetDouble(out var parsed) ? parsed : 0;
 
     public static string FormatSize(long sizeBytes)
     {

@@ -17,7 +17,7 @@ public sealed partial class VideoPage : Page
     {
         InitializeComponent();
         UpdateAdaptiveLayout(ActualWidth);
-        RefreshFeed();
+        _ = RefreshFeedAsync();
     }
 
     private void VideoContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -51,11 +51,13 @@ public sealed partial class VideoPage : Page
         }
     }
 
-    private void RefreshFeed()
+    private async Task RefreshFeedAsync()
     {
         var settings = AppSettingsStore.Load();
         var folder = VideoLibraryService.EnsureLibraryPath(settings);
-        var videos = VideoLibraryService.Scan(settings).ToList();
+        var (loaded, loadStatus) = await VideoLibraryService.LoadAsync(settings);
+        var videos = loaded.ToList();
+        folder = VideoLibraryService.GetLibraryPath(settings);
 
         LibraryPathText.Text = string.IsNullOrWhiteSpace(folder)
             ? "Hermes non ha ancora annunciato la cartella video."
@@ -65,7 +67,7 @@ public sealed partial class VideoPage : Page
         PageStatusText.Text = string.IsNullOrWhiteSpace(folder)
             ? "In attesa di sync automatico da Hermes."
             : videos.Count == 0
-                ? "Cartella sincronizzata. I file video compariranno qui in automatico."
+                ? loadStatus
                 : $"{videos.Count} video trovati in feed.";
 
         if (_selectedVideo is not null)
@@ -106,13 +108,18 @@ public sealed partial class VideoPage : Page
             FeedbackStatusText.Text = "Hermes non ha ancora inviato la cartella video.";
             return;
         }
+        if (folder.StartsWith("/", StringComparison.Ordinal) && OperatingSystem.IsWindows())
+        {
+            FeedbackStatusText.Text = $"Cartella sul server Linux: {folder}. Usa il feed gateway o aprila via SSH/SFTP.";
+            return;
+        }
         var storageFolder = await StorageFolder.GetFolderFromPathAsync(folder);
         await Launcher.LaunchFolderAsync(storageFolder);
     }
 
-    private void Refresh_Click(object sender, RoutedEventArgs e)
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
-        RefreshFeed();
+        await RefreshFeedAsync();
     }
 
     private void FullScreen_Click(object sender, RoutedEventArgs e)
@@ -139,7 +146,7 @@ public sealed partial class VideoPage : Page
         _selectedVideo = video;
         _manualVideoUrl = null;
         SelectedVideoTitleText.Text = video.Title;
-        SelectedVideoMetaText.Text = $"{video.FileName}\n{video.ModifiedAt.LocalDateTime:g} · {VideoLibraryService.FormatSize(video.SizeBytes)}";
+        SelectedVideoMetaText.Text = $"{video.FileName}\n{video.ModifiedAt.LocalDateTime:g} · {VideoLibraryService.FormatSize(video.SizeBytes)}{(video.IsRemote ? "\nGateway media proxy" : "")}";
         FeedbackBox.Text = video.LastFeedback;
         FeedbackStatusText.Text = string.IsNullOrWhiteSpace(video.LastAgentStatus)
             ? "Pronto per nuovo feedback."
@@ -233,7 +240,7 @@ public sealed partial class VideoPage : Page
             AgentResponseBox.Text = result.Result;
             if (_selectedVideo is not null)
             {
-                RefreshFeed();
+                await RefreshFeedAsync();
             }
         }
         finally

@@ -73,6 +73,15 @@ public sealed partial class TasksPage : Page
         TaskStatusText.Text = "Template server caricato.";
     }
 
+    private void LoadVideoTemplate_Click(object sender, RoutedEventArgs e)
+    {
+        TaskTitleBox.Text = "Crea video";
+        TaskDetailBox.Text = "Prepara o genera un video per Matteo. Salva il file finale in /home/matteo/video cosi compare automaticamente nella sezione Video dell'app.";
+        TaskModeBox.SelectedIndex = 1;
+        ApprovalSwitch.IsOn = true;
+        TaskStatusText.Text = "Template video caricato.";
+    }
+
     private async void ApproveTask_Click(object sender, RoutedEventArgs e)
     {
         await UpdateTaskStatusAsync(sender, TaskCommand.Approve);
@@ -116,7 +125,7 @@ public sealed partial class TasksPage : Page
         {
             TasksPanel.Children.Add(new TextBlock
             {
-                Text = "Nessun job ancora.",
+                Text = "Nessun lavoro ancora.",
                 Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
             });
             return;
@@ -157,7 +166,7 @@ public sealed partial class TasksPage : Page
         header.Children.Add(status);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        actions.Children.Add(CreateTaskButton("Run", task.Id, ApproveTask_Click));
+        actions.Children.Add(CreateTaskButton("Avvia", task.Id, ApproveTask_Click));
         actions.Children.Add(CreateTaskButton("Pausa", task.Id, DenyTask_Click));
         actions.Children.Add(CreateTaskButton("Elimina", task.Id, CompleteTask_Click));
 
