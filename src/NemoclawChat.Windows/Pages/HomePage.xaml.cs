@@ -342,6 +342,9 @@ public sealed partial class HomePage : Page
             var rawEvents = new List<HermesRawEventRecord>();
             var lastCheckpointAt = DateTimeOffset.MinValue;
             var lastUiPumpAt = Stopwatch.GetTimestamp();
+            var uiStreamStopwatch = Stopwatch.StartNew();
+            double? uiFirstTextMs = null;
+            double? uiLastTextMs = null;
             streamCts = new CancellationTokenSource();
             var streamEvents = StartStreamProducer(settings, _mode, prompt, _messageHistory.ToList(), _conversationId, _previousResponseId, streamCts.Token);
 
@@ -366,6 +369,9 @@ public sealed partial class HomePage : Page
                 switch (ev)
                 {
                     case StreamTextDelta td:
+                        var textAtMs = uiStreamStopwatch.Elapsed.TotalMilliseconds;
+                        uiFirstTextMs ??= textAtMs;
+                        uiLastTextMs = textAtMs;
                         bubble.AppendText(td.Delta);
                         AppendBounded(finalTextBuilder, td.Delta);
                         break;
@@ -458,6 +464,22 @@ public sealed partial class HomePage : Page
 
             var finalText = finalTextBuilder.ToString();
             var finalThinking = finalThinkingBuilder.ToString();
+            if (finalStats is null && finalTextBuilder.Length > 0)
+            {
+                var totalMs = uiStreamStopwatch.Elapsed.TotalMilliseconds;
+                var tokensOut = EstimateTokenCount(finalText);
+                finalStats = new ChatStreamStats(
+                    uiFirstTextMs,
+                    totalMs,
+                    tokensOut,
+                    CalculateFallbackTokensPerSecond(tokensOut, uiFirstTextMs, uiLastTextMs, totalMs),
+                    null);
+                bubble.Complete(finalStats);
+                UpdateContextMeter(finalStats);
+                Trace.WriteLine(
+                    $"[ChatStreamUi] synthesized stats totalMs={totalMs:0} tokensOut={tokensOut} " +
+                    $"firstTextMs={uiFirstTextMs:0} lastTextMs={uiLastTextMs:0}");
+            }
             if (string.IsNullOrEmpty(finalText) && streamError is not null && settings.DemoMode)
             {
                 finalText = $"Hermes assente, fallback locale: {streamError}";
@@ -1008,6 +1030,25 @@ public sealed partial class HomePage : Page
         }
 
         return Math.Max(1, (text.Length + 3) / 4);
+    }
+
+    private static double? CalculateFallbackTokensPerSecond(int tokensOut, double? firstTextMs, double? lastTextMs, double totalMs)
+    {
+        if (tokensOut < 8)
+        {
+            return null;
+        }
+
+        var durationMs = firstTextMs.HasValue && lastTextMs.HasValue
+            ? Math.Max(0, lastTextMs.Value - firstTextMs.Value)
+            : totalMs;
+        if (durationMs < 1500)
+        {
+            return null;
+        }
+
+        var value = Math.Max(1, tokensOut - 1) / (durationMs / 1000.0);
+        return double.IsFinite(value) && value is > 0 and <= 70 ? value : null;
     }
 
     private static Geometry? BuildContextMeterGeometry(double fraction, double width, double height)

@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.89 Release Hermes Hub 0.6.89 Responses output item stability
+v0.6.90 Release Hermes Hub 0.6.90 Windows metrics fallback
 ```
 
 ## Regola Linux Gateway Update
@@ -135,6 +135,14 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.90 (Windows metrics fallback):
+
+Release 0.6.90:
+- Hotfix Windows metriche streaming: se lo stream produce testo ma l'evento finale `StreamDone` non arriva/risulta perso, la UI sintetizza metriche conservative da clock locale (`TTFT`, durata, token stimati, t/s filtrati <=70) e completa comunque la bubble.
+- Verifica runtime 2026-06-20 su Windows 0.6.89 installata: risposta lunga 90 righe non ha freezato (`notResponding=0`, producer `346` delta -> `186` batch), ma snapshot aveva `Stats=null`; 0.6.90 chiude questo buco.
+- Mantiene fix 0.6.89 su `response.output_item.done` message e tutte le ottimizzazioni llama.cpp precedenti.
+- Release bump: Windows/AdminBridge `0.6.90`, Android `versionName 0.6.90`, `versionCode 95`.
 
 Hermes Hub 0.6.89 (Responses output item stability):
 
