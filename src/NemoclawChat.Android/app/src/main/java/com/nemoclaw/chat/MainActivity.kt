@@ -186,6 +186,7 @@ import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
@@ -3434,15 +3435,15 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = {
                             val input = quickRunText.ifBlank { "Controlla stato operativo Hermes e riassumi." }
-                            runOperatorRpc(context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${input.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it })
+                            runOperatorRpc(scope, context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${input.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it })
                         }) { Text("Avvia lavoro") }
                         Button(onClick = {
                             val input = "Crea o prepara un video per Matteo. Salva il file finale in /home/matteo/video cosi appare nella sezione Video."
                             quickRunText = input
-                            runOperatorRpc(context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${input.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it })
+                            runOperatorRpc(scope, context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${input.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it })
                         }) { Text("Crea video") }
                         Button(onClick = {
-                            runOperatorRpc(context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it })
+                            runOperatorRpc(scope, context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it })
                         }) { Text("Vedi lavori") }
                     }
                     Text(status, color = AppColors.Muted, fontSize = 12.sp)
@@ -3484,10 +3485,10 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Jobs / coda", color = Color.White, fontWeight = FontWeight.SemiBold)
                     SettingsField("Job ID", approvalId, { approvalId = it })
-                    OperatorActionButton("Lista") { runOperatorRpc(context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Run") { runOperatorRpc(context, settings, "POST /api/jobs/${approvalId.jsonEscaped()}/run", "{}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Pausa") { runOperatorRpc(context, settings, "POST /api/jobs/${approvalId.jsonEscaped()}/pause", "{}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Elimina") { runOperatorRpc(context, settings, "DELETE /api/jobs/${approvalId.jsonEscaped()}", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Lista") { runOperatorRpc(scope, context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Run") { runOperatorRpc(scope, context, settings, "POST /api/jobs/${approvalId.jsonEscaped()}/run", "{}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Pausa") { runOperatorRpc(scope, context, settings, "POST /api/jobs/${approvalId.jsonEscaped()}/pause", "{}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Elimina") { runOperatorRpc(scope, context, settings, "DELETE /api/jobs/${approvalId.jsonEscaped()}", "", { status = it }, { summary = it }, { raw = it }) }
                 }
             }
         }
@@ -3497,9 +3498,9 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
                     Text("Runs server-side", color = Color.White, fontWeight = FontWeight.SemiBold)
                     SettingsField("Run ID", baseHash, { baseHash = it })
                     SettingsField("Input run", configPatch, { configPatch = it })
-                    OperatorActionButton("Capabilities") { runOperatorRpc(context, settings, "GET /v1/capabilities", "", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Crea run") { runOperatorRpc(context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${configPatch.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Models") { runOperatorRpc(context, settings, "GET /v1/models", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Capabilities") { runOperatorRpc(scope, context, settings, "GET /v1/capabilities", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Crea run") { runOperatorRpc(scope, context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${configPatch.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Models") { runOperatorRpc(scope, context, settings, "GET /v1/models", "", { status = it }, { summary = it }, { raw = it }) }
                 }
             }
         }
@@ -3509,9 +3510,9 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
                     Text("Diagnostica", color = Color.White, fontWeight = FontWeight.SemiBold)
                     SettingsField("Filtro job", workspacePath, { workspacePath = it })
                     SettingsField("Input run rapido", workspaceText, { workspaceText = it })
-                    OperatorActionButton("Jobs") { runOperatorRpc(context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Health") { runOperatorRpc(context, settings, "GET /health/detailed", "", { status = it }, { summary = it }, { raw = it }) }
-                    OperatorActionButton("Run") { runOperatorRpc(context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${workspaceText.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Jobs") { runOperatorRpc(scope, context, settings, "GET /api/jobs", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Health") { runOperatorRpc(scope, context, settings, "GET /health/detailed", "", { status = it }, { summary = it }, { raw = it }) }
+                    OperatorActionButton("Run") { runOperatorRpc(scope, context, settings, "POST /v1/runs", "{\"model\":\"hermes-agent\",\"input\":\"${workspaceText.jsonEscaped()}\"}", { status = it }, { summary = it }, { raw = it }) }
                 }
             }
         }
@@ -4304,6 +4305,7 @@ private fun WorkspaceFeedItem(
 }
 
 private fun runOperatorRpc(
+    scope: kotlinx.coroutines.CoroutineScope,
     context: Context,
     settings: AppSettings,
     method: String,
@@ -4315,7 +4317,7 @@ private fun runOperatorRpc(
     setStatus("$method...")
     setSummary("Attesa risposta Hermes...")
     setRaw("")
-    kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+    scope.launch {
         val result = hermesHttpCall(settings, loadGatewaySecret(context), method, params)
         setStatus(result.status)
         setSummary(result.summary)
@@ -5583,18 +5585,22 @@ private suspend fun hermesHttpCall(
     val url = resolveHermesUrl(settings, path)
 
     try {
-        val body = if (verb == "GET") {
-            httpGet(url, apiKey)
+        val response = if (verb == "GET") {
+            httpGetResponse(url, apiKey)
         } else {
             val payload = if (rawPayload.isBlank()) JSONObject() else JSONObject(rawPayload)
-            val response = postJson(url, payload, apiKey, verb)
-            if (response.first in 200..299) response.second else "HTTP ${response.first}: ${extractHumanError(response.second)}"
+            postJson(url, payload, apiKey, verb)
+        }
+        val body = if (response.first in 200..299) {
+            response.second
+        } else {
+            "HTTP ${response.first}: ${extractHumanError(response.second)}"
         }
 
         GatewayRpcCallResult(
             method = "$verb $path",
-            success = true,
-            status = "Hermes risposta ricevuta.",
+            success = response.first in 200..299,
+            status = if (response.first in 200..299) "Hermes risposta ricevuta." else "Hermes HTTP ${response.first}.",
             rawJson = body,
             summary = body.limitText(180)
         )
@@ -5862,6 +5868,10 @@ private fun plugAndPlayUrlCandidates(url: String): List<String> {
 }
 
 private suspend fun httpGet(url: String, apiKey: String? = null): String = withContext(Dispatchers.IO) {
+    httpGetResponse(url, apiKey).second
+}
+
+private suspend fun httpGetResponse(url: String, apiKey: String? = null): Pair<Int, String> = withContext(Dispatchers.IO) {
     var last: Pair<Int, String>? = null
     for (candidateUrl in plugAndPlayUrlCandidates(url)) {
         for (token in hermesAuthCandidates(apiKey)) {
@@ -5873,16 +5883,20 @@ private suspend fun httpGet(url: String, apiKey: String? = null): String = withC
             }
             last = response
             if (!shouldRetryHermesWithBearerAuth(response.first, response.second)) {
-                if (response.first != 0) return@withContext response.second
+                if (response.first != 0) return@withContext response
             }
         }
     }
-    last?.second.orEmpty()
+    last ?: (0 to "")
 }
 
 private suspend fun loadVideoLibrary(settings: AppSettings, apiKey: String?): Pair<List<VideoLibraryItem>, String> = withContext(Dispatchers.IO) {
     return@withContext try {
-        val body = httpGet(resolveHermesUrl(settings, "/v1/video/library"), apiKey)
+        val response = httpGetResponse(resolveHermesUrl(settings, "/v1/video/library"), apiKey)
+        if (response.first !in 200..299) {
+            return@withContext emptyList<VideoLibraryItem>() to "Feed video HTTP ${response.first}: ${extractHumanError(response.second)}"
+        }
+        val body = response.second
         if (body.isBlank()) {
             return@withContext emptyList<VideoLibraryItem>() to "Gateway non ha restituito dati video."
         }
@@ -5981,10 +5995,22 @@ private fun createAttachmentFromUri(context: Context, uri: Uri, maxAttachmentMb:
     } ?: (uri.lastPathSegment ?: "allegato")
     val mimeType = resolver.getType(uri)?.takeIf { it.isNotBlank() }
         ?: mimeTypeFromFilename(filename)
-    val bytes = resolver.openInputStream(uri)?.use { input ->
-        input.readBytes()
-    } ?: return null
     val maxBytes = maxAttachmentMb.coerceIn(1, 150) * 1024 * 1024
+    val bytes = resolver.openInputStream(uri)?.use { input ->
+        val output = ByteArrayOutputStream(minOf(maxBytes, 1024 * 1024))
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) {
+                return@use null
+            }
+            output.write(buffer, 0, read)
+        }
+        output.toByteArray()
+    } ?: return null
     if (bytes.isEmpty() || bytes.size > maxBytes) {
         return null
     }
@@ -6747,10 +6773,11 @@ private inline fun <T : HttpURLConnection, R> T.use(block: (T) -> R): R {
 
 private fun findReleaseAsset(assets: JSONArray, suffix: String): String? {
     for (i in 0 until assets.length()) {
-        val asset = assets.getJSONObject(i)
+        val asset = assets.optJSONObject(i) ?: continue
         val name = asset.optString("name")
-        if (name.endsWith(suffix, ignoreCase = true)) {
-            return asset.optString("browser_download_url")
+        val url = asset.optString("browser_download_url")
+        if (name.endsWith(suffix, ignoreCase = true) && url.isNotBlank()) {
+            return url
         }
     }
 
@@ -7453,47 +7480,49 @@ private fun saveConversationExchange(
     visualBlocks: List<VisualBlock> = emptyList(),
     visualBlocksVersion: Int? = null
 ): LocalConversation {
-    val conversations = loadConversations(context).toMutableList()
-    val index = conversations.indexOfFirst { it.id == conversationId }
-    val now = System.currentTimeMillis()
-    val newMessages = listOf(
-        ChatMessage("Tu", prompt, fromUser = true),
-        ChatMessage("Hermes", response, fromUser = false, visualBlocksVersion = visualBlocksVersion, visualBlocks = visualBlocks)
-    )
-    val newConversationId = "conv_$now"
-
-    val conversation = if (index >= 0) {
-        val current = conversations[index]
-        current.copy(
-            kind = if (mode == "Agente") "Task" else current.kind,
-            description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
-            prompt = prompt,
-            updatedAt = now,
-            messages = current.messages + newMessages,
-            previousResponseId = responseId ?: current.previousResponseId,
-            serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, current.id)
+    synchronized(localArchiveLock) {
+        val conversations = loadConversations(context).toMutableList()
+        val index = conversations.indexOfFirst { it.id == conversationId }
+        val now = System.currentTimeMillis()
+        val newMessages = listOf(
+            ChatMessage("Tu", prompt, fromUser = true),
+            ChatMessage("Hermes", response, fromUser = false, visualBlocksVersion = visualBlocksVersion, visualBlocks = visualBlocks)
         )
-    } else {
-        LocalConversation(
-            id = newConversationId,
-            title = makeTitle(prompt),
-            kind = if (mode == "Agente") "Task" else "Chat",
-            description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
-            prompt = prompt,
-            updatedAt = now,
-            messages = newMessages,
-            previousResponseId = responseId,
-            serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, newConversationId)
-        )
-    }
+        val newConversationId = "conv_$now"
 
-    if (index >= 0) {
-        conversations[index] = conversation
-    } else {
-        conversations.add(0, conversation)
+        val conversation = if (index >= 0) {
+            val current = conversations[index]
+            current.copy(
+                kind = if (mode == "Agente") "Task" else current.kind,
+                description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
+                prompt = prompt,
+                updatedAt = now,
+                messages = current.messages + newMessages,
+                previousResponseId = responseId ?: current.previousResponseId,
+                serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, current.id)
+            )
+        } else {
+            LocalConversation(
+                id = newConversationId,
+                title = makeTitle(prompt),
+                kind = if (mode == "Agente") "Task" else "Chat",
+                description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
+                prompt = prompt,
+                updatedAt = now,
+                messages = newMessages,
+                previousResponseId = responseId,
+                serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, newConversationId)
+            )
+        }
+
+        if (index >= 0) {
+            conversations[index] = conversation
+        } else {
+            conversations.add(0, conversation)
+        }
+        saveConversations(context, conversations)
+        return conversation
     }
-    saveConversations(context, conversations)
-    return conversation
 }
 
 private fun saveConversationSnapshot(
@@ -7505,42 +7534,44 @@ private fun saveConversationSnapshot(
     source: String,
     responseId: String? = null
 ): LocalConversation {
-    val conversations = loadConversations(context).toMutableList()
-    val index = conversations.indexOfFirst { it.id == conversationId }
-    val now = System.currentTimeMillis()
-    val newConversationId = "conv_$now"
-    val conversation = if (index >= 0) {
-        val current = conversations[index]
-        current.copy(
-            kind = if (mode == "Agente") "Task" else current.kind,
-            description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
-            prompt = prompt,
-            updatedAt = now,
-            messages = messages,
-            previousResponseId = responseId ?: current.previousResponseId,
-            serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, current.id)
-        )
-    } else {
-        LocalConversation(
-            id = newConversationId,
-            title = makeTitle(prompt),
-            kind = if (mode == "Agente") "Task" else "Chat",
-            description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
-            prompt = prompt,
-            updatedAt = now,
-            messages = messages,
-            previousResponseId = responseId,
-            serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, newConversationId)
-        )
-    }
+    synchronized(localArchiveLock) {
+        val conversations = loadConversations(context).toMutableList()
+        val index = conversations.indexOfFirst { it.id == conversationId }
+        val now = System.currentTimeMillis()
+        val newConversationId = "conv_$now"
+        val conversation = if (index >= 0) {
+            val current = conversations[index]
+            current.copy(
+                kind = if (mode == "Agente") "Task" else current.kind,
+                description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
+                prompt = prompt,
+                updatedAt = now,
+                messages = messages,
+                previousResponseId = responseId ?: current.previousResponseId,
+                serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, current.id)
+            )
+        } else {
+            LocalConversation(
+                id = newConversationId,
+                title = makeTitle(prompt),
+                kind = if (mode == "Agente") "Task" else "Chat",
+                description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
+                prompt = prompt,
+                updatedAt = now,
+                messages = messages,
+                previousResponseId = responseId,
+                serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, newConversationId)
+            )
+        }
 
-    if (index >= 0) {
-        conversations[index] = conversation
-    } else {
-        conversations.add(0, conversation)
+        if (index >= 0) {
+            conversations[index] = conversation
+        } else {
+            conversations.add(0, conversation)
+        }
+        saveConversations(context, conversations)
+        return conversation
     }
-    saveConversations(context, conversations)
-    return conversation
 }
 
 private fun saveProjectConversation(
@@ -7549,51 +7580,57 @@ private fun saveProjectConversation(
     description: String,
     prompt: String
 ): LocalConversation {
-    val conversations = loadConversations(context).toMutableList()
-    val now = System.currentTimeMillis()
-    val index = conversations.indexOfFirst { it.kind == "Progetto" && it.title.equals(title, ignoreCase = true) }
-    val project = if (index >= 0) {
-        conversations[index].copy(description = description, prompt = prompt, updatedAt = now)
-    } else {
-        LocalConversation(
-            id = "project_$now",
-            title = title,
-            kind = "Progetto",
-            description = description,
-            prompt = prompt,
-            updatedAt = now,
-            messages = emptyList()
-        )
-    }
+    synchronized(localArchiveLock) {
+        val conversations = loadConversations(context).toMutableList()
+        val now = System.currentTimeMillis()
+        val index = conversations.indexOfFirst { it.kind == "Progetto" && it.title.equals(title, ignoreCase = true) }
+        val project = if (index >= 0) {
+            conversations[index].copy(description = description, prompt = prompt, updatedAt = now)
+        } else {
+            LocalConversation(
+                id = "project_$now",
+                title = title,
+                kind = "Progetto",
+                description = description,
+                prompt = prompt,
+                updatedAt = now,
+                messages = emptyList()
+            )
+        }
 
-    if (index >= 0) {
-        conversations[index] = project
-    } else {
-        conversations.add(0, project)
+        if (index >= 0) {
+            conversations[index] = project
+        } else {
+            conversations.add(0, project)
+        }
+        saveConversations(context, conversations)
+        return project
     }
-    saveConversations(context, conversations)
-    return project
 }
 
 private fun renameConversation(context: Context, id: String, newTitle: String): Boolean {
     if (newTitle.isBlank()) return false
 
-    val conversations = loadConversations(context).toMutableList()
-    val index = conversations.indexOfFirst { it.id == id }
-    if (index < 0) return false
+    synchronized(localArchiveLock) {
+        val conversations = loadConversations(context).toMutableList()
+        val index = conversations.indexOfFirst { it.id == id }
+        if (index < 0) return false
 
-    conversations[index] = conversations[index].copy(title = newTitle, updatedAt = System.currentTimeMillis())
-    saveConversations(context, conversations)
-    return true
+        conversations[index] = conversations[index].copy(title = newTitle, updatedAt = System.currentTimeMillis())
+        saveConversations(context, conversations)
+        return true
+    }
 }
 
 private fun deleteConversation(context: Context, id: String): Boolean {
-    val conversations = loadConversations(context).toMutableList()
-    val removed = conversations.removeAll { it.id == id }
-    if (removed) {
-        saveConversations(context, conversations)
+    synchronized(localArchiveLock) {
+        val conversations = loadConversations(context).toMutableList()
+        val removed = conversations.removeAll { it.id == id }
+        if (removed) {
+            saveConversations(context, conversations)
+        }
+        return removed
     }
-    return removed
 }
 
 private fun copyArchiveToClipboard(context: Context) {
@@ -7616,114 +7653,122 @@ private fun exportArchiveText(context: Context): String {
 }
 
 private fun loadConversations(context: Context): List<LocalConversation> {
-    val raw = migratePrefs(context, CURRENT_ARCHIVE_PREFS, LEGACY_ARCHIVE_PREFS).getString("items", "[]") ?: "[]"
-    return try {
-        val array = JSONArray(raw)
-        buildList {
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                add(
-                    LocalConversation(
-                        id = obj.optString("id"),
-                        title = obj.optString("title", "Nuova chat"),
-                        kind = obj.optString("kind", "Chat"),
-                        description = obj.optString("description"),
-                        prompt = obj.optString("prompt"),
-                        updatedAt = obj.optLong("updatedAt"),
-                        messages = readMessages(obj.optJSONArray("messages") ?: JSONArray()),
-                        previousResponseId = obj.optString("previousResponseId").takeIf { it.isNotBlank() },
-                        serverConversationId = obj.optString("serverConversationId").takeIf { it.isNotBlank() }
+    synchronized(localArchiveLock) {
+        val raw = migratePrefs(context, CURRENT_ARCHIVE_PREFS, LEGACY_ARCHIVE_PREFS).getString("items", "[]") ?: "[]"
+        return try {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val obj = array.optJSONObject(i) ?: continue
+                    add(
+                        LocalConversation(
+                            id = obj.optString("id"),
+                            title = obj.optString("title", "Nuova chat"),
+                            kind = obj.optString("kind", "Chat"),
+                            description = obj.optString("description"),
+                            prompt = obj.optString("prompt"),
+                            updatedAt = obj.optLong("updatedAt"),
+                            messages = readMessages(obj.optJSONArray("messages") ?: JSONArray()),
+                            previousResponseId = obj.optString("previousResponseId").takeIf { it.isNotBlank() },
+                            serverConversationId = obj.optString("serverConversationId").takeIf { it.isNotBlank() }
+                        )
                     )
-                )
-            }
-        }.sortedByDescending { it.updatedAt }
-    } catch (_: Exception) {
-        emptyList()
+                }
+            }.sortedByDescending { it.updatedAt }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 }
 
 private fun saveConversations(context: Context, conversations: List<LocalConversation>) {
-    val array = JSONArray()
-    conversations
-        .sortedByDescending { it.updatedAt }
-        .take(200)
-        .forEach { conversation ->
-            array.put(
-                JSONObject()
-                    .put("id", conversation.id)
-                    .put("title", conversation.title)
-                    .put("kind", conversation.kind)
-                    .put("description", conversation.description)
-                    .put("prompt", conversation.prompt)
-                    .put("updatedAt", conversation.updatedAt)
-                    .put("previousResponseId", conversation.previousResponseId ?: JSONObject.NULL)
-                    .put("serverConversationId", conversation.serverConversationId ?: JSONObject.NULL)
-                    .put("messages", writeMessages(conversation.messages))
-            )
-        }
+    synchronized(localArchiveLock) {
+        val array = JSONArray()
+        conversations
+            .sortedByDescending { it.updatedAt }
+            .take(200)
+            .forEach { conversation ->
+                array.put(
+                    JSONObject()
+                        .put("id", conversation.id)
+                        .put("title", conversation.title)
+                        .put("kind", conversation.kind)
+                        .put("description", conversation.description)
+                        .put("prompt", conversation.prompt)
+                        .put("updatedAt", conversation.updatedAt)
+                        .put("previousResponseId", conversation.previousResponseId ?: JSONObject.NULL)
+                        .put("serverConversationId", conversation.serverConversationId ?: JSONObject.NULL)
+                        .put("messages", writeMessages(conversation.messages))
+                )
+            }
 
-    context.getSharedPreferences(CURRENT_ARCHIVE_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putString("items", array.toString())
-        .commit()
+        context.getSharedPreferences(CURRENT_ARCHIVE_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString("items", array.toString())
+            .commit()
+    }
 }
 
 private fun loadTasks(context: Context): List<AgentTask> {
-    val raw = migratePrefs(context, CURRENT_TASKS_PREFS, LEGACY_TASKS_PREFS).getString("items", "[]") ?: "[]"
-    return try {
-        val array = JSONArray(raw)
-        buildList {
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                add(
-                    AgentTask(
-                        id = obj.optString("id"),
-                        remoteId = obj.optString("remoteId").ifBlank { null },
-                        title = obj.optString("title"),
-                        mode = obj.optString("mode", "Locale"),
-                        status = obj.optString("status", "Pronto"),
-                        detail = obj.optString("detail"),
-                        requiresApproval = obj.optBoolean("requiresApproval", true),
-                        source = obj.optString("source", "Locale"),
-                        updatedAt = obj.optLong("updatedAt")
+    synchronized(localTasksLock) {
+        val raw = migratePrefs(context, CURRENT_TASKS_PREFS, LEGACY_TASKS_PREFS).getString("items", "[]") ?: "[]"
+        return try {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val obj = array.optJSONObject(i) ?: continue
+                    add(
+                        AgentTask(
+                            id = obj.optString("id"),
+                            remoteId = obj.optString("remoteId").ifBlank { null },
+                            title = obj.optString("title"),
+                            mode = obj.optString("mode", "Locale"),
+                            status = obj.optString("status", "Pronto"),
+                            detail = obj.optString("detail"),
+                            requiresApproval = obj.optBoolean("requiresApproval", true),
+                            source = obj.optString("source", "Locale"),
+                            updatedAt = obj.optLong("updatedAt")
+                        )
                     )
-                )
-            }
-        }.sortedByDescending { it.updatedAt }
-    } catch (_: Exception) {
-        emptyList()
+                }
+            }.sortedByDescending { it.updatedAt }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 }
 
 private fun saveTasks(context: Context, tasks: List<AgentTask>) {
-    val array = JSONArray()
-    tasks.sortedByDescending { it.updatedAt }
-        .take(200)
-        .forEach { task ->
-            array.put(
-                JSONObject()
-                    .put("id", task.id)
-                    .put("remoteId", task.remoteId)
-                    .put("title", task.title)
-                    .put("mode", task.mode)
-                    .put("status", task.status)
-                    .put("detail", task.detail)
-                    .put("requiresApproval", task.requiresApproval)
-                    .put("source", task.source)
-                    .put("updatedAt", task.updatedAt)
-            )
-        }
+    synchronized(localTasksLock) {
+        val array = JSONArray()
+        tasks.sortedByDescending { it.updatedAt }
+            .take(200)
+            .forEach { task ->
+                array.put(
+                    JSONObject()
+                        .put("id", task.id)
+                        .put("remoteId", task.remoteId)
+                        .put("title", task.title)
+                        .put("mode", task.mode)
+                        .put("status", task.status)
+                        .put("detail", task.detail)
+                        .put("requiresApproval", task.requiresApproval)
+                        .put("source", task.source)
+                        .put("updatedAt", task.updatedAt)
+                )
+            }
 
-    context.getSharedPreferences(CURRENT_TASKS_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putString("items", array.toString())
-        .apply()
+        context.getSharedPreferences(CURRENT_TASKS_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString("items", array.toString())
+            .apply()
+    }
 }
 
 private fun readMessages(array: JSONArray): List<ChatMessage> {
     return buildList {
         for (i in 0 until array.length()) {
-            val obj = array.getJSONObject(i)
+            val obj = array.optJSONObject(i) ?: continue
             val storedId = obj.optString("id").takeIf { it.isNotBlank() }
             add(
                 ChatMessage(
@@ -7731,7 +7776,7 @@ private fun readMessages(array: JSONArray): List<ChatMessage> {
                     text = obj.optString("text"),
                     fromUser = obj.optBoolean("fromUser"),
                     isAction = obj.optBoolean("isAction", false),
-                    visualBlocksVersion = obj.optInt("visualBlocksVersion").takeIf { obj.has("visualBlocksVersion") },
+                    visualBlocksVersion = obj.optNullableInt("visualBlocksVersion"),
                     visualBlocks = readVisualBlocks(obj.optJSONArray("visualBlocks") ?: JSONArray()),
                     stats = readChatStats(obj.optJSONObject("stats")),
                     rawEvents = readRawEvents(obj.optJSONArray("rawEvents") ?: JSONArray()),
@@ -7927,6 +7972,8 @@ private fun openAndroidIntent(context: Context, intent: Intent): Boolean {
 
 private val prefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
 private val migratedPrefs = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+private val localArchiveLock = Any()
+private val localTasksLock = Any()
 
 private fun migratePrefs(context: Context, currentName: String, legacyName: String): SharedPreferences {
     val current = prefsCache.getOrPut(currentName) {

@@ -39,7 +39,7 @@ public static class WorkspaceRequestStore
     {
         lock (_cacheLock)
         {
-            if (_cache is not null) return new List<WorkspaceRequestRecord>(_cache);
+            if (_cache is not null) return CloneRequests(_cache);
             var content = AtomicJsonFile.Read(StorePath);
             if (string.IsNullOrEmpty(content))
             {
@@ -54,7 +54,7 @@ public static class WorkspaceRequestStore
             {
                 _cache = [];
             }
-            return new List<WorkspaceRequestRecord>(_cache);
+            return CloneRequests(_cache);
         }
     }
 
@@ -69,40 +69,64 @@ public static class WorkspaceRequestStore
 
     public static WorkspaceRequestRecord Save(string kind, string prompt, string result, string source, string status)
     {
-        var items = Load();
-        var record = new WorkspaceRequestRecord
+        lock (_cacheLock)
         {
-            Kind = kind,
-            Title = MakeTitle(prompt),
-            Prompt = prompt,
-            Result = result,
-            Source = source,
-            Status = status,
-            UpdatedAt = DateTimeOffset.Now
-        };
-        items.Insert(0, record);
-        var trimmed = items.Take(200).ToList();
-        AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(trimmed, JsonOptions));
-        lock (_cacheLock) { _cache = trimmed; }
-        return record;
+            var items = Load();
+            var record = new WorkspaceRequestRecord
+            {
+                Kind = kind,
+                Title = MakeTitle(prompt),
+                Prompt = prompt,
+                Result = result,
+                Source = source,
+                Status = status,
+                UpdatedAt = DateTimeOffset.Now
+            };
+            items.Insert(0, record);
+            var trimmed = items.Take(200).ToList();
+            AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(trimmed, JsonOptions));
+            _cache = CloneRequests(trimmed);
+            return CloneRequest(record);
+        }
     }
 
     public static void SaveFeedback(string id, string feedback, string status)
     {
-        var items = Load();
-        var item = items.FirstOrDefault(candidate => candidate.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
-        if (item is null)
+        lock (_cacheLock)
         {
-            return;
-        }
+            var items = Load();
+            var item = items.FirstOrDefault(candidate => candidate.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+            if (item is null)
+            {
+                return;
+            }
 
-        item.Feedback = feedback;
-        item.Status = status;
-        item.IsRead = true;
-        item.UpdatedAt = DateTimeOffset.Now;
-        AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(items, JsonOptions));
-        lock (_cacheLock) { _cache = items; }
+            item.Feedback = feedback;
+            item.Status = status;
+            item.IsRead = true;
+            item.UpdatedAt = DateTimeOffset.Now;
+            AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(items, JsonOptions));
+            _cache = CloneRequests(items);
+        }
     }
+
+    private static List<WorkspaceRequestRecord> CloneRequests(IEnumerable<WorkspaceRequestRecord> items) =>
+        items.Select(CloneRequest).ToList();
+
+    private static WorkspaceRequestRecord CloneRequest(WorkspaceRequestRecord item) =>
+        new()
+        {
+            Id = item.Id,
+            Kind = item.Kind,
+            Title = item.Title,
+            Prompt = item.Prompt,
+            Result = item.Result,
+            Source = item.Source,
+            Status = item.Status,
+            Feedback = item.Feedback,
+            IsRead = item.IsRead,
+            UpdatedAt = item.UpdatedAt
+        };
 
     private static string MakeTitle(string prompt)
     {

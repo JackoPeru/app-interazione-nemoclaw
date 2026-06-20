@@ -83,8 +83,7 @@ public static class ChatArchiveStore
         {
             if (_cache is not null)
             {
-                // copia difensiva: caller puo' mutare la lista senza corrompere la cache.
-                return new List<ConversationRecord>(_cache);
+                return CloneConversations(_cache);
             }
 
             var content = AtomicJsonFile.Read(StorePath);
@@ -102,7 +101,7 @@ public static class ChatArchiveStore
             {
                 _cache = [];
             }
-            return new List<ConversationRecord>(_cache);
+            return CloneConversations(_cache);
         }
     }
 
@@ -129,41 +128,44 @@ public static class ChatArchiveStore
         IReadOnlyList<VisualBlockRecord>? visualBlocks = null,
         int? visualBlocksVersion = null)
     {
-        var items = Load();
-        var conversation = string.IsNullOrWhiteSpace(conversationId)
-            ? null
-            : items.FirstOrDefault(item => item.Id == conversationId);
-
-        if (conversation is null)
+        lock (_cacheLock)
         {
-            conversation = new ConversationRecord
+            var items = Load();
+            var conversation = string.IsNullOrWhiteSpace(conversationId)
+                ? null
+                : items.FirstOrDefault(item => item.Id == conversationId);
+
+            if (conversation is null)
             {
-                Id = Guid.NewGuid().ToString("N"),
-                Title = MakeTitle(prompt),
-                Kind = mode == "Agente" ? "Task" : "Chat",
-                Description = mode == "Agente"
-                    ? $"Conversazione agente via {source}."
-                    : $"Conversazione chat via {source}.",
-                Prompt = prompt
-            };
-            items.Insert(0, conversation);
-        }
+                conversation = new ConversationRecord
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Title = MakeTitle(prompt),
+                    Kind = mode == "Agente" ? "Task" : "Chat",
+                    Description = mode == "Agente"
+                        ? $"Conversazione agente via {source}."
+                        : $"Conversazione chat via {source}.",
+                    Prompt = prompt
+                };
+                items.Insert(0, conversation);
+            }
 
-        conversation.Kind = mode == "Agente" ? "Task" : conversation.Kind;
-        conversation.Description = mode == "Agente"
-            ? $"Conversazione agente via {source}."
-            : $"Conversazione chat via {source}.";
-        conversation.Prompt = prompt;
-        conversation.ServerConversationId = HermesHubProtocol.ServerConversationId(conversation.Id) ?? string.Empty;
-        if (previousResponseId is not null)
-        {
-            conversation.PreviousResponseId = previousResponseId.Trim();
+            conversation.Kind = mode == "Agente" ? "Task" : conversation.Kind;
+            conversation.Description = mode == "Agente"
+                ? $"Conversazione agente via {source}."
+                : $"Conversazione chat via {source}.";
+            conversation.Prompt = prompt;
+            conversation.ServerConversationId = HermesHubProtocol.ServerConversationId(conversation.Id) ?? string.Empty;
+            if (previousResponseId is not null)
+            {
+                conversation.PreviousResponseId = previousResponseId.Trim();
+            }
+            conversation.UpdatedAt = DateTimeOffset.Now;
+            conversation.Messages.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
+            conversation.Messages.Add(new ChatMessageRecord("Hermes", response, DateTimeOffset.Now, visualBlocksVersion, visualBlocks?.ToList()));
+            SaveAll(items);
+            return CloneConversation(conversation);
         }
-        conversation.UpdatedAt = DateTimeOffset.Now;
-        conversation.Messages.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
-        conversation.Messages.Add(new ChatMessageRecord("Hermes", response, DateTimeOffset.Now, visualBlocksVersion, visualBlocks?.ToList()));
-        SaveAll(items);
-        return conversation;
     }
 
     public static ConversationRecord SaveSnapshot(
@@ -174,63 +176,69 @@ public static class ChatArchiveStore
         string source,
         string? previousResponseId = null)
     {
-        var items = Load();
-        var conversation = string.IsNullOrWhiteSpace(conversationId)
-            ? null
-            : items.FirstOrDefault(item => item.Id == conversationId);
-
-        if (conversation is null)
+        lock (_cacheLock)
         {
-            conversation = new ConversationRecord
+            var items = Load();
+            var conversation = string.IsNullOrWhiteSpace(conversationId)
+                ? null
+                : items.FirstOrDefault(item => item.Id == conversationId);
+
+            if (conversation is null)
             {
-                Id = Guid.NewGuid().ToString("N"),
-                Title = MakeTitle(prompt),
-                Kind = mode == "Agente" ? "Task" : "Chat"
-            };
-            items.Insert(0, conversation);
-        }
+                conversation = new ConversationRecord
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Title = MakeTitle(prompt),
+                    Kind = mode == "Agente" ? "Task" : "Chat"
+                };
+                items.Insert(0, conversation);
+            }
 
-        conversation.Kind = mode == "Agente" ? "Task" : conversation.Kind;
-        conversation.Description = mode == "Agente"
-            ? $"Conversazione agente via {source}."
-            : $"Conversazione chat via {source}.";
-        conversation.Prompt = prompt;
-        conversation.ServerConversationId = HermesHubProtocol.ServerConversationId(conversation.Id) ?? string.Empty;
-        if (previousResponseId is not null)
-        {
-            conversation.PreviousResponseId = previousResponseId.Trim();
+            conversation.Kind = mode == "Agente" ? "Task" : conversation.Kind;
+            conversation.Description = mode == "Agente"
+                ? $"Conversazione agente via {source}."
+                : $"Conversazione chat via {source}.";
+            conversation.Prompt = prompt;
+            conversation.ServerConversationId = HermesHubProtocol.ServerConversationId(conversation.Id) ?? string.Empty;
+            if (previousResponseId is not null)
+            {
+                conversation.PreviousResponseId = previousResponseId.Trim();
+            }
+            conversation.UpdatedAt = DateTimeOffset.Now;
+            conversation.Messages = messages.ToList();
+            SaveAll(items);
+            return CloneConversation(conversation);
         }
-        conversation.UpdatedAt = DateTimeOffset.Now;
-        conversation.Messages = messages.ToList();
-        SaveAll(items);
-        return conversation;
     }
 
     public static ConversationRecord SaveProject(string title, string description, string prompt)
     {
-        var items = Load();
-        var existing = items.FirstOrDefault(item =>
-            item.Kind == "Progetto" &&
-            string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase));
-
-        if (existing is null)
+        lock (_cacheLock)
         {
-            existing = new ConversationRecord
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                Kind = "Progetto",
-                Title = title,
-                Description = description,
-                Prompt = prompt
-            };
-            items.Insert(0, existing);
-        }
+            var items = Load();
+            var existing = items.FirstOrDefault(item =>
+                item.Kind == "Progetto" &&
+                string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase));
 
-        existing.Description = description;
-        existing.Prompt = prompt;
-        existing.UpdatedAt = DateTimeOffset.Now;
-        SaveAll(items);
-        return existing;
+            if (existing is null)
+            {
+                existing = new ConversationRecord
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Kind = "Progetto",
+                    Title = title,
+                    Description = description,
+                    Prompt = prompt
+                };
+                items.Insert(0, existing);
+            }
+
+            existing.Description = description;
+            existing.Prompt = prompt;
+            existing.UpdatedAt = DateTimeOffset.Now;
+            SaveAll(items);
+            return CloneConversation(existing);
+        }
     }
 
     public static IReadOnlyList<ConversationRecord> Recent(int count)
@@ -243,14 +251,17 @@ public static class ChatArchiveStore
 
     public static bool Delete(string id)
     {
-        var items = Load();
-        var removed = items.RemoveAll(item => item.Id == id) > 0;
-        if (removed)
+        lock (_cacheLock)
         {
-            SaveAll(items);
-        }
+            var items = Load();
+            var removed = items.RemoveAll(item => item.Id == id) > 0;
+            if (removed)
+            {
+                SaveAll(items);
+            }
 
-        return removed;
+            return removed;
+        }
     }
 
     private static void SaveAll(List<ConversationRecord> items)
@@ -262,10 +273,27 @@ public static class ChatArchiveStore
         AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(ordered, JsonOptions));
         lock (_cacheLock)
         {
-            _cache = ordered;
+            _cache = CloneConversations(ordered);
         }
         _changed?.Invoke();
     }
+
+    private static List<ConversationRecord> CloneConversations(IEnumerable<ConversationRecord> items) =>
+        items.Select(CloneConversation).ToList();
+
+    private static ConversationRecord CloneConversation(ConversationRecord item) =>
+        new()
+        {
+            Id = item.Id,
+            Title = item.Title,
+            Kind = item.Kind,
+            Description = item.Description,
+            Prompt = item.Prompt,
+            PreviousResponseId = item.PreviousResponseId,
+            ServerConversationId = item.ServerConversationId,
+            UpdatedAt = item.UpdatedAt,
+            Messages = item.Messages.ToList()
+        };
 
     private static string MakeTitle(string prompt)
     {

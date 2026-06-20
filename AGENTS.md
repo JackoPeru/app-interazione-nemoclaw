@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.102 Release Hermes Hub 0.6.102 simple jobs runs video path
+v0.6.103 Release Hermes Hub 0.6.103 stability hardening
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,21 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.103 (Stability hardening):
+
+Release 0.6.103:
+- Windows: hardening `ChatArchiveStore`; `Load()` ora restituisce copie difensive profonde e le mutazioni/scritture archivio sono serializzate sotto lock, riducendo race tra checkpoint streaming, salvataggio finale e UI.
+- Windows: hardening `WorkspaceRequestStore`; cache non espone piu' record mutabili condivisi e salvataggio/feedback sono serializzati.
+- Windows: hardening `VideoFeedbackStore`; feedback video serializzati sotto lock, riducendo rischio di perdere conteggio/stato se arrivano refresh o feedback ravvicinati.
+- Android: pagina Runs/Operator usa lo scope Compose esistente per RPC Hermes invece di creare `CoroutineScope` orfani a ogni click.
+- Android: RPC GET manuali e feed Video conservano HTTP status; 404/500 non vengono piu' presentati come risposta riuscita.
+- Android: allegati letti a stream con cap massimo prima di base64; evita di caricare file oltre limite interamente in RAM.
+- Android: archivio chat e task locali serializzati con lock sull'intero read-modify-write, riducendo race tra checkpoint streaming/finale e update Jobs.
+- Android: parser archivio/task piu' resiliente; un record JSON corrotto viene saltato invece di svuotare tutta la lista.
+- Android: `visualBlocksVersion` JSON null non viene piu' riletto come `0`.
+- Android: parser asset GitHub update usa `optJSONObject` e ignora asset malformati/senza URL invece di fallire l'intero controllo update.
+- Release bump: Windows/AdminBridge `0.6.103`, Android `versionName 0.6.103`, `versionCode 108`.
 
 Hermes Hub 0.6.102 (Simple Jobs/Runs and video path):
 
