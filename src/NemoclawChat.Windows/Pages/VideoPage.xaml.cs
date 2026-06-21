@@ -12,6 +12,8 @@ public sealed partial class VideoPage : Page
 {
     private LocalVideoRecord? _selectedVideo;
     private string? _manualVideoUrl;
+    private string _currentPlaybackUrl = string.Empty;
+    private bool _usingCompatPlayback;
 
     public VideoPage()
     {
@@ -20,7 +22,11 @@ public sealed partial class VideoPage : Page
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                FeedbackStatusText.Text = $"Player video: {args.ErrorMessage}. Uso proxy Hermes MP4 compat quando disponibile.";
+                if (TryUseCompatPlayback($"Player video: {args.ErrorMessage}"))
+                {
+                    return;
+                }
+                FeedbackStatusText.Text = $"Player video: {args.ErrorMessage}. Nessun fallback compatibile disponibile.";
             });
         };
         UpdateAdaptiveLayout(ActualWidth);
@@ -153,13 +159,14 @@ public sealed partial class VideoPage : Page
         _selectedVideo = video;
         _manualVideoUrl = null;
         SelectedVideoTitleText.Text = video.Title;
-        SelectedVideoMetaText.Text = $"{video.FileName}\n{video.ModifiedAt.LocalDateTime:g} · {VideoLibraryService.FormatSize(video.SizeBytes)}{(video.IsRemote ? "\nGateway media proxy · playback MP4 compat" : "")}";
+        SelectedVideoMetaText.Text = $"{video.FileName}\n{video.ModifiedAt.LocalDateTime:g} · {VideoLibraryService.FormatSize(video.SizeBytes)}{(video.IsRemote ? "\nGateway media proxy · streaming originale" : "")}";
         FeedbackBox.Text = video.LastFeedback;
         FeedbackStatusText.Text = string.IsNullOrWhiteSpace(video.LastAgentStatus)
             ? "Pronto per nuovo feedback."
             : video.LastAgentStatus;
         AgentResponseBox.Text = video.LastAgentResponse;
-        VideoPlayer.Source = MediaSource.CreateFromUri(new Uri(AddMediaPlaybackToken(string.IsNullOrWhiteSpace(video.PlaybackPath) ? video.Path : video.PlaybackPath)));
+        _usingCompatPlayback = false;
+        SetVideoSource(string.IsNullOrWhiteSpace(video.PlaybackPath) ? video.Path : video.PlaybackPath);
     }
 
     private void OpenManualVideoUrl_Click(object sender, RoutedEventArgs e)
@@ -180,8 +187,34 @@ public sealed partial class VideoPage : Page
         FeedbackBox.Text = string.Empty;
         FeedbackStatusText.Text = "URL manuale pronto. Puoi riprodurlo o lasciare feedback a Hermes.";
         AgentResponseBox.Text = string.Empty;
-        VideoPlayer.Source = MediaSource.CreateFromUri(new Uri(AddMediaPlaybackToken(uri.ToString())));
+        _usingCompatPlayback = false;
+        SetVideoSource(uri.ToString());
         PageStatusText.Text = "URL video manuale caricato.";
+    }
+
+    private void SetVideoSource(string url)
+    {
+        _currentPlaybackUrl = AddMediaPlaybackToken(url);
+        VideoPlayer.Source = MediaSource.CreateFromUri(new Uri(_currentPlaybackUrl));
+    }
+
+    private bool TryUseCompatPlayback(string reason)
+    {
+        var compat = _selectedVideo?.CompatPath;
+        if (_selectedVideo is null ||
+            _usingCompatPlayback ||
+            string.IsNullOrWhiteSpace(compat) ||
+            compat.Equals(_selectedVideo.PlaybackPath, StringComparison.OrdinalIgnoreCase) ||
+            compat.Equals(_currentPlaybackUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        _usingCompatPlayback = true;
+        FeedbackStatusText.Text = $"{reason}. Passo al proxy MP4 compatibile Hermes.";
+        SelectedVideoMetaText.Text = $"{_selectedVideo.FileName}\n{_selectedVideo.ModifiedAt.LocalDateTime:g} · {VideoLibraryService.FormatSize(_selectedVideo.SizeBytes)}\nGateway media proxy · fallback MP4 compat";
+        SetVideoSource(compat);
+        return true;
     }
 
     private static string AddMediaPlaybackToken(string url)

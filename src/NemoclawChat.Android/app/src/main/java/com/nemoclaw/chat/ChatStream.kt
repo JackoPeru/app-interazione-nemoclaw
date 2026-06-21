@@ -324,6 +324,11 @@ fun streamChatRequest(
     val serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, conversationId)
     val promptForModelResult = buildPromptWithAttachmentToolRefs(settings, prompt, attachments, apiKey)
     val promptForModel = promptForModelResult.first
+    val payloadAttachments = if (promptForModelResult.second > 0) {
+        attachments.filterNot { it.mimeType.startsWith("image/", ignoreCase = true) }
+    } else {
+        attachments
+    }
     if (promptForModelResult.second > 0) {
         emit(ChatStreamEvent.Status("Allegati caricati sul gateway per tool vision: ${promptForModelResult.second}."))
     }
@@ -409,7 +414,7 @@ fun streamChatRequest(
     }
 
     if (mode.equals("Agente", ignoreCase = true)) {
-        runDetachedAgent(settings, promptForModel, history, conversationId, attachments, apiKey).collect { emit(it) }
+        runDetachedAgent(settings, promptForModel, history, conversationId, payloadAttachments, apiKey).collect { emit(it) }
         return@flow
     }
 
@@ -420,7 +425,7 @@ fun streamChatRequest(
         fun buildResponsePayload(candidatePreviousResponseId: String?): JSONObject {
             val payload = JSONObject()
                 .put("model", settings.model)
-                .put("input", buildMultimodalInput(promptForModel, attachments))
+                .put("input", buildMultimodalInput(promptForModel, payloadAttachments))
                 .put("store", true)
                 .put("stream", true)
                 .put("conversation", serverConversationId ?: JSONObject.NULL)
@@ -524,14 +529,14 @@ fun streamChatRequest(
                     put(
                         JSONObject()
                             .put("role", if (msg.fromUser) "user" else "assistant")
-                            .put("content", if (isLastUser) buildChatCompletionsContent(promptForModel, attachments) else msg.text)
+                            .put("content", if (isLastUser) buildChatCompletionsContent(promptForModel, payloadAttachments) else msg.text)
                     )
                 }
                 if (!includedCurrentUser) {
                     put(
                         JSONObject()
                             .put("role", "user")
-                            .put("content", buildChatCompletionsContent(promptForModel, attachments))
+                            .put("content", buildChatCompletionsContent(promptForModel, payloadAttachments))
                     )
                 }
         })
@@ -749,21 +754,22 @@ private fun buildPromptWithAttachmentToolRefs(
     val text = buildString {
         append(prompt.trimEnd())
         append("\n\n")
-        append("Allegati immagine disponibili per tool vision/analyze sul server Hermes:\n")
+        append("Allegati immagine disponibili per tool vision_analyze sul server Hermes:\n")
         uploaded.forEach { item ->
             append("- ")
             append(item.filename)
             item.path?.takeIf { it.isNotBlank() }?.let {
-                append(" | percorso server: ")
+                append(" | image_url da usare nel tool vision_analyze: ")
                 append(it)
             }
             item.mediaUrl?.takeIf { it.isNotBlank() }?.let {
-                append(" | URL proxy: ")
+                append(" | URL proxy fallback: ")
                 append(it)
             }
             append('\n')
         }
-        append("Quando devi vedere l'immagine, passa al tool vision_analyze il percorso server o l'URL proxy sopra; non usare None.")
+        append("Se devi vedere/leggere l'immagine, chiama vision_analyze usando esattamente il path server indicato come image_url.\n")
+        append("Non usare attachment:image/png, None, /tmp/... inventati o URL incompleti. Se vision_analyze fallisce, riporta l'errore tecnico; non concludere che il modello non supporta vision.")
     }
     return text to uploaded.size
 }

@@ -6,6 +6,7 @@ public sealed class LocalVideoRecord
 {
     public string Path { get; init; } = string.Empty;
     public string PlaybackPath { get; init; } = string.Empty;
+    public string CompatPath { get; init; } = string.Empty;
     public bool IsRemote { get; init; }
     public string FileName { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
@@ -105,6 +106,7 @@ public static class VideoLibraryService
                 {
                     Path = file.FullName,
                     PlaybackPath = file.FullName,
+                    CompatPath = file.FullName,
                     FileName = file.Name,
                     Title = Path.GetFileNameWithoutExtension(file.Name).Replace('_', ' ').Replace('-', ' ').Trim(),
                     Extension = file.Extension.TrimStart('.').ToUpperInvariant(),
@@ -146,8 +148,19 @@ public static class VideoLibraryService
             var resolved = GatewayService.ResolveHermesUri(settings, mediaUrl);
             var playbackUrl = ReadString(item, "playback_url");
             var resolvedPlayback = string.IsNullOrWhiteSpace(playbackUrl)
-                ? BuildCompatiblePlaybackUrl(resolved)
+                ? resolved
                 : GatewayService.ResolveHermesUri(settings, playbackUrl);
+            var compatUrl = ReadString(item, "compat_url");
+            var resolvedCompat = string.IsNullOrWhiteSpace(compatUrl)
+                ? BuildCompatiblePlaybackUrl(resolved)
+                : GatewayService.ResolveHermesUri(settings, compatUrl);
+            if (string.IsNullOrWhiteSpace(compatUrl) &&
+                resolvedPlayback.Contains("format=mp4", StringComparison.OrdinalIgnoreCase) &&
+                resolvedPlayback.Contains("/v1/media/", StringComparison.OrdinalIgnoreCase))
+            {
+                resolvedCompat = resolvedPlayback;
+                resolvedPlayback = resolved;
+            }
             var modified = ReadDouble(item, "modified_at");
             var modifiedAt = modified > 0
                 ? DateTimeOffset.FromUnixTimeSeconds((long)modified)
@@ -157,6 +170,7 @@ public static class VideoLibraryService
             {
                 Path = resolved,
                 PlaybackPath = resolvedPlayback,
+                CompatPath = resolvedCompat,
                 IsRemote = true,
                 FileName = filename,
                 Title = ReadString(item, "title") is { Length: > 0 } title ? title : Path.GetFileNameWithoutExtension(filename),

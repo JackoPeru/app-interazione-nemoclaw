@@ -73,6 +73,9 @@ public static class ChatStreamClient
         attachments ??= Array.Empty<ChatInputAttachment>();
         await GatewayService.EnsureReachableGatewayAsync(settings);
         var (promptForModel, uploadedRefs) = await BuildPromptWithAttachmentToolRefsAsync(settings, prompt, attachments, cancellationToken);
+        var payloadAttachments = uploadedRefs > 0
+            ? attachments.Where(attachment => !attachment.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)).ToArray()
+            : attachments;
         if (uploadedRefs > 0)
         {
             yield return new StreamStatus($"Allegati caricati sul gateway per tool vision: {uploadedRefs}.");
@@ -80,7 +83,7 @@ public static class ChatStreamClient
 
         if (string.Equals(mode, "Agente", StringComparison.OrdinalIgnoreCase))
         {
-            await foreach (var ev in RunDetachedAgentAsync(settings, promptForModel, history, conversationId, attachments, cancellationToken))
+            await foreach (var ev in RunDetachedAgentAsync(settings, promptForModel, history, conversationId, payloadAttachments, cancellationToken))
             {
                 yield return ev;
             }
@@ -97,7 +100,7 @@ public static class ChatStreamClient
             string BuildResponsesPayload(string? candidatePreviousResponseId) => JsonSerializer.Serialize(new
             {
                 model = settings.Model,
-                input = BuildResponsesInput(promptForModel, attachments),
+                input = BuildResponsesInput(promptForModel, payloadAttachments),
                 instructions = nativeMode ? null : HermesHubProtocol.Instructions(settings, mode),
                 store = true,
                 stream = true,
@@ -230,7 +233,7 @@ public static class ChatStreamClient
                 chatMessages.Add(new Dictionary<string, object?>
                 {
                     ["role"] = string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
-                    ["content"] = isLastUser ? BuildChatCompletionsContent(promptForModel, attachments) : m.Text
+                    ["content"] = isLastUser ? BuildChatCompletionsContent(promptForModel, payloadAttachments) : m.Text
                 });
             }
             var chatPayload = JsonSerializer.Serialize(new
@@ -706,24 +709,25 @@ public static class ChatStreamClient
         var sb = new StringBuilder(prompt.TrimEnd());
         sb.AppendLine();
         sb.AppendLine();
-        sb.AppendLine("Allegati immagine disponibili per tool vision/analyze sul server Hermes:");
+        sb.AppendLine("Allegati immagine disponibili per tool vision_analyze sul server Hermes:");
         foreach (var item in uploaded)
         {
             sb.Append("- ");
             sb.Append(item.FileName);
             if (!string.IsNullOrWhiteSpace(item.Path))
             {
-                sb.Append(" | percorso server: ");
+                sb.Append(" | image_url da usare nel tool vision_analyze: ");
                 sb.Append(item.Path);
             }
             if (!string.IsNullOrWhiteSpace(item.MediaUrl))
             {
-                sb.Append(" | URL proxy: ");
+                sb.Append(" | URL proxy fallback: ");
                 sb.Append(item.MediaUrl);
             }
             sb.AppendLine();
         }
-        sb.AppendLine("Quando devi vedere l'immagine, passa al tool vision_analyze il percorso server o l'URL proxy sopra; non usare None.");
+        sb.AppendLine("Se devi vedere/leggere l'immagine, chiama vision_analyze usando esattamente il path server indicato come image_url.");
+        sb.AppendLine("Non usare attachment:image/png, None, /tmp/... inventati o URL incompleti. Se vision_analyze fallisce, riporta l'errore tecnico; non concludere che il modello non supporta vision.");
         return (sb.ToString(), uploaded.Length);
     }
 

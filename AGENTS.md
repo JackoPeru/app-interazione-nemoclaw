@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.107 Release Hermes Hub 0.6.107 vision upload bridge
+v0.6.108 Release Hermes Hub 0.6.108 vision payload and video streaming
 ```
 
 ## Regola Linux Gateway Update
@@ -138,6 +138,19 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
+Hermes Hub 0.6.108 (Video streaming and compat playback):
+
+Release 0.6.108:
+- Hotfix vision: test live 2026-06-21 conferma che il gateway/Hermes converte `input_image`/`image_url` in placeholder tipo `[screenshot]` o `attachment:image/png`; il tool `vision_analyze` riceve sorgente non valida e il modello deduce falsamente "non supporto vision".
+- Windows/Android: se upload immagine su `/v1/media/upload` riesce, il payload al modello non include piu' anche la data URL inline; resta solo prompt testuale con path server esatto per `vision_analyze`. Questo evita che Hermes scelga il placeholder invece del file reale.
+- Prompt allegati piu' rigido: per leggere immagini deve chiamare `vision_analyze` usando il path server come `image_url`; vietati `attachment:image/png`, `None`, path `/tmp` inventati e URL incompleti.
+- Video streaming: il feed gateway non espone piu' `playback_url` come `/v1/media/{id}?format=mp4` di default, perche' forza transcode/cache completa prima del play e rende lento anche un file piccolo.
+- Nuovo contratto video: `playback_url` punta allo stream originale `/v1/media/{id}`, mentre `compat_url` punta al fallback transcodato `/v1/media/{id}?format=mp4`.
+- Gateway media proxy aggiunge header `Accept-Ranges: bytes` su stream originale e compat, cosi' i player possono fare richieste parziali stile streaming/Jellyfin.
+- Windows/Android Video partono dallo stream originale e passano automaticamente a `compat_url` solo se il player fallisce per codec/formato.
+- Compat vecchio gateway: se il feed contiene ancora `playback_url` con `?format=mp4` e manca `compat_url`, i client lo trattano come fallback e usano `media_url` originale come playback primario.
+- Release bump: Windows/AdminBridge `0.6.108`, Android `versionName 0.6.108`, `versionCode 113`.
+
 Hermes Hub 0.6.107 (Vision upload bridge):
 
 Release 0.6.107:
@@ -149,17 +162,7 @@ Release 0.6.107:
 - Mantiene input image inline per futuri backend vision nativi, ma non dipende piu' da quello per i tool vision.
 - Release bump: Windows/AdminBridge `0.6.107`, Android `versionName 0.6.107`, `versionCode 112`.
 
-Hermes Hub 0.6.108 (Video streaming and compat playback):
-
-Release 0.6.108:
-- Video streaming: il feed gateway non espone piu' `playback_url` come `/v1/media/{id}?format=mp4` di default, perche' forza transcode/cache completa prima del play e rende lento anche un file piccolo.
-- Nuovo contratto video: `playback_url` punta allo stream originale `/v1/media/{id}`, mentre `compat_url` punta al fallback transcodato `/v1/media/{id}?format=mp4`.
-- Gateway media proxy aggiunge header `Accept-Ranges: bytes` su stream originale e compat, cosi' i player possono fare richieste parziali stile streaming/Jellyfin.
-- Windows/Android Video partono dallo stream originale e passano automaticamente a `compat_url` solo se il player fallisce per codec/formato.
-- Compat vecchio gateway: se il feed contiene ancora `playback_url` con `?format=mp4` e manca `compat_url`, i client lo trattano come fallback e usano `media_url` originale come playback primario.
-- Release bump: Windows/AdminBridge `0.6.108`, Android `versionName 0.6.108`, `versionCode 113`.
-
-Hermes Hub 0.6.107 (Vision upload bridge):
+Hermes Hub 0.6.106 (Markdown, vision and media playback):
 
 Release 0.6.106:
 - Windows/Android: renderer Markdown finale allineato meglio allo streaming; aggiunto supporto esplicito a tabelle pipe Markdown e liste ordinate, cosi' risposte e tabelle non vengono compattate male a fine generazione.

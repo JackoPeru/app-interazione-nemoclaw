@@ -543,7 +543,8 @@ def _hermes_hub_video_library_payload(request: Optional["web.Request"] = None) -
                 "filename": path.name,
                 "path": str(path),
                 "media_url": f"/v1/media/{media_id}",
-                "playback_url": f"/v1/media/{media_id}?format=mp4",
+                "playback_url": f"/v1/media/{media_id}",
+                "compat_url": f"/v1/media/{media_id}?format=mp4",
                 "thumbnail_url": "",
                 "mime_type": _mimetypes.guess_type(path.name)[0] or "video/*",
                 "size_bytes": int(stat.st_size),
@@ -829,12 +830,22 @@ def _multimodal_validation_error(exc: ValueError, *, param: str) -> "web.Respons
         )
         changes.append("media proxy helpers")
 
-    if '"playback_url": f"/v1/media/{media_id}?format=mp4",' not in text and '"media_url": f"/v1/media/{media_id}",' in text:
+    if '"playback_url": f"/v1/media/{media_id}?format=mp4",' in text and '"compat_url": f"/v1/media/{media_id}?format=mp4",' not in text:
+        text = text.replace(
+            '                "playback_url": f"/v1/media/{media_id}?format=mp4",\n',
+            '                "playback_url": f"/v1/media/{media_id}",\n'
+            '                "compat_url": f"/v1/media/{media_id}?format=mp4",\n',
+            1,
+        )
+        changes.append("video library fast playback url")
+
+    if '"playback_url": f"/v1/media/{media_id}",' not in text and '"media_url": f"/v1/media/{media_id}",' in text:
         text, _ = _replace_once(
             text,
             '                "media_url": f"/v1/media/{media_id}",\n',
             '                "media_url": f"/v1/media/{media_id}",\n'
-            '                "playback_url": f"/v1/media/{media_id}?format=mp4",\n',
+            '                "playback_url": f"/v1/media/{media_id}",\n'
+            '                "compat_url": f"/v1/media/{media_id}?format=mp4",\n',
             "video library playback url",
         )
         changes.append("video library playback url")
@@ -1542,10 +1553,10 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "        try:\n"
             "            if request.query.get(\"format\", \"\").lower() == \"mp4\" or request.query.get(\"transcode\", \"\").lower() in {\"1\", \"true\", \"mp4\"}:\n"
             "                path = _hermes_hub_transcode_mp4(path)\n"
-            "                return web.FileResponse(path, headers={\"Content-Type\": \"video/mp4\", \"Cache-Control\": \"public, max-age=3600\"})\n"
+            "                return web.FileResponse(path, headers={\"Content-Type\": \"video/mp4\", \"Accept-Ranges\": \"bytes\", \"Cache-Control\": \"public, max-age=3600\"})\n"
             "            import mimetypes as _mimetypes\n"
             "            mime = _mimetypes.guess_type(path.name)[0] or \"application/octet-stream\"\n"
-            "            return web.FileResponse(path, headers={\"Content-Type\": mime, \"Cache-Control\": \"public, max-age=3600\"})\n"
+            "            return web.FileResponse(path, headers={\"Content-Type\": mime, \"Accept-Ranges\": \"bytes\", \"Cache-Control\": \"public, max-age=3600\"})\n"
             "        except Exception as exc:\n"
             "            try:\n"
             "                logger.exception(\"Hermes Hub media proxy failed for %s\", path)\n"
@@ -1557,6 +1568,20 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "media proxy endpoint handler",
         )
         changes.append("media proxy endpoint handler")
+
+    if '{"Content-Type": "video/mp4", "Cache-Control": "public, max-age=3600"}' in text:
+        text = text.replace(
+            '{"Content-Type": "video/mp4", "Cache-Control": "public, max-age=3600"}',
+            '{"Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"}',
+        )
+        changes.append("media proxy range headers")
+
+    if '{"Content-Type": mime, "Cache-Control": "public, max-age=3600"}' in text:
+        text = text.replace(
+            '{"Content-Type": mime, "Cache-Control": "public, max-age=3600"}',
+            '{"Content-Type": mime, "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"}',
+        )
+        changes.append("media proxy original range headers")
 
     if 'media_token = request.query.get("hub_token")' not in text and 'async def _handle_hub_media' in text:
         text = text.replace(

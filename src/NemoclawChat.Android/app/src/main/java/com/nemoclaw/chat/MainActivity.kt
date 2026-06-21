@@ -390,6 +390,7 @@ data class VideoLibraryItem(
     val filename: String,
     val mediaUrl: String,
     val playbackUrl: String = "",
+    val compatUrl: String = "",
     val thumbnailUrl: String,
     val path: String,
     val mimeType: String,
@@ -3738,16 +3739,36 @@ private fun createManualVideoItem(rawUrl: String): VideoLibraryItem? {
 }
 
 private fun resolveVideoPlaybackUrl(settings: AppSettings, item: VideoLibraryItem): String {
+    if (item.compatUrl.isBlank() &&
+        item.playbackUrl.contains("format=mp4", ignoreCase = true) &&
+        item.playbackUrl.contains("/v1/media/", ignoreCase = true) &&
+        item.mediaUrl.isNotBlank()
+    ) {
+        return resolveWorkspaceUrl(settings, item.mediaUrl)
+    }
     val raw = item.playbackUrl.ifBlank { item.mediaUrl }
-    val resolved = resolveWorkspaceUrl(settings, raw)
-    if (item.playbackUrl.isNotBlank() || !resolved.contains("/v1/media/", ignoreCase = true)) {
-        return resolved
+    return resolveWorkspaceUrl(settings, raw)
+}
+
+private fun resolveVideoCompatUrl(settings: AppSettings, item: VideoLibraryItem): String {
+    val raw = item.compatUrl.ifBlank {
+        if (item.playbackUrl.contains("format=mp4", ignoreCase = true) &&
+            item.playbackUrl.contains("/v1/media/", ignoreCase = true)
+        ) {
+            return resolveWorkspaceUrl(settings, item.playbackUrl)
+        }
+        val base = item.mediaUrl.ifBlank { item.playbackUrl }
+        if (base.isBlank()) return ""
+        val resolvedBase = resolveWorkspaceUrl(settings, base)
+        if (!resolvedBase.contains("/v1/media/", ignoreCase = true) ||
+            resolvedBase.contains("format=mp4", ignoreCase = true)
+        ) {
+            return resolvedBase
+        }
+        val separator = if (resolvedBase.contains("?")) "&" else "?"
+        return "$resolvedBase${separator}format=mp4"
     }
-    if (resolved.contains("format=mp4", ignoreCase = true)) {
-        return resolved
-    }
-    val separator = if (resolved.contains("?")) "&" else "?"
-    return "$resolved${separator}format=mp4"
+    return resolveWorkspaceUrl(settings, raw)
 }
 
 @Composable
@@ -3854,7 +3875,12 @@ private fun VideoThumbnail(settings: AppSettings, item: VideoLibraryItem, apiKey
 private fun VideoWatchScreen(context: Context, settings: AppSettings, item: VideoLibraryItem, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val apiKey = remember { loadGatewaySecret(context) }
-    val videoUrl = remember(settings.gatewayUrl, item.mediaUrl, item.playbackUrl) { resolveVideoPlaybackUrl(settings, item) }
+    var useCompatPlayback by rememberSaveable(item.id) { mutableStateOf(false) }
+    val primaryVideoUrl = remember(settings.gatewayUrl, item.mediaUrl, item.playbackUrl) { resolveVideoPlaybackUrl(settings, item) }
+    val compatVideoUrl = remember(settings.gatewayUrl, item.mediaUrl, item.playbackUrl, item.compatUrl) { resolveVideoCompatUrl(settings, item) }
+    val videoUrl = remember(primaryVideoUrl, compatVideoUrl, useCompatPlayback) {
+        if (useCompatPlayback && compatVideoUrl.isNotBlank()) compatVideoUrl else primaryVideoUrl
+    }
     val player = remember(videoUrl, apiKey) {
         val dataSourceFactory = DefaultHttpDataSource.Factory()
             .setDefaultRequestProperties(authHeaders(apiKey))
@@ -3874,7 +3900,12 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                status = "Player video: ${error.errorCodeName}. Provo URL compatibile Hermes: $videoUrl"
+                if (!useCompatPlayback && compatVideoUrl.isNotBlank() && compatVideoUrl != primaryVideoUrl) {
+                    useCompatPlayback = true
+                    status = "Player video: ${error.errorCodeName}. Passo al proxy MP4 compatibile Hermes."
+                } else {
+                    status = "Player video: ${error.errorCodeName}. Nessun fallback compatibile disponibile."
+                }
             }
         }
         player.addListener(listener)
@@ -6082,6 +6113,7 @@ private suspend fun loadVideoLibrary(settings: AppSettings, apiKey: String?): Pa
                         filename = filename,
                         mediaUrl = mediaUrl,
                         playbackUrl = obj.optString("playback_url", obj.optString("playbackUrl")),
+                        compatUrl = obj.optString("compat_url", obj.optString("compatUrl")),
                         thumbnailUrl = obj.optString("thumbnail_url", obj.optString("thumbnailUrl")),
                         path = obj.optString("path"),
                         mimeType = obj.optString("mime_type", "video/*"),
