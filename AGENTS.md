@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.109 Release Hermes Hub 0.6.109 minimal news reader and fullscreen video
+v0.6.110 Release Hermes Hub 0.6.110 configurable news library path
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,16 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.110 (Configurable News library path):
+
+Release 0.6.110:
+- Windows/Android: aggiunta impostazione `Cartella news Hermes`, default `/home/matteo/news`, modificabile come destinazione per articoli/giornali HTML.
+- Windows/Android: metadata, prompt workspace News e messaggi UI usano `newsLibraryPath` invece di hardcodare sempre `/home/matteo/news`.
+- Windows/Android: il refresh della sezione News chiama `/v1/news/library?path=...`, cosi' la lista articoli legge la cartella news scelta nelle impostazioni.
+- Gateway Linux patcher: `/v1/news/library` accetta `path`/`library_path` autenticato e genera URL media con `root` esplicito; `/v1/media/...` risolve quel root extra solo dentro la root richiesta, mantenendo compatibilita' col default `HERMES_NEWS_LIBRARY_PATH`.
+- Verifica locale: `python -m py_compile scripts/patch-hermes-gateway-native.py`, `dotnet build src/NemoclawChat.Windows/NemoclawChat.Windows.csproj -c Debug -r win-x64`, `./gradlew.bat -p src/NemoclawChat.Android assembleDebug`.
+- Release bump: Windows/AdminBridge `0.6.110`, Android `versionName 0.6.110`, `versionCode 115`.
 
 Hermes Hub 0.6.109 (Minimal News reader and fullscreen video):
 

@@ -127,6 +127,22 @@ public static class AppSettingsStore
             settings.VideoLibraryPath = "/home/matteo/video";
             changed = true;
         }
+        else
+        {
+            settings.VideoLibraryPath = settings.VideoLibraryPath.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.NewsLibraryPath) ||
+            settings.NewsLibraryPath.EndsWith("/.hermes/media/news", StringComparison.OrdinalIgnoreCase) ||
+            settings.NewsLibraryPath.EndsWith("\\.hermes\\media\\news", StringComparison.OrdinalIgnoreCase))
+        {
+            settings.NewsLibraryPath = "/home/matteo/news";
+            changed = true;
+        }
+        else
+        {
+            settings.NewsLibraryPath = settings.NewsLibraryPath.Trim();
+        }
         settings.MaxAttachmentMb = Math.Clamp(settings.MaxAttachmentMb <= 0 || settings.MaxAttachmentMb == 6 ? 150 : settings.MaxAttachmentMb, 1, 150);
 
         if (changed)

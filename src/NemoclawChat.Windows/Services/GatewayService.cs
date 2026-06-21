@@ -442,7 +442,7 @@ public static class GatewayService
     {
         var runPrompt = kind.Equals("Video", StringComparison.OrdinalIgnoreCase)
             ? $"Destinazione: Hermes Hub / Video.\nCartella video monitorata: {settings.VideoLibraryPath}\nMemoria: usa la memoria agente condivisa Hermes/CLI/app per preferenze utente, stile, durata, ritmo, fonti e regole editoriali. Se impari una preferenza stabile, salvala lato Hermes se possibile.\nObiettivo: crea output operativo per produzione video su PC/Hermes: brief, script, storyboard, scene, asset, voce, musica, rischi, prossimi step. Tutti i file finali devono essere pensati per comparire nel feed Video tramite quella cartella monitorata. Se utile, indica stream_url/download_url.\n\nRichiesta utente:\n{prompt}"
-            : $"Destinazione: Hermes Hub / News.\nMemoria: usa la memoria agente condivisa Hermes/CLI/app per interessi, fonti preferite, profondita, tono e filtri di qualita. Se impari una preferenza stabile, salvala lato Hermes se possibile.\nObiettivo: crea output operativo per articolo/briefing: query, fonti consultate, filtri, sintesi, frequenza, formato briefing, rischi di affidabilita.\n\nRichiesta utente:\n{prompt}";
+            : $"Destinazione: Hermes Hub / News.\nCartella news monitorata: {settings.NewsLibraryPath}\nMemoria: usa la memoria agente condivisa Hermes/CLI/app per interessi, fonti preferite, profondita, tono e filtri di qualita. Se impari una preferenza stabile, salvala lato Hermes se possibile.\nObiettivo: crea output operativo per articolo/briefing: query, fonti consultate, filtri, sintesi, frequenza, formato briefing, rischi di affidabilita. Se serve HTML/giornale online, salva il file finale nella cartella news monitorata.\n\nRichiesta utente:\n{prompt}";
 
         var payload = JsonSerializer.Serialize(new
         {
@@ -843,8 +843,10 @@ public static class GatewayService
     {
         try
         {
+            var newsPath = string.IsNullOrWhiteSpace(settings.NewsLibraryPath) ? "/home/matteo/news" : settings.NewsLibraryPath.Trim();
+            var pathQuery = $"?path={Uri.EscapeDataString(newsPath)}";
             var response = await SendBufferedAsync(
-                token => BuildRequest(HttpMethod.Get, ResolveHermesUri(settings, "/v1/news/library"), token),
+                token => BuildRequest(HttpMethod.Get, ResolveHermesUri(settings, "/v1/news/library" + pathQuery), token),
                 allowCompatAuth: true);
             if (!response.IsSuccessStatusCode)
             {
@@ -853,7 +855,7 @@ public static class GatewayService
 
             using var document = JsonDocument.Parse(response.Body);
             var root = document.RootElement;
-            var libraryPath = ExtractString(root, "news_library_path", "library_path") ?? "/home/matteo/news";
+            var libraryPath = ExtractString(root, "news_library_path", "library_path") ?? newsPath;
             var items = new List<NewsHtmlRecord>();
             if (root.TryGetProperty("items", out var array) && array.ValueKind == JsonValueKind.Array)
             {

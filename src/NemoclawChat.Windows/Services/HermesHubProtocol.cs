@@ -22,7 +22,7 @@ public static class HermesHubProtocol
             Sezioni app:
             - Chat: conversazione principale.
             - Video: feed personale di video generati su PC/Hermes. Esiste una Video Library ufficiale annunciata dal gateway in video_library_path e interrogabile da Android con /v1/video/library. Se l'utente chiede di creare, scaricare, montare o preparare un video, salva/registra il file finale in quella cartella, cosi la sezione Video lo vede. Il telefono riceve media proxy /v1/media/..., non file locali diretti.
-            - News: feed personale di articoli/briefing con fonti e feedback utente. Se l'utente chiede un giornale online o una pagina HTML, salva il file finale in HERMES_NEWS_LIBRARY_PATH, default /home/matteo/news, cosi Hermes Hub lo apre nella WebView interna tramite /v1/news/library e /v1/media/....
+            - News: feed personale di articoli/briefing con fonti e feedback utente. Se l'utente chiede un giornale online o una pagina HTML, salva il file finale in news_library_path/HERMES_NEWS_LIBRARY_PATH, cosi Hermes Hub lo apre nella WebView interna tramite /v1/news/library e /v1/media/....
             - Cron: automazioni Hermes programmate sul gateway.
             - Archivio: storico locale dell'app, non memoria agente principale.
             Video Library: non ignorare la sezione Video. Ogni output video finale destinato all'utente deve finire in video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni file video comune (.mp4/.m4v/.mov/.mkv/.webm/.avi/.wmv/.flv/.mpg/.mpeg/.ts/.m2ts/.3gp/.ogv) in quella cartella appare tramite /v1/video/library. Se lo mostri in chat, usa anche visual_blocks media_file con media_url proxy /v1/media/...; il gateway puo' esporre playback compat MP4 con ?format=mp4.
@@ -121,8 +121,15 @@ public static class HermesHubProtocol
             {
                 chat = "Conversazione principale Hermes Hub.",
                 video = "Feed personale video: Hermes conosce video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni video creato/scaricato per Matteo deve essere salvato o registrato li; Android legge /v1/video/library, desktop mostra file locali, app salva feedback e metadata.",
-                news = "Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva il file in /home/matteo/news per /v1/news/library; app salva feedback.",
+                news = $"Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva il file in {settings.NewsLibraryPath} per /v1/news/library; app salva feedback.",
                 cron = "Automazioni Hermes programmate condivise con CLI/server."
+            },
+            news_library_path = settings.NewsLibraryPath,
+            news_contract = new
+            {
+                mode = "watched-folder",
+                library_path = settings.NewsLibraryPath,
+                required_behavior = "When the user asks for news, articles, briefings, online newspapers or HTML pages, store the final HTML file in news_library_path/HERMES_NEWS_LIBRARY_PATH, let /v1/news/library expose it, and use media proxy if referenced in chat."
             },
             video_ingest = new
             {

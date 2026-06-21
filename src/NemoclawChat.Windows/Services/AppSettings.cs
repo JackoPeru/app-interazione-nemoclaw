@@ -12,6 +12,7 @@ public sealed class AppSettings
     public string AccessMode { get; set; } = "Tailscale/LAN";
     public string VisualBlocksMode { get; set; } = "auto";
     public string VideoLibraryPath { get; set; } = "/home/matteo/video";
+    public string NewsLibraryPath { get; set; } = "/home/matteo/news";
     public string ActiveProjectId { get; set; } = string.Empty;
     public string ActiveProjectName { get; set; } = string.Empty;
     public bool StrictNativeMode { get; set; } = false;

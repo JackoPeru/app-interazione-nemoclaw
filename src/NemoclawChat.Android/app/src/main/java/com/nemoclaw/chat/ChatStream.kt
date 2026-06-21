@@ -1528,9 +1528,17 @@ private fun visualBlocksMetadataJson(settings: AppSettings, conversationId: Stri
             JSONObject()
                 .put("chat", "Conversazione principale Hermes Hub.")
                 .put("video", "Feed personale video: Hermes conosce video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni video creato/scaricato per Matteo deve essere salvato o registrato li, desktop mostra file locali, app salva feedback e metadata.")
-                .put("news", "Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva in /home/matteo/news per /v1/news/library; app salva feedback.")
+                .put("news", "Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva in ${settings.newsLibraryPath} per /v1/news/library; app salva feedback.")
                 .put("jobs", "Coda Hermes Jobs condivisa con CLI/server.")
                 .put("runs", "Runs operative Hermes.")
+        )
+        .put("news_library_path", settings.newsLibraryPath)
+        .put(
+            "news_contract",
+            JSONObject()
+                .put("mode", "watched-folder")
+                .put("library_path", settings.newsLibraryPath)
+                .put("required_behavior", "When the user asks for news, articles, briefings, online newspapers or HTML pages, store the final HTML file in news_library_path/HERMES_NEWS_LIBRARY_PATH, let /v1/news/library expose it, and use media proxy if referenced in chat.")
         )
         .put(
             "activity_stream",

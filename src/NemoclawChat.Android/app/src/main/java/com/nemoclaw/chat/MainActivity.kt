@@ -449,6 +449,7 @@ data class AppSettings(
     val accessMode: String = AppDefaults.accessMode,
     val visualBlocksMode: String = AppDefaults.visualBlocksMode,
     val videoLibraryPath: String = AppDefaults.videoLibraryPath,
+    val newsLibraryPath: String = AppDefaults.newsLibraryPath,
     val activeProjectId: String = AppDefaults.activeProjectId,
     val activeProjectName: String = AppDefaults.activeProjectName,
     val fontScale: Float = AppDefaults.fontScale,
@@ -4171,7 +4172,7 @@ private fun NewsScreen(context: Context, settings: AppSettings, onOpenChatPrompt
                 Surface(color = AppColors.Panel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AppColors.Border)) {
                     Text(
                         modifier = Modifier.padding(16.dp),
-                        text = "Nessun articolo HTML trovato. Chiedi a Hermes di creare un giornale HTML e salvarlo in /home/matteo/news.",
+                        text = "Nessun articolo HTML trovato. Chiedi a Hermes di creare un giornale HTML e salvarlo in ${settings.newsLibraryPath}.",
                         color = AppColors.Muted
                     )
                 }
@@ -4806,6 +4807,7 @@ private fun SettingsScreen(
     var accessMode by remember(settings.accessMode) { mutableStateOf(settings.accessMode) }
     var visualBlocksMode by remember(settings.visualBlocksMode) { mutableStateOf(settings.visualBlocksMode) }
     var videoLibraryPath by remember(settings.videoLibraryPath) { mutableStateOf(settings.videoLibraryPath) }
+    var newsLibraryPath by remember(settings.newsLibraryPath) { mutableStateOf(settings.newsLibraryPath) }
     var apiKey by remember { mutableStateOf(loadGatewaySecret(context) ?: HERMES_FALLBACK_API_KEY) }
     var fontScale by remember(settings.fontScale) { mutableStateOf(settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)) }
     var showToolCalls by remember(settings.showToolCalls) { mutableStateOf(settings.showToolCalls) }
@@ -4834,6 +4836,7 @@ private fun SettingsScreen(
             accessMode = accessMode.trim(),
             visualBlocksMode = visualBlocksMode.trim(),
             videoLibraryPath = videoLibraryPath.trim(),
+            newsLibraryPath = newsLibraryPath.trim(),
             activeProjectId = settings.activeProjectId,
             activeProjectName = settings.activeProjectName,
             fontScale = scale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
@@ -4880,6 +4883,7 @@ private fun SettingsScreen(
                         SettingsField("Hermes API URL", gatewayUrl, { gatewayUrl = it })
                         SettingsPasswordField("API key Hermes", apiKey, { apiKey = it })
                         SettingsField("Cartella video Hermes (sync server)", videoLibraryPath, { })
+                        SettingsField("Cartella news Hermes", newsLibraryPath, { newsLibraryPath = it })
                         SettingsField("Limite allegati file (MB, max 150)", maxAttachmentMb.toString(), { value ->
                             maxAttachmentMb = value.filter { it.isDigit() }.toIntOrNull()?.coerceIn(1, 150) ?: maxAttachmentMb
                         })
@@ -5249,7 +5253,7 @@ internal fun hermesHubSharedContext(): String {
         Sezioni app:
         - Chat: conversazione principale.
         - Video: feed personale di video generati su PC/Hermes. Esiste una Video Library ufficiale annunciata dal gateway in video_library_path e interrogabile da Android con /v1/video/library. Se l'utente chiede di creare, scaricare, montare o preparare un video, salva/registra il file finale in quella cartella, cosi la sezione Video lo vede. Il telefono riceve media proxy /v1/media/..., non file locali diretti.
-        - News: feed personale di articoli/briefing con fonti e feedback utente. Se l'utente chiede un giornale online/HTML, salva il file finale in /home/matteo/news o HERMES_NEWS_LIBRARY_PATH: Hermes Hub lo apre in app tramite /v1/news/library e /v1/media/....
+        - News: feed personale di articoli/briefing con fonti e feedback utente. Se l'utente chiede un giornale online/HTML, salva il file finale in news_library_path/HERMES_NEWS_LIBRARY_PATH: Hermes Hub lo apre in app tramite /v1/news/library e /v1/media/....
         - Cron: automazioni Hermes programmate sul gateway.
         - Archivio: storico locale dell'app, non memoria agente principale.
         Video Library: non ignorare la sezione Video. Ogni output video finale destinato all'utente deve finire in video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni file video comune (.mp4/.m4v/.mov/.mkv/.webm/.avi/.wmv/.flv/.mpg/.mpeg/.ts/.m2ts/.3gp/.ogv) in quella cartella appare tramite /v1/video/library. Se lo mostri in chat, usa anche visual_blocks media_file con media_url proxy /v1/media/...; il gateway puo' esporre playback compat MP4 con ?format=mp4.
@@ -5441,8 +5445,16 @@ private fun visualBlocksMetadata(settings: AppSettings, conversationId: String?)
             JSONObject()
                 .put("chat", "Conversazione principale Hermes Hub.")
                 .put("video", "Feed personale video: Hermes conosce video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni video creato/scaricato per Matteo deve essere salvato o registrato li; Android legge /v1/video/library, desktop mostra file locali, app salva feedback e metadata.")
-                .put("news", "Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva in /home/matteo/news per /v1/news/library; app salva feedback.")
+                .put("news", "Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva in ${settings.newsLibraryPath} per /v1/news/library; app salva feedback.")
                 .put("cron", "Automazioni Hermes programmate condivise con CLI/server.")
+        )
+        .put("news_library_path", settings.newsLibraryPath)
+        .put(
+            "news_contract",
+            JSONObject()
+                .put("mode", "watched-folder")
+                .put("library_path", settings.newsLibraryPath)
+                .put("required_behavior", "When the user asks for news, articles, briefings, online newspapers or HTML pages, store the final HTML file in news_library_path/HERMES_NEWS_LIBRARY_PATH, let /v1/news/library expose it, and use media proxy if referenced in chat.")
         )
         .put(
             "activity_stream",
@@ -5916,9 +5928,10 @@ private fun workspaceInstructions(settings: AppSettings, kind: String, prompt: S
     } else {
         """
             Destinazione: Hermes Hub / News.
+            Cartella news monitorata: ${settings.newsLibraryPath}
             Memoria: usa la memoria agente condivisa Hermes/CLI/app per interessi, fonti preferite, profondita, tono e filtri di qualita. Se impari una preferenza stabile, salvala lato Hermes se possibile.
             Obiettivo: crea un articolo/briefing personale per Matteo con fonti verificabili e sintesi ragionata.
-            Produzione: cerca notizie rilevanti, filtra per interesse, cita fonti, separa fatti da inferenze e prepara testo leggibile come giornale personale. Se l'utente chiede formato giornale online/HTML, salva il file finale in /home/matteo/news o HERMES_NEWS_LIBRARY_PATH: Hermes Hub lo legge con /v1/news/library e lo mostra in WebView interna.
+            Produzione: cerca notizie rilevanti, filtra per interesse, cita fonti, separa fatti da inferenze e prepara testo leggibile come giornale personale. Se l'utente chiede formato giornale online/HTML, salva il file finale nella cartella news monitorata/news_library_path/HERMES_NEWS_LIBRARY_PATH: Hermes Hub lo legge con /v1/news/library e lo mostra in WebView interna.
             Feedback: usa feedback precedenti per adattare argomenti, profondita, tono, fonti e frequenza.
             Output JSON richiesto: {"kind":"News","title":"...","summary":"...","status":"...","job_id":"...","download_url":"/v1/media/...","sources":[{"title":"...","url":"..."}]}
 
@@ -6126,7 +6139,9 @@ private suspend fun loadVideoLibrary(settings: AppSettings, apiKey: String?): Pa
 
 private suspend fun loadNewsLibrary(settings: AppSettings, apiKey: String?): Pair<List<NewsHtmlItem>, String> = withContext(Dispatchers.IO) {
     return@withContext try {
-        val response = httpGetResponse(resolveHermesUrl(settings, "/v1/news/library"), apiKey)
+        val newsPath = settings.newsLibraryPath.ifBlank { AppDefaults.newsLibraryPath }
+        val encodedPath = URLEncoder.encode(newsPath, "UTF-8")
+        val response = httpGetResponse(resolveHermesUrl(settings, "/v1/news/library?path=$encodedPath"), apiKey)
         if (response.first !in 200..299) {
             return@withContext emptyList<NewsHtmlItem>() to "News HTML HTTP ${response.first}: ${extractHumanError(response.second)}"
         }
@@ -6138,7 +6153,7 @@ private suspend fun loadNewsLibrary(settings: AppSettings, apiKey: String?): Pai
         if (json.has("error")) {
             return@withContext emptyList<NewsHtmlItem>() to extractHumanError(body)
         }
-        val libraryPath = json.optString("news_library_path", json.optString("library_path", "/home/matteo/news"))
+        val libraryPath = json.optString("news_library_path", json.optString("library_path", newsPath))
         val array = json.optJSONArray("items") ?: JSONArray()
         val items = buildList {
             for (i in 0 until array.length()) {
@@ -7405,6 +7420,8 @@ private fun loadSettings(context: Context): AppSettings {
         visualBlocksMode = prefs.getString("visualBlocksMode", AppDefaults.visualBlocksMode) ?: AppDefaults.visualBlocksMode,
         videoLibraryPath = (prefs.getString("videoLibraryPath", AppDefaults.videoLibraryPath) ?: AppDefaults.videoLibraryPath)
             .let { if (it.isBlank() || it.endsWith("/.hermes/media/video")) AppDefaults.videoLibraryPath else it },
+        newsLibraryPath = (prefs.getString("newsLibraryPath", AppDefaults.newsLibraryPath) ?: AppDefaults.newsLibraryPath)
+            .let { if (it.isBlank() || it.endsWith("/.hermes/media/news")) AppDefaults.newsLibraryPath else it },
         activeProjectId = prefs.getString("activeProjectId", AppDefaults.activeProjectId) ?: AppDefaults.activeProjectId,
         activeProjectName = prefs.getString("activeProjectName", AppDefaults.activeProjectName) ?: AppDefaults.activeProjectName,
         fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
@@ -7488,6 +7505,7 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         .putString("accessMode", settings.accessMode.trim())
         .putString("visualBlocksMode", settings.visualBlocksMode.trim())
         .putString("videoLibraryPath", settings.videoLibraryPath.trim())
+        .putString("newsLibraryPath", settings.newsLibraryPath.trim())
         .putString("activeProjectId", settings.activeProjectId.trim())
         .putString("activeProjectName", settings.activeProjectName.trim())
         .putFloat("fontScale", settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE))
@@ -8475,6 +8493,7 @@ private object AppDefaults {
     const val accessMode = "Tailscale/LAN plug-and-play"
     const val visualBlocksMode = "auto"
     const val videoLibraryPath = "/home/matteo/video"
+    const val newsLibraryPath = "/home/matteo/news"
     const val activeProjectId = ""
     const val activeProjectName = ""
     const val fontScale = 1.0f

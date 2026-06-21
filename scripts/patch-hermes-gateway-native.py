@@ -596,14 +596,17 @@ def _hermes_hub_media_roots() -> List["Path"]:
     return unique
 
 
-def _hermes_hub_resolve_media_path(media_id: str) -> Optional["Path"]:
+def _hermes_hub_resolve_media_path(media_id: str, extra_root: Optional[str] = None) -> Optional["Path"]:
     import urllib.parse as _urlparse
     from pathlib import Path as _Path
 
     decoded = _urlparse.unquote(str(media_id or "")).replace(chr(92), "/").lstrip("/")
     if not decoded:
         return None
-    for root in _hermes_hub_media_roots():
+    roots = _hermes_hub_media_roots()
+    if extra_root:
+        roots.insert(0, _Path(str(extra_root).strip()).expanduser())
+    for root in roots:
         try:
             candidate = (root / decoded).resolve()
             root_resolved = root.resolve()
@@ -616,7 +619,7 @@ def _hermes_hub_resolve_media_path(media_id: str) -> Optional["Path"]:
     # Backward-compatible fallback: older clients may send just basename.
     basename = _Path(decoded).name
     if basename and basename == decoded:
-        for root in _hermes_hub_media_roots():
+        for root in roots:
             try:
                 for candidate in root.rglob(basename):
                     if candidate.is_file():
@@ -737,14 +740,17 @@ def _multimodal_validation_error(exc: ValueError, *, param: str) -> "web.Respons
     return unique
 
 
-def _hermes_hub_resolve_media_path(media_id: str) -> Optional["Path"]:
+def _hermes_hub_resolve_media_path(media_id: str, extra_root: Optional[str] = None) -> Optional["Path"]:
     import urllib.parse as _urlparse
     from pathlib import Path as _Path
 
     decoded = _urlparse.unquote(str(media_id or "")).replace(chr(92), "/").lstrip("/")
     if not decoded:
         return None
-    for root in _hermes_hub_media_roots():
+    roots = _hermes_hub_media_roots()
+    if extra_root:
+        roots.insert(0, _Path(str(extra_root).strip()).expanduser())
+    for root in roots:
         try:
             candidate = (root / decoded).resolve()
             root_resolved = root.resolve()
@@ -756,7 +762,7 @@ def _hermes_hub_resolve_media_path(media_id: str) -> Optional["Path"]:
 
     basename = _Path(decoded).name
     if basename and basename == decoded:
-        for root in _hermes_hub_media_roots():
+        for root in roots:
             try:
                 for candidate in root.rglob(basename):
                     if candidate.is_file():
@@ -830,6 +836,43 @@ def _multimodal_validation_error(exc: ValueError, *, param: str) -> "web.Respons
         )
         changes.append("media proxy helpers")
 
+    if 'def _hermes_hub_resolve_media_path(media_id: str) -> Optional["Path"]:' in text:
+        text = text.replace(
+            'def _hermes_hub_resolve_media_path(media_id: str) -> Optional["Path"]:',
+            'def _hermes_hub_resolve_media_path(media_id: str, extra_root: Optional[str] = None) -> Optional["Path"]:',
+            1,
+        )
+        text = text.replace(
+            '    if not decoded:\n'
+            '        return None\n'
+            '    for root in _hermes_hub_media_roots():\n',
+            '    if not decoded:\n'
+            '        return None\n'
+            '    roots = _hermes_hub_media_roots()\n'
+            '    if extra_root:\n'
+            '        roots.insert(0, _Path(str(extra_root).strip()).expanduser())\n'
+            '    for root in roots:\n',
+            1,
+        )
+        text = text.replace(
+            '        for root in _hermes_hub_media_roots():\n'
+            '            try:\n'
+            '                for candidate in root.rglob(basename):\n',
+            '        for root in roots:\n'
+            '            try:\n'
+            '                for candidate in root.rglob(basename):\n',
+            1,
+        )
+        changes.append("media proxy optional root")
+
+    if 'path = _hermes_hub_resolve_media_path(media_id)' in text:
+        text = text.replace(
+            'path = _hermes_hub_resolve_media_path(media_id)',
+            'path = _hermes_hub_resolve_media_path(media_id, request.query.get("root"))',
+            1,
+        )
+        changes.append("media proxy root query")
+
     if '"playback_url": f"/v1/media/{media_id}?format=mp4",' in text and '"compat_url": f"/v1/media/{media_id}?format=mp4",' not in text:
         text = text.replace(
             '                "playback_url": f"/v1/media/{media_id}?format=mp4",\n',
@@ -869,7 +912,11 @@ def _hermes_hub_news_library_payload(request: Optional["web.Request"] = None) ->
     import urllib.parse as _urlparse
     from pathlib import Path as _Path
 
-    raw = os.environ.get("HERMES_NEWS_LIBRARY_PATH") or "/home/matteo/news"
+    query_path = ""
+    if request is not None:
+        query_path = (request.query.get("path") or request.query.get("library_path") or "").strip()
+    raw = query_path or os.environ.get("HERMES_NEWS_LIBRARY_PATH") or "/home/matteo/news"
+    root_query = f"?root={_urlparse.quote(str(_Path(raw).expanduser()), safe='')}" if query_path else ""
     roots: List[_Path] = [_Path(raw).expanduser()]
     for part in os.environ.get("HERMES_MEDIA_ROOTS", "").split(os.pathsep):
         if part.strip():
@@ -915,8 +962,8 @@ def _hermes_hub_news_library_payload(request: Optional["web.Request"] = None) ->
                 "title": path.stem.replace("_", " ").replace("-", " ").strip() or path.name,
                 "filename": path.name,
                 "path": str(path),
-                "media_url": f"/v1/media/{media_id}",
-                "url": f"/v1/media/{media_id}",
+                "media_url": f"/v1/media/{media_id}{root_query}",
+                "url": f"/v1/media/{media_id}{root_query}",
                 "mime_type": _mimetypes.guess_type(path.name)[0] or "text/html",
                 "size_bytes": int(stat.st_size),
                 "modified_at": float(stat.st_mtime),
@@ -939,6 +986,27 @@ def _hermes_hub_media_roots() -> List["Path"]:''',
             "news library payload helper",
         )
         changes.append("news library payload helper")
+
+    if "def _hermes_hub_news_library_payload" in text and "query_path = \"\"" not in text:
+        text = text.replace(
+            '    raw = os.environ.get("HERMES_NEWS_LIBRARY_PATH") or "/home/matteo/news"\n',
+            '    query_path = ""\n'
+            '    if request is not None:\n'
+            '        query_path = (request.query.get("path") or request.query.get("library_path") or "").strip()\n'
+            '    raw = query_path or os.environ.get("HERMES_NEWS_LIBRARY_PATH") or "/home/matteo/news"\n'
+            '    root_query = f"?root={_urlparse.quote(str(_Path(raw).expanduser()), safe=\'\')}" if query_path else ""\n',
+            1,
+        )
+        text = text.replace(
+            '                "media_url": f"/v1/media/{media_id}",\n'
+            '                "url": f"/v1/media/{media_id}",\n'
+            '                "mime_type": _mimetypes.guess_type(path.name)[0] or "text/html",\n',
+            '                "media_url": f"/v1/media/{media_id}{root_query}",\n'
+            '                "url": f"/v1/media/{media_id}{root_query}",\n'
+            '                "mime_type": _mimetypes.guess_type(path.name)[0] or "text/html",\n',
+            1,
+        )
+        changes.append("news library custom path query")
 
     if 'raw_news = os.environ.get("HERMES_NEWS_LIBRARY_PATH") or "/home/matteo/news"' not in text and 'raw_video = os.environ.get("HERMES_VIDEO_LIBRARY_PATH") or "/home/matteo/video"' in text:
         text = text.replace(
@@ -1547,7 +1615,7 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "            if not media_token or not any(hmac.compare_digest(media_token, api_key) for api_key in accepted_api_keys):\n"
             "                return auth_error\n"
             "        media_id = request.match_info.get(\"media_id\", \"\")\n"
-            "        path = _hermes_hub_resolve_media_path(media_id)\n"
+            "        path = _hermes_hub_resolve_media_path(media_id, request.query.get(\"root\"))\n"
             "        if path is None:\n"
             "            return web.json_response({\"error\": \"Media not found\"}, status=404)\n"
             "        try:\n"

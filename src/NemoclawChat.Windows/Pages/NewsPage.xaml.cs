@@ -56,9 +56,10 @@ public sealed partial class NewsPage : Page
         NewsCardsPanel.Children.Clear();
         if (_htmlPages.Count == 0)
         {
+            var settings = AppSettingsStore.Load();
             NewsCardsPanel.Children.Add(new TextBlock
             {
-                Text = "Nessun articolo HTML trovato. Chiedi a Hermes di salvare il giornale in /home/matteo/news.",
+                Text = $"Nessun articolo HTML trovato. Chiedi a Hermes di salvare il giornale in {settings.NewsLibraryPath}.",
                 Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
                 TextWrapping = TextWrapping.Wrap
             });

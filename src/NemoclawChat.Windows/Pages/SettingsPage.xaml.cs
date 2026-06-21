@@ -26,6 +26,7 @@ public sealed partial class SettingsPage : Page
         InferenceEndpointBox.Text = settings.InferenceEndpoint;
         ModelBox.Text = settings.Model;
         VideoLibraryPathBox.Text = settings.VideoLibraryPath;
+        NewsLibraryPathBox.Text = settings.NewsLibraryPath;
         ActiveProjectNameBox.Text = settings.ActiveProjectName;
         MaxAttachmentMbBox.Value = settings.MaxAttachmentMb;
         StrictNativeModeSwitch.IsOn = settings.StrictNativeMode;
@@ -133,6 +134,7 @@ public sealed partial class SettingsPage : Page
             PreferredApi = SelectedComboText(PreferredApiBox),
             Model = ModelBox.Text.Trim(),
             VideoLibraryPath = VideoLibraryPathBox.Text.Trim(),
+            NewsLibraryPath = NewsLibraryPathBox.Text.Trim(),
             ActiveProjectId = string.IsNullOrWhiteSpace(ActiveProjectNameBox.Text) ? string.Empty : $"project_{ActiveProjectNameBox.Text.Trim().ToLowerInvariant().Replace(' ', '_')}",
             ActiveProjectName = ActiveProjectNameBox.Text.Trim(),
             AccessMode = SelectedComboText(AccessModeBox),
