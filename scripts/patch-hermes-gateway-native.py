@@ -918,9 +918,6 @@ def _hermes_hub_news_library_payload(request: Optional["web.Request"] = None) ->
     raw = query_path or os.environ.get("HERMES_NEWS_LIBRARY_PATH") or "/home/matteo/news"
     root_query = f"?root={_urlparse.quote(str(_Path(raw).expanduser()), safe='')}" if query_path else ""
     roots: List[_Path] = [_Path(raw).expanduser()]
-    for part in os.environ.get("HERMES_MEDIA_ROOTS", "").split(os.pathsep):
-        if part.strip():
-            roots.append(_Path(part.strip()).expanduser())
 
     unique_roots: List[_Path] = []
     seen_roots = set()
@@ -978,7 +975,7 @@ def _hermes_hub_news_library_payload(request: Optional["web.Request"] = None) ->
         "media_roots": [str(root) for root in unique_roots],
         "items": items,
         "count": len(items),
-        "description": "Feed News Hermes Hub: file HTML presenti nella cartella news/media monitorata dal server.",
+        "description": "Feed News Hermes Hub: file HTML presenti solo nella cartella news monitorata dal server.",
     }
 
 
@@ -1007,6 +1004,22 @@ def _hermes_hub_media_roots() -> List["Path"]:''',
             1,
         )
         changes.append("news library custom path query")
+
+    if "def _hermes_hub_news_library_payload" in text:
+        text = text.replace(
+            '    roots: List[_Path] = [_Path(raw).expanduser()]\n'
+            '    for part in os.environ.get("HERMES_MEDIA_ROOTS", "").split(os.pathsep):\n'
+            '        if part.strip():\n'
+            '            roots.append(_Path(part.strip()).expanduser())\n',
+            '    roots: List[_Path] = [_Path(raw).expanduser()]\n',
+            1,
+        )
+        text = text.replace(
+            '"description": "Feed News Hermes Hub: file HTML presenti nella cartella news/media monitorata dal server.",',
+            '"description": "Feed News Hermes Hub: file HTML presenti solo nella cartella news monitorata dal server.",',
+            1,
+        )
+        changes.append("news library folder only")
 
     if 'raw_news = os.environ.get("HERMES_NEWS_LIBRARY_PATH") or "/home/matteo/news"' not in text and 'raw_video = os.environ.get("HERMES_VIDEO_LIBRARY_PATH") or "/home/matteo/video"' in text:
         text = text.replace(

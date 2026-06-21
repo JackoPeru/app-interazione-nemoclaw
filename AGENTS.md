@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.110 Release Hermes Hub 0.6.110 configurable news library path
+v0.6.111 Release Hermes Hub 0.6.111 news folder-only hotfix
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,14 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.111 (News folder-only hotfix):
+
+Release 0.6.111:
+- Hotfix Gateway Linux: `/v1/news/library` non scansiona piu' `HERMES_MEDIA_ROOTS` insieme alla cartella news. Prima poteva dichiarare `/home/matteo/news` ma includere HTML da `~/.hermes/profiles`, `~/.hermes/node`, ecc.
+- La sezione News ora deve mostrare solo file `.html/.htm` presenti nella cartella richiesta da `path`/`library_path` o nel default `HERMES_NEWS_LIBRARY_PATH`.
+- Mantiene i link media con `root` esplicito per cartelle news custom configurate da Windows/Android.
+- Release bump: Windows/AdminBridge `0.6.111`, Android `versionName 0.6.111`, `versionCode 116`.
 
 Hermes Hub 0.6.110 (Configurable News library path):
 
