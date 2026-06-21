@@ -210,6 +210,28 @@ public sealed partial class HomePage : Page
             : "Analizza il file allegato.");
     }
 
+    private async void PasteImage_Click(object sender, RoutedEventArgs e)
+    {
+        await TryPasteImageAttachmentAsync();
+    }
+
+    private async Task TryPasteImageAttachmentAsync()
+    {
+        var settings = AppSettingsStore.Load();
+        var attachment = await TryCreateClipboardImageAttachmentAsync(settings.MaxAttachmentMb);
+        if (attachment is null)
+        {
+            AddAction("Incolla immagine", "Nessuna immagine valida negli appunti, oppure file oltre limite.");
+            return;
+        }
+
+        _pendingAttachments.Add(attachment);
+        RenderAttachmentPreviews();
+        AddAction("Incolla immagine", $"{attachment.FileName} pronta per Hermes ({FormatAttachmentBytes(attachment.SizeBytes)}).");
+        PromptBox.Text = AppendPrompt("Analizza l'immagine allegata.");
+        PromptBox.Focus(FocusState.Programmatic);
+    }
+
     private async void CaptureScreenshot_Click(object sender, RoutedEventArgs e)
     {
         var launched = await Launcher.LaunchUriAsync(new Uri("ms-screenclip:"));
@@ -788,6 +810,39 @@ public sealed partial class HomePage : Page
 
         var dataUrl = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
         return new ChatInputAttachment(file.Name, mimeType, dataUrl, bytes.LongLength);
+    }
+
+    private static async Task<ChatInputAttachment?> TryCreateClipboardImageAttachmentAsync(int maxAttachmentMb)
+    {
+        var view = Clipboard.GetContent();
+        if (!view.Contains(StandardDataFormats.Bitmap))
+        {
+            return null;
+        }
+
+        var reference = await view.GetBitmapAsync();
+        using var stream = await reference.OpenReadAsync();
+        var maxBytes = Math.Clamp(maxAttachmentMb, 1, 150) * 1024 * 1024;
+        if (stream.Size <= 0 || stream.Size > (ulong)maxBytes)
+        {
+            return null;
+        }
+
+        var bytes = new byte[stream.Size];
+        using (var reader = new DataReader(stream.GetInputStreamAt(0)))
+        {
+            await reader.LoadAsync((uint)stream.Size);
+            reader.ReadBytes(bytes);
+        }
+
+        if (bytes.Length <= 0 || bytes.Length > maxBytes)
+        {
+            return null;
+        }
+
+        var fileName = $"clipboard-{DateTime.Now:yyyyMMdd-HHmmss}.png";
+        var dataUrl = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+        return new ChatInputAttachment(fileName, "image/png", dataUrl, bytes.LongLength);
     }
 
     private static string MimeTypeFromExtension(string extension)
@@ -1427,13 +1482,13 @@ public sealed partial class HomePage : Page
         }
     }
 
-    private void PromptBox_Paste(object sender, TextControlPasteEventArgs e)
+    private async void PromptBox_Paste(object sender, TextControlPasteEventArgs e)
     {
         var view = Clipboard.GetContent();
         if (view.Contains(StandardDataFormats.Bitmap))
         {
             e.Handled = true;
-            ShowError("Paste immagine non ancora supportato. Salva file e usa allega.");
+            await TryPasteImageAttachmentAsync();
         }
     }
 

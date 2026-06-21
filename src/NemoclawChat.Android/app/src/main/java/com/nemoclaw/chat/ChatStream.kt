@@ -501,11 +501,24 @@ fun streamChatRequest(
                             .put("content", hermesHubVideoInstructions(settings))
                     )
                 }
-                compatHistory.filter { !it.isAction }.forEach { msg ->
+                val compatMessages = compatHistory.filter { !it.isAction }
+                var includedCurrentUser = false
+                compatMessages.forEachIndexed { index, msg ->
+                    val isLastUser = index == compatMessages.lastIndex && msg.fromUser
+                    if (isLastUser) {
+                        includedCurrentUser = true
+                    }
                     put(
                         JSONObject()
                             .put("role", if (msg.fromUser) "user" else "assistant")
-                            .put("content", msg.text)
+                            .put("content", if (isLastUser) buildChatCompletionsContent(prompt, attachments) else msg.text)
+                    )
+                }
+                if (!includedCurrentUser) {
+                    put(
+                        JSONObject()
+                            .put("role", "user")
+                            .put("content", buildChatCompletionsContent(prompt, attachments))
                     )
                 }
         })
@@ -680,6 +693,33 @@ private fun buildMultimodalInput(prompt: String, attachments: List<ChatInputAtta
         }
     }
     return JSONArray().put(JSONObject().put("role", "user").put("content", content))
+}
+
+private fun buildChatCompletionsContent(prompt: String, attachments: List<ChatInputAttachment>): Any {
+    if (attachments.isEmpty()) return prompt
+    val content = JSONArray()
+        .put(JSONObject().put("type", "text").put("text", prompt))
+    attachments.forEach { attachment ->
+        if (attachment.mimeType.startsWith("image/", ignoreCase = true)) {
+            content.put(
+                JSONObject()
+                    .put("type", "image_url")
+                    .put(
+                        "image_url",
+                        JSONObject()
+                            .put("url", attachment.dataUrl)
+                            .put("detail", "auto")
+                    )
+            )
+        } else {
+            content.put(
+                JSONObject()
+                    .put("type", "text")
+                    .put("text", "Allegato file: ${attachment.filename} (${attachment.mimeType}, ${attachment.sizeBytes} bytes). Se serve il contenuto binario, usa Responses API/input_file.")
+            )
+        }
+    }
+    return content
 }
 
 private fun runDetachedAgent(

@@ -247,6 +247,11 @@
                                             <FontIcon Glyph="&#xE8B7;" />
                                         </MenuFlyoutItem.Icon>
                                     </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="PasteImage_Click" Text="Incolla immagine">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8B9;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
                                     <MenuFlyoutItem Click="CaptureScreenshot_Click" Text="Cattura screenshot">
                                         <MenuFlyoutItem.Icon>
                                             <FontIcon Glyph="&#xE722;" />

@@ -561,6 +561,12 @@ internal fun MarkdownText(
                     val annotated = remember(block.text, color) { renderInlineMarkdown(block.text, color) }
                     Text(text = annotated, color = color, fontSize = fontSize)
                 }
+                is MdBlock.Ordered -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("${block.index}.", color = color, fontSize = fontSize, fontWeight = FontWeight.SemiBold)
+                    val annotated = remember(block.text, color) { renderInlineMarkdown(block.text, color) }
+                    Text(text = annotated, color = color, fontSize = fontSize)
+                }
+                is MdBlock.Table -> MarkdownTable(block, color, fontSize)
                 is MdBlock.CodeBlock -> Surface(
                     color = AppColors.Composer,
                     shape = RoundedCornerShape(10.dp),
@@ -589,7 +595,44 @@ internal sealed class MdBlock {
     data class Paragraph(val text: String) : MdBlock()
     data class Header(val level: Int, val text: String) : MdBlock()
     data class Bullet(val text: String) : MdBlock()
+    data class Ordered(val index: Int, val text: String) : MdBlock()
+    data class Table(val rows: List<List<String>>) : MdBlock()
     data class CodeBlock(val language: String, val code: String) : MdBlock()
+}
+
+@Composable
+private fun MarkdownTable(block: MdBlock.Table, color: Color, fontSize: androidx.compose.ui.unit.TextUnit) {
+    val scroll = rememberScrollState()
+    val columns = block.rows.maxOfOrNull { it.size }?.coerceAtMost(12) ?: 0
+    if (columns == 0) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scroll)
+            .background(AppColors.Composer, RoundedCornerShape(8.dp))
+            .padding(1.dp)
+    ) {
+        block.rows.take(60).forEachIndexed { rowIndex, row ->
+            Row {
+                repeat(columns) { columnIndex ->
+                    val text = row.getOrNull(columnIndex).orEmpty()
+                    val annotated = remember(text, color) { renderInlineMarkdown(text, color) }
+                    Text(
+                        text = annotated,
+                        color = color,
+                        fontSize = fontSize,
+                        fontWeight = if (rowIndex == 0) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier
+                            .background(if (rowIndex == 0) AppColors.Elevated else AppColors.Composer)
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                    )
+                }
+            }
+            if (rowIndex < block.rows.lastIndex) {
+                HorizontalDivider(color = AppColors.Border)
+            }
+        }
+    }
 }
 
 internal fun parseMarkdownBlocks(markdown: String): List<MdBlock> {
@@ -606,6 +649,21 @@ internal fun parseMarkdownBlocks(markdown: String): List<MdBlock> {
     while (i < lines.size) {
         val line = lines[i]
         when {
+            looksLikeTableStart(lines, i) -> {
+                flushParagraph()
+                val tableLines = mutableListOf<String>()
+                while (i < lines.size && isPipeRow(lines[i])) {
+                    tableLines += lines[i]
+                    i++
+                }
+                val rows = tableLines
+                    .filterNot { isTableSeparator(it) }
+                    .map { splitTableRow(it) }
+                    .filter { it.isNotEmpty() }
+                if (rows.isNotEmpty()) {
+                    blocks += MdBlock.Table(rows)
+                }
+            }
             line.startsWith("```") -> {
                 flushParagraph()
                 val lang = line.removePrefix("```").trim()
@@ -627,6 +685,14 @@ internal fun parseMarkdownBlocks(markdown: String): List<MdBlock> {
                 blocks += MdBlock.Bullet(line.drop(2).trim())
                 i++
             }
+            isOrderedListLine(line) -> {
+                flushParagraph()
+                val trimmed = line.trimStart()
+                val sep = trimmed.indexOfFirst { it == '.' || it == ')' }
+                val number = trimmed.take(sep).toIntOrNull() ?: 1
+                blocks += MdBlock.Ordered(number, trimmed.drop(sep + 1).trim())
+                i++
+            }
             line.isBlank() -> { flushParagraph(); i++ }
             else -> {
                 if (paragraph.isNotEmpty()) paragraph.append(' ')
@@ -637,6 +703,40 @@ internal fun parseMarkdownBlocks(markdown: String): List<MdBlock> {
     }
     flushParagraph()
     return blocks
+}
+
+private fun isOrderedListLine(line: String): Boolean {
+    val trimmed = line.trimStart()
+    val digits = trimmed.takeWhile { it.isDigit() }
+    if (digits.isEmpty() || digits.length >= trimmed.length) return false
+    val sepIndex = digits.length
+    return (trimmed[sepIndex] == '.' || trimmed[sepIndex] == ')') &&
+        sepIndex + 1 < trimmed.length &&
+        trimmed[sepIndex + 1].isWhitespace()
+}
+
+private fun isPipeRow(line: String): Boolean {
+    val trimmed = line.trim()
+    return trimmed.length >= 3 && trimmed.count { it == '|' } >= 2
+}
+
+private fun looksLikeTableStart(lines: List<String>, index: Int): Boolean {
+    return index + 1 < lines.size && isPipeRow(lines[index]) && isTableSeparator(lines[index + 1])
+}
+
+private fun isTableSeparator(line: String): Boolean {
+    val cells = splitTableRow(line)
+    return cells.isNotEmpty() && cells.all { cell ->
+        val value = cell.trim()
+        value.length >= 3 && value.all { it == '-' || it == ':' || it.isWhitespace() }
+    }
+}
+
+private fun splitTableRow(line: String): List<String> {
+    var value = line.trim()
+    if (value.startsWith("|")) value = value.drop(1)
+    if (value.endsWith("|")) value = value.dropLast(1)
+    return value.split("|").map { it.trim() }
 }
 
 private const val MARKDOWN_MAX_INPUT_CHARS = 200_000

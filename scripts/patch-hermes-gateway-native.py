@@ -557,7 +557,7 @@ def _hermes_hub_media_cache_path(source: "Path") -> "Path":
 
     stat = source.stat()
     home = _Path(os.environ.get("HERMES_HOME", str(_Path.home() / ".hermes"))).expanduser()
-    digest = _hashlib.sha256(f"{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")).hexdigest()[:24]
+    digest = _hashlib.sha256(f"{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}:compatv2".encode("utf-8")).hexdigest()[:24]
     cache_dir = _Path(os.environ.get("HERMES_HUB_MEDIA_CACHE", str(home / "hub_media_cache"))).expanduser()
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / f"{source.stem}.{digest}.compat.mp4"
@@ -570,6 +570,13 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
     if target.is_file() and target.stat().st_size > 0:
         return target
     tmp = target.with_suffix(target.suffix + ".tmp")
+    probe = _subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(source)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    has_audio = probe.returncode == 0 and bool((probe.stdout or "").strip())
     cmd = [
         "ffmpeg",
         "-y",
@@ -578,16 +585,26 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         "error",
         "-i",
         str(source),
+    ]
+    if not has_audio:
+        cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=44100"]
+    cmd += [
         "-map",
         "0:v:0",
         "-map",
-        "0:a?",
+        "0:a:0" if has_audio else "1:a:0",
         "-c:v",
         "libx264",
+        "-profile:v",
+        "main",
+        "-level:v",
+        os.environ.get("HERMES_HUB_TRANSCODE_H264_LEVEL", "4.2"),
         "-preset",
         os.environ.get("HERMES_HUB_TRANSCODE_PRESET", "veryfast"),
         "-pix_fmt",
         "yuv420p",
+        "-tag:v",
+        "avc1",
         "-movflags",
         "+faststart",
         "-c:a",
@@ -598,6 +615,8 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         "mp4",
         str(tmp),
     ]
+    if not has_audio:
+        cmd.insert(len(cmd) - 3, "-shortest")
     result = _subprocess.run(cmd, capture_output=True, text=True, timeout=int(os.environ.get("HERMES_HUB_TRANSCODE_TIMEOUT", "900")))
     if result.returncode != 0:
         try:
@@ -676,7 +695,7 @@ def _hermes_hub_media_cache_path(source: "Path") -> "Path":
 
     stat = source.stat()
     home = _Path(os.environ.get("HERMES_HOME", str(_Path.home() / ".hermes"))).expanduser()
-    digest = _hashlib.sha256(f"{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")).hexdigest()[:24]
+    digest = _hashlib.sha256(f"{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}:compatv2".encode("utf-8")).hexdigest()[:24]
     cache_dir = _Path(os.environ.get("HERMES_HUB_MEDIA_CACHE", str(home / "hub_media_cache"))).expanduser()
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / f"{source.stem}.{digest}.compat.mp4"
@@ -689,19 +708,35 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
     if target.is_file() and target.stat().st_size > 0:
         return target
     tmp = target.with_suffix(target.suffix + ".tmp")
+    probe = _subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(source)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    has_audio = probe.returncode == 0 and bool((probe.stdout or "").strip())
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(source),
-        "-map", "0:v:0", "-map", "0:a?",
+    ]
+    if not has_audio:
+        cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=44100"]
+    cmd += [
+        "-map", "0:v:0", "-map", "0:a:0" if has_audio else "1:a:0",
         "-c:v", "libx264",
+        "-profile:v", "main",
+        "-level:v", os.environ.get("HERMES_HUB_TRANSCODE_H264_LEVEL", "4.2"),
         "-preset", os.environ.get("HERMES_HUB_TRANSCODE_PRESET", "veryfast"),
         "-pix_fmt", "yuv420p",
+        "-tag:v", "avc1",
         "-movflags", "+faststart",
         "-c:a", "aac",
         "-b:a", os.environ.get("HERMES_HUB_TRANSCODE_AUDIO_BITRATE", "160k"),
         "-f", "mp4",
         str(tmp),
     ]
+    if not has_audio:
+        cmd.insert(len(cmd) - 3, "-shortest")
     result = _subprocess.run(cmd, capture_output=True, text=True, timeout=int(os.environ.get("HERMES_HUB_TRANSCODE_TIMEOUT", "900")))
     if result.returncode != 0:
         try:
@@ -852,6 +887,72 @@ def _hermes_hub_media_roots() -> List["Path"]:''',
             1,
         )
         changes.append("media transcode explicit mp4 muxer")
+
+    if ":compatv2" not in text and "def _hermes_hub_transcode_mp4" in text:
+        text, replaced = _replace_regex_once(
+            text,
+            r'(?s)def _hermes_hub_media_cache_path\(source: "Path"\) -> "Path":\n.*?\n\n\ndef _hermes_hub_transcode_mp4\(source: "Path"\) -> "Path":\n.*?\n(?=\n\ndef _multimodal_validation_error)',
+            '''def _hermes_hub_media_cache_path(source: "Path") -> "Path":
+    import hashlib as _hashlib
+    from pathlib import Path as _Path
+
+    stat = source.stat()
+    home = _Path(os.environ.get("HERMES_HOME", str(_Path.home() / ".hermes"))).expanduser()
+    digest = _hashlib.sha256(f"{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}:compatv2".encode("utf-8")).hexdigest()[:24]
+    cache_dir = _Path(os.environ.get("HERMES_HUB_MEDIA_CACHE", str(home / "hub_media_cache"))).expanduser()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{source.stem}.{digest}.compat.mp4"
+
+
+def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
+    import subprocess as _subprocess
+
+    target = _hermes_hub_media_cache_path(source)
+    if target.is_file() and target.stat().st_size > 0:
+        return target
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    probe = _subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(source)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    has_audio = probe.returncode == 0 and bool((probe.stdout or "").strip())
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(source),
+    ]
+    if not has_audio:
+        cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=44100"]
+    cmd += [
+        "-map", "0:v:0", "-map", "0:a:0" if has_audio else "1:a:0",
+        "-c:v", "libx264",
+        "-profile:v", "main",
+        "-level:v", os.environ.get("HERMES_HUB_TRANSCODE_H264_LEVEL", "4.2"),
+        "-preset", os.environ.get("HERMES_HUB_TRANSCODE_PRESET", "veryfast"),
+        "-pix_fmt", "yuv420p",
+        "-tag:v", "avc1",
+        "-movflags", "+faststart",
+        "-c:a", "aac",
+        "-b:a", os.environ.get("HERMES_HUB_TRANSCODE_AUDIO_BITRATE", "160k"),
+        "-f", "mp4",
+        str(tmp),
+    ]
+    if not has_audio:
+        cmd.insert(len(cmd) - 3, "-shortest")
+    result = _subprocess.run(cmd, capture_output=True, text=True, timeout=int(os.environ.get("HERMES_HUB_TRANSCODE_TIMEOUT", "900")))
+    if result.returncode != 0:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise RuntimeError((result.stderr or result.stdout or "ffmpeg transcode failed").strip())
+    tmp.replace(target)
+    return target''',
+            "media transcode browser-compatible mp4",
+        )
+        if replaced:
+            changes.append("media transcode browser-compatible mp4")
 
     if '"current_c": current_c,' not in text and '"current_c": float(current),' in text:
         text, _ = _replace_once(
@@ -1335,7 +1436,10 @@ def _hermes_hub_media_roots() -> List["Path"]:''',
             "    async def _handle_hub_media(self, request: \"web.Request\") -> \"web.StreamResponse\":\n"
             "        auth_error = self._check_auth(request)\n"
             "        if auth_error is not None:\n"
-            "            return auth_error\n"
+            "            media_token = request.query.get(\"hub_token\") or request.query.get(\"api_key\") or request.query.get(\"token\")\n"
+            "            accepted_api_keys = _hermes_hub_api_keys(self._api_key)\n"
+            "            if not media_token or not any(hmac.compare_digest(media_token, api_key) for api_key in accepted_api_keys):\n"
+            "                return auth_error\n"
             "        media_id = request.match_info.get(\"media_id\", \"\")\n"
             "        path = _hermes_hub_resolve_media_path(media_id)\n"
             "        if path is None:\n"
@@ -1358,6 +1462,23 @@ def _hermes_hub_media_roots() -> List["Path"]:''',
             "media proxy endpoint handler",
         )
         changes.append("media proxy endpoint handler")
+
+    if 'media_token = request.query.get("hub_token")' not in text and 'async def _handle_hub_media' in text:
+        text = text.replace(
+            '    async def _handle_hub_media(self, request: "web.Request") -> "web.StreamResponse":\n'
+            '        auth_error = self._check_auth(request)\n'
+            '        if auth_error is not None:\n'
+            '            return auth_error\n',
+            '    async def _handle_hub_media(self, request: "web.Request") -> "web.StreamResponse":\n'
+            '        auth_error = self._check_auth(request)\n'
+            '        if auth_error is not None:\n'
+            '            media_token = request.query.get("hub_token") or request.query.get("api_key") or request.query.get("token")\n'
+            '            accepted_api_keys = _hermes_hub_api_keys(self._api_key)\n'
+            '            if not media_token or not any(hmac.compare_digest(media_token, api_key) for api_key in accepted_api_keys):\n'
+            '                return auth_error\n',
+            1,
+        )
+        changes.append("media proxy query token auth")
 
     if '"hermes_native": {"method": "POST", "path": "/v1/hermes/native"}' not in text:
         text, _ = _replace_regex_once(

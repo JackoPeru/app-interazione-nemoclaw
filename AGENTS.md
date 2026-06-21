@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.105 Release Hermes Hub 0.6.105 media transcode hotfix
+v0.6.106 Release Hermes Hub 0.6.106 markdown vision media
 ```
 
 ## Regola Linux Gateway Update
@@ -138,12 +138,27 @@ Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
 
+Hermes Hub 0.6.106 (Markdown, vision and media playback):
+
+Release 0.6.106:
+- Windows/Android: renderer Markdown finale allineato meglio allo streaming; aggiunto supporto esplicito a tabelle pipe Markdown e liste ordinate, cosi' risposte e tabelle non vengono compattate male a fine generazione.
+- Windows/Android: fallback Chat Completions conserva contenuti vision. Se Responses non e' disponibile, le immagini vengono inviate come `image_url` standard invece di perdere gli allegati.
+- Verifica live 2026-06-21: il gateway/model Qwen vision risponde `VISION_OK` quando riceve `input_image` data URL su `/v1/responses`; quindi i problemi vision erano nel percorso client/fallback, non nella GUI del server Ubuntu.
+- Windows: aggiunto paste-image reale da appunti nel composer e nel menu `+`; l'immagine diventa allegato data URL vision con preview.
+- Android: aggiunto `Incolla immagine` best-effort dal clipboard Android; usa URI immagine o data URL se disponibili, altrimenti chiede di usare `Allega file`.
+- Windows Video: i link `/v1/media/...` usati dal player aggiungono `hub_token` query token, perche' `MediaPlayerElement` non puo' inviare header `Authorization` su URI diretto.
+- Gateway Linux: media proxy accetta `hub_token`/`api_key`/`token` query solo se combacia con le API key valide; serve al player Windows, non apre media pubblicamente.
+- Gateway Linux: transcode MP4 compat passa a cache `compatv2`, H.264 Main level 4.2, `yuv420p`, `avc1`, `faststart`, audio AAC; se il sorgente non ha audio aggiunge traccia AAC silenziosa per player browser/WebView piu' rigidi.
+- Android Video: ExoPlayer mostra errore diagnostico nella UI se la riproduzione fallisce, invece di restare silenzioso.
+- Release bump: Windows/AdminBridge `0.6.106`, Android `versionName 0.6.106`, `versionCode 111`.
+
 Hermes Hub 0.6.105 (Media transcode hotfix):
 
 Release 0.6.105:
 - Hotfix Gateway Linux: transcode `GET /v1/media/{media_id}?format=mp4` passa `-f mp4` a ffmpeg quando scrive il file temporaneo `.compat.mp4.tmp`; evita errore runtime `Unable to choose an output format`.
 - Verifica live richiesta: `/v1/media/...` originale ora risponde 200; il path compat `?format=mp4` deve rispondere 200 dopo auto-update gateway 0.6.105.
 - Release bump: Windows/AdminBridge `0.6.105`, Android `versionName 0.6.105`, `versionCode 110`.
+
 
 Hermes Hub 0.6.104 (Cron, media proxy and News HTML):
 

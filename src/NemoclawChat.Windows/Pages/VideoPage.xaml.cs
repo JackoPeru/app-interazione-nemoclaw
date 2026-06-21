@@ -16,6 +16,13 @@ public sealed partial class VideoPage : Page
     public VideoPage()
     {
         InitializeComponent();
+        VideoPlayer.MediaPlayer.MediaFailed += (_, args) =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                FeedbackStatusText.Text = $"Player video: {args.ErrorMessage}. Uso proxy Hermes MP4 compat quando disponibile.";
+            });
+        };
         UpdateAdaptiveLayout(ActualWidth);
         _ = RefreshFeedAsync();
     }
@@ -152,7 +159,7 @@ public sealed partial class VideoPage : Page
             ? "Pronto per nuovo feedback."
             : video.LastAgentStatus;
         AgentResponseBox.Text = video.LastAgentResponse;
-        VideoPlayer.Source = MediaSource.CreateFromUri(new Uri(string.IsNullOrWhiteSpace(video.PlaybackPath) ? video.Path : video.PlaybackPath));
+        VideoPlayer.Source = MediaSource.CreateFromUri(new Uri(AddMediaPlaybackToken(string.IsNullOrWhiteSpace(video.PlaybackPath) ? video.Path : video.PlaybackPath)));
     }
 
     private void OpenManualVideoUrl_Click(object sender, RoutedEventArgs e)
@@ -173,8 +180,27 @@ public sealed partial class VideoPage : Page
         FeedbackBox.Text = string.Empty;
         FeedbackStatusText.Text = "URL manuale pronto. Puoi riprodurlo o lasciare feedback a Hermes.";
         AgentResponseBox.Text = string.Empty;
-        VideoPlayer.Source = MediaSource.CreateFromUri(uri);
+        VideoPlayer.Source = MediaSource.CreateFromUri(new Uri(AddMediaPlaybackToken(uri.ToString())));
         PageStatusText.Text = "URL video manuale caricato.";
+    }
+
+    private static string AddMediaPlaybackToken(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url) ||
+            !url.Contains("/v1/media/", StringComparison.OrdinalIgnoreCase) ||
+            url.Contains("hub_token=", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+
+        var token = GatewayCredentialStore.LoadSecret();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return url;
+        }
+
+        var separator = url.Contains('?') ? "&" : "?";
+        return $"{url}{separator}hub_token={Uri.EscapeDataString(token)}";
     }
 
     private void QuickFeedback_Click(object sender, RoutedEventArgs e)

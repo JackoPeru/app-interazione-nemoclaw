@@ -54,6 +54,19 @@ internal static class MarkdownRenderer
         for (int i = 0; i < lines.Length && CanRender(); i++)
         {
             var line = lines[i];
+            if (LooksLikeTableStart(lines, i))
+            {
+                FlushParagraph();
+                var tableLines = new List<string>();
+                while (i < lines.Length && IsPipeRow(lines[i]))
+                {
+                    tableLines.Add(lines[i]);
+                    i++;
+                }
+                i--;
+                AddBlock(BuildTable(tableLines, textColor));
+                continue;
+            }
             if (line.StartsWith("```", System.StringComparison.Ordinal))
             {
                 FlushParagraph();
@@ -128,6 +141,100 @@ internal static class MarkdownRenderer
                i + 1 < value.Length &&
                (value[i] == '.' || value[i] == ')') &&
                char.IsWhiteSpace(value[i + 1]);
+    }
+
+    private static bool IsPipeRow(string line)
+    {
+        var trimmed = line.Trim();
+        return trimmed.Length >= 3 &&
+               trimmed.Contains('|') &&
+               trimmed.Count(ch => ch == '|') >= 2;
+    }
+
+    private static bool LooksLikeTableStart(string[] lines, int index)
+    {
+        return index + 1 < lines.Length &&
+               IsPipeRow(lines[index]) &&
+               IsTableSeparator(lines[index + 1]);
+    }
+
+    private static bool IsTableSeparator(string line)
+    {
+        var cells = SplitTableRow(line);
+        return cells.Count > 0 && cells.All(cell =>
+        {
+            var value = cell.Trim();
+            if (value.Length < 3)
+            {
+                return false;
+            }
+            return value.All(ch => ch == '-' || ch == ':' || char.IsWhiteSpace(ch));
+        });
+    }
+
+    private static List<string> SplitTableRow(string line)
+    {
+        var trimmed = line.Trim();
+        if (trimmed.StartsWith('|')) trimmed = trimmed[1..];
+        if (trimmed.EndsWith('|')) trimmed = trimmed[..^1];
+        return trimmed.Split('|').Select(cell => cell.Trim()).ToList();
+    }
+
+    private static UIElement BuildTable(IReadOnlyList<string> tableLines, Color color)
+    {
+        var rows = tableLines
+            .Where(line => !IsTableSeparator(line))
+            .Select(SplitTableRow)
+            .Where(cells => cells.Count > 0)
+            .Take(60)
+            .ToList();
+        if (rows.Count == 0)
+        {
+            return BuildInlineTextBlock(string.Join('\n', tableLines), color, 14, FontWeights.Normal);
+        }
+
+        var columns = Math.Min(12, rows.Max(row => row.Count));
+        var grid = new Grid
+        {
+            BorderBrush = (Brush)Application.Current.Resources["BorderBrushSoft"],
+            BorderThickness = new Thickness(1)
+        };
+        for (var column = 0; column < columns; column++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        }
+        for (var row = 0; row < rows.Count; row++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        for (var row = 0; row < rows.Count; row++)
+        {
+            for (var column = 0; column < columns; column++)
+            {
+                var text = column < rows[row].Count ? rows[row][column] : string.Empty;
+                var cell = new Border
+                {
+                    Padding = new Thickness(9, 7, 9, 7),
+                    BorderBrush = (Brush)Application.Current.Resources["BorderBrushSoft"],
+                    BorderThickness = new Thickness(column == 0 ? 0 : 1, row == 0 ? 0 : 1, 0, 0),
+                    Background = row == 0
+                        ? (Brush)Application.Current.Resources["ElevatedSurfaceBrush"]
+                        : (Brush)Application.Current.Resources["ComposerBrush"],
+                    Child = BuildInlineTextBlock(text, color, 13, row == 0 ? FontWeights.SemiBold : FontWeights.Normal)
+                };
+                Grid.SetRow(cell, row);
+                Grid.SetColumn(cell, column);
+                grid.Children.Add(cell);
+            }
+        }
+
+        return new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = grid
+        };
     }
 
     private static TextBlock BuildInlineTextBlock(string text, Color color, double fontSize, FontWeight weight)

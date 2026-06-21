@@ -172,6 +172,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -1172,6 +1174,20 @@ private fun ChatScreen(
             attachments = state.pendingAttachments,
             onValueChange = { state.draft = it },
             onAttachImage = { filePicker.launch("*/*") },
+            onPasteImage = {
+                scope.launch {
+                    val attachment = withContext(Dispatchers.IO) { createAttachmentFromClipboard(context, settings.maxAttachmentMb) }
+                    if (attachment != null) {
+                        state.pendingAttachments.add(attachment)
+                        state.messages.add(ChatMessage("Incolla immagine", "${attachment.filename} pronta per Hermes (${attachment.sizeBytes.toReadableFileSize()}).", fromUser = false, isAction = true))
+                        if (state.draft.isBlank()) {
+                            state.draft = "Analizza l'immagine allegata."
+                        }
+                    } else {
+                        state.messages.add(ChatMessage("Incolla immagine", "Nessuna immagine valida negli appunti Android. Usa Allega file se l'app che ha creato lo screenshot non espone un URI immagine.", fromUser = false, isAction = true))
+                    }
+                }
+            },
             onRemoveAttachment = { attachment -> state.pendingAttachments.remove(attachment) },
             onAction = { title, text, prompt ->
                 state.messages.add(ChatMessage(title, text, fromUser = false, isAction = true))
@@ -2171,6 +2187,7 @@ private fun Composer(
     attachments: List<ChatInputAttachment>,
     onValueChange: (String) -> Unit,
     onAttachImage: () -> Unit,
+    onPasteImage: () -> Unit,
     onRemoveAttachment: (ChatInputAttachment) -> Unit,
     onAction: (String, String, String) -> Unit,
     onModeChange: (String) -> Unit,
@@ -2216,6 +2233,14 @@ private fun Composer(
                     onClick = {
                         expanded = false
                         onAttachImage()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Incolla immagine", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.Image, null, tint = Color.White) },
+                    onClick = {
+                        expanded = false
+                        onPasteImage()
                     }
                 )
                 DropdownMenuItem(
@@ -3842,13 +3867,22 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
                 playWhenReady = true
             }
     }
-    DisposableEffect(player) {
-        onDispose { player.release() }
-    }
     var feedback by remember(item.id) { mutableStateOf(loadVideoFeedback(context, item.id)) }
     var reaction by remember(item.id) { mutableStateOf(loadVideoReaction(context, item.id)) }
     var status by remember(item.id) { mutableStateOf("Lascia feedback: Hermes lo usera' come memoria editoriale per i prossimi video.") }
     var fullScreen by rememberSaveable(item.id) { mutableStateOf(false) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                status = "Player video: ${error.errorCodeName}. Provo URL compatibile Hermes: $videoUrl"
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -6350,6 +6384,53 @@ private fun createAttachmentFromUri(context: Context, uri: Uri, maxAttachmentMb:
         dataUrl = "data:$mimeType;base64,$encoded",
         sizeBytes = bytes.size.toLong()
     )
+}
+
+private fun createAttachmentFromClipboard(context: Context, maxAttachmentMb: Int): ChatInputAttachment? {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val clip = clipboard.primaryClip ?: return null
+    for (index in 0 until clip.itemCount) {
+        val item = clip.getItemAt(index)
+        item.uri?.let { uri ->
+            createAttachmentFromUri(context, uri, maxAttachmentMb)?.takeIf { attachment ->
+                attachment.mimeType.startsWith("image/", ignoreCase = true)
+            }?.let { return it.copy(filename = attachmentFilenameForPaste(it.filename)) }
+        }
+
+        val text = item.text?.toString()?.trim().orEmpty()
+        if (text.startsWith("data:image/", ignoreCase = true)) {
+            createAttachmentFromDataUrl(text, maxAttachmentMb)?.let { return it }
+        }
+    }
+    return null
+}
+
+private fun createAttachmentFromDataUrl(dataUrl: String, maxAttachmentMb: Int): ChatInputAttachment? {
+    val comma = dataUrl.indexOf(',')
+    if (comma <= 0) return null
+    val meta = dataUrl.substring(5, comma)
+    val mimeType = meta.substringBefore(';').takeIf { it.startsWith("image/", ignoreCase = true) } ?: return null
+    val bytes = runCatching { Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT) }.getOrNull() ?: return null
+    val maxBytes = maxAttachmentMb.coerceIn(1, 150) * 1024 * 1024
+    if (bytes.isEmpty() || bytes.size > maxBytes) return null
+    val extension = when {
+        mimeType.equals("image/jpeg", ignoreCase = true) -> "jpg"
+        mimeType.equals("image/webp", ignoreCase = true) -> "webp"
+        mimeType.equals("image/bmp", ignoreCase = true) -> "bmp"
+        mimeType.equals("image/gif", ignoreCase = true) -> "gif"
+        else -> "png"
+    }
+    return ChatInputAttachment(
+        filename = "clipboard-${System.currentTimeMillis()}.$extension",
+        mimeType = mimeType,
+        dataUrl = dataUrl,
+        sizeBytes = bytes.size.toLong()
+    )
+}
+
+private fun attachmentFilenameForPaste(filename: String): String {
+    val cleaned = filename.substringAfterLast('/').ifBlank { "image" }
+    return if (cleaned.startsWith("clipboard-", ignoreCase = true)) cleaned else "clipboard-$cleaned"
 }
 
 private fun mimeTypeFromFilename(filename: String): String {

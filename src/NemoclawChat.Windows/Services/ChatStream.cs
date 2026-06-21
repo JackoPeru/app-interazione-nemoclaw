@@ -224,7 +224,7 @@ public static class ChatStreamClient
                 chatMessages.Add(new Dictionary<string, object?>
                 {
                     ["role"] = string.Equals(m.Author, "Tu", StringComparison.OrdinalIgnoreCase) ? "user" : "assistant",
-                    ["content"] = isLastUser ? BuildContentParts(prompt, attachments, includeGenericFiles: false) : m.Text
+                    ["content"] = isLastUser ? BuildChatCompletionsContent(prompt, attachments) : m.Text
                 });
             }
             var chatPayload = JsonSerializer.Serialize(new
@@ -668,6 +668,48 @@ public static class ChatStreamClient
                 });
             }
         }
+        return content;
+    }
+
+    private static object BuildChatCompletionsContent(string prompt, IReadOnlyList<ChatInputAttachment> attachments)
+    {
+        if (attachments.Count == 0)
+        {
+            return prompt;
+        }
+
+        var content = new List<Dictionary<string, object?>>
+        {
+            new()
+            {
+                ["type"] = "text",
+                ["text"] = prompt
+            }
+        };
+
+        foreach (var attachment in attachments)
+        {
+            if (attachment.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                content.Add(new Dictionary<string, object?>
+                {
+                    ["type"] = "image_url",
+                    ["image_url"] = new Dictionary<string, object?>
+                    {
+                        ["url"] = attachment.DataUrl,
+                        ["detail"] = "auto"
+                    }
+                });
+                continue;
+            }
+
+            content.Add(new Dictionary<string, object?>
+            {
+                ["type"] = "text",
+                ["text"] = $"Allegato file: {attachment.FileName} ({attachment.MimeType}, {attachment.SizeBytes} bytes). Se serve il contenuto binario, usa Responses API/input_file."
+            });
+        }
+
         return content;
     }
 
