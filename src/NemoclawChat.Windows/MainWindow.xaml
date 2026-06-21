@@ -85,6 +85,12 @@
                             <TextBlock Text="Cron" />
                         </StackPanel>
                     </Button>
+                    <Button Click="Notifications_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Notifiche Hermes" AutomationProperties.Name="Notifiche Hermes">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon FontSize="15" Glyph="&#xE91C;" />
+                            <TextBlock Text="Notifiche" />
+                        </StackPanel>
+                    </Button>
                     <Button Click="Server_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Server Hermes" AutomationProperties.Name="Server Hermes">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE968;" />

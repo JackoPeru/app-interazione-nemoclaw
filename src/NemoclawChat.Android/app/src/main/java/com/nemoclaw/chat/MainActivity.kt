@@ -1,6 +1,10 @@
 package com.nemoclaw.chat
 
+import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -12,6 +16,7 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.os.StrictMode
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -90,6 +95,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.ManageSearch
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.SmartToy
@@ -174,6 +180,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -186,6 +195,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import com.nemoclaw.chat.ui.theme.ChatClawTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -236,11 +250,22 @@ class MainActivity : ComponentActivity() {
             )
         }
         super.onCreate(savedInstanceState)
+        ensureHermesNotificationChannel(this)
+        requestHermesNotificationPermission()
+        scheduleHermesNotificationWorker(this)
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             ChatClawTheme {
                 ChatApp()
             }
+        }
+    }
+
+    private fun requestHermesNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4207)
         }
     }
 }
@@ -249,6 +274,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     Chat("Chat", Icons.Rounded.ChatBubbleOutline),
     Archive("Archivio", Icons.Rounded.FolderOpen),
     Cron("Cron", Icons.Rounded.TaskAlt),
+    Notifications("Notifiche", Icons.Rounded.Notifications),
     Server("Hermes", Icons.Rounded.Dns),
     Hardware("Hardware", Icons.Rounded.Memory),
     Video("Video", Icons.Rounded.PlayCircle),
@@ -662,6 +688,18 @@ private data class CronJob(
     val origin: String
 )
 
+private data class HubNotification(
+    val id: String,
+    val title: String,
+    val message: String,
+    val kind: String,
+    val severity: String,
+    val source: String,
+    val conversationPrompt: String,
+    val createdAt: Long,
+    val readAt: Long
+)
+
 private data class WorkspaceRunResult(
     val result: String,
     val source: String,
@@ -793,6 +831,10 @@ private fun ChatApp() {
                         }
                     )
                     Tab.Cron -> CronScreen(context, settings)
+                    Tab.Notifications -> NotificationsScreen(context, settings) { prompt ->
+                        pendingPrompt = prompt
+                        setSelectedTab(Tab.Chat)
+                    }
                     Tab.Server -> ServerScreen(context, settings)
                     Tab.Hardware -> HardwareScreen(context, settings)
                     Tab.Video -> VideoScreen(context, settings) { prompt ->
@@ -856,6 +898,10 @@ private fun ChatApp() {
                             onOpenCron = {
                                 setSelectedTab(Tab.Cron)
                                 sidebarOpen = false
+                            },
+                            onOpenNotifications = {
+                                setSelectedTab(Tab.Notifications)
+                                sidebarOpen = false
                             }
                         )
                     }
@@ -872,7 +918,8 @@ private fun HermesSidebar(
     onNewChat: () -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenArchive: () -> Unit,
-    onOpenCron: () -> Unit
+    onOpenCron: () -> Unit,
+    onOpenNotifications: () -> Unit
 ) {
     val conversations = remember { loadConversations(context).sortedByDescending { it.updatedAt } }
     Surface(
@@ -940,6 +987,14 @@ private fun HermesSidebar(
                     title = "Cron",
                     subtitle = "Automazioni attive",
                     onClick = onOpenCron
+                )
+            }
+            item {
+                SidebarRow(
+                    icon = Icons.Rounded.Notifications,
+                    title = "Notifiche",
+                    subtitle = "Avvisi da cron e agenti",
+                    onClick = onOpenNotifications
                 )
             }
             item {
@@ -2825,6 +2880,87 @@ private fun CronDetail(label: String, value: String) {
 }
 
 @Composable
+private fun NotificationsScreen(context: Context, settings: AppSettings, onOpenChatPrompt: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<HubNotification>>(emptyList()) }
+    var status by remember { mutableStateOf("Carico notifiche Hermes...") }
+    var refreshNonce by remember { mutableStateOf(0) }
+
+    LaunchedEffect(settings.gatewayUrl, refreshNonce) {
+        val result = loadHubNotifications(settings, loadGatewaySecret(context), unreadOnly = false)
+        items = result.first
+        status = result.second
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("Notifiche", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Avvisi autonomi che Hermes lascia quando cron o agenti devono contattarti.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(status, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Android controlla in background periodicamente e mostra notifiche di sistema.", color = AppColors.Muted, fontSize = 12.sp)
+                    Button(onClick = { refreshNonce++ }) { Text("Aggiorna") }
+                }
+            }
+        }
+        if (items.isEmpty()) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = AppColors.AssistantBubble), shape = RoundedCornerShape(20.dp)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Nessuna notifica.", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text("Quando un cron trova qualcosa, Hermes puo' pubblicare un messaggio qui.", color = AppColors.Muted)
+                    }
+                }
+            }
+        }
+        items(items, key = { it.id }) { item ->
+            NotificationCard(
+                item = item,
+                onRead = {
+                    scope.launch {
+                        status = markHubNotificationRead(settings, item.id, loadGatewaySecret(context))
+                        refreshNonce++
+                    }
+                },
+                onOpenChat = {
+                    scope.launch { markHubNotificationRead(settings, item.id, loadGatewaySecret(context)) }
+                    onOpenChatPrompt("Riprendiamo da questa notifica Hermes:\n\nTitolo: ${item.title}\nMessaggio: ${item.message}\n\nVoglio chiederti una cosa su questa notifica.")
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotificationCard(item: HubNotification, onRead: () -> Unit, onOpenChat: () -> Unit) {
+    val unread = item.readAt <= 0L
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AppColors.AssistantBubble),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(item.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(if (unread) "Nuova" else "Letta", color = if (unread) AppColors.Accent else AppColors.Muted, fontSize = 12.sp)
+            }
+            Text("${item.source} · ${formatDateTime(item.createdAt)}", color = AppColors.Muted, fontSize = 12.sp)
+            Text(item.message, color = Color.White)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onOpenChat) { Text("Apri chat") }
+                Button(onClick = onRead) { Text("Segna letta") }
+            }
+        }
+    }
+}
+
+@Composable
 private fun TaskCard(
     task: AgentTask,
     onApprove: () -> Unit,
@@ -4587,6 +4723,7 @@ private fun ProfileScreen(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { onOpenTab(Tab.Server) }) { Text("Hermes") }
                         Button(onClick = { onOpenTab(Tab.Cron) }) { Text("Cron") }
+                        Button(onClick = { onOpenTab(Tab.Notifications) }) { Text("Notifiche") }
                         Button(onClick = { onOpenTab(Tab.Hardware) }) { Text("Prestazioni") }
                         Button(onClick = { onOpenTab(Tab.News) }) { Text("News") }
                         Button(onClick = { onOpenTab(Tab.Settings) }) { Text("Impostazioni") }
@@ -5255,6 +5392,7 @@ internal fun hermesHubSharedContext(): String {
         - Video: feed personale di video generati su PC/Hermes. Esiste una Video Library ufficiale annunciata dal gateway in video_library_path e interrogabile da Android con /v1/video/library. Se l'utente chiede di creare, scaricare, montare o preparare un video, salva/registra il file finale in quella cartella, cosi la sezione Video lo vede. Il telefono riceve media proxy /v1/media/..., non file locali diretti.
         - News: feed personale di articoli/briefing con fonti e feedback utente. Se l'utente chiede un giornale online/HTML, salva il file finale in news_library_path/HERMES_NEWS_LIBRARY_PATH: Hermes Hub lo apre in app tramite /v1/news/library e /v1/media/....
         - Cron: automazioni Hermes programmate sul gateway.
+        - Notifiche: inbox persistente per messaggi autonomi da cron/agenti. Quando un cron deve avvisare Matteo, pubblica un item con POST /v1/hub/notifications includendo title, message, severity, source e conversation_prompt.
         - Archivio: storico locale dell'app, non memoria agente principale.
         Video Library: non ignorare la sezione Video. Ogni output video finale destinato all'utente deve finire in video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni file video comune (.mp4/.m4v/.mov/.mkv/.webm/.avi/.wmv/.flv/.mpg/.mpeg/.ts/.m2ts/.3gp/.ogv) in quella cartella appare tramite /v1/video/library. Se lo mostri in chat, usa anche visual_blocks media_file con media_url proxy /v1/media/...; il gateway puo' esporre playback compat MP4 con ?format=mp4.
         File multimediali in chat: usa visual_blocks image_gallery per piu' immagini o media_file per singoli asset image/video/audio/document.
@@ -5447,6 +5585,13 @@ private fun visualBlocksMetadata(settings: AppSettings, conversationId: String?)
                 .put("video", "Feed personale video: Hermes conosce video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni video creato/scaricato per Matteo deve essere salvato o registrato li; Android legge /v1/video/library, desktop mostra file locali, app salva feedback e metadata.")
                 .put("news", "Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva in ${settings.newsLibraryPath} per /v1/news/library; app salva feedback.")
                 .put("cron", "Automazioni Hermes programmate condivise con CLI/server.")
+                .put("notifications", "Inbox notifiche: cron/agenti devono usare POST /v1/hub/notifications per avvisi importanti quando l'app non e' aperta.")
+        )
+        .put(
+            "notification_contract",
+            JSONObject()
+                .put("endpoint", "/v1/hub/notifications")
+                .put("required_behavior", "When a cron, monitor or long-running agent finds something Matteo must know, create a notification with title, message, severity, source and conversation_prompt. Keep it concise and self-contained.")
         )
         .put("news_library_path", settings.newsLibraryPath)
         .put(
@@ -6211,6 +6356,51 @@ private fun injectHtmlBase(html: String, baseUrl: String): String {
         }
     }
     return "<!doctype html><html><head>$tag<meta charset=\"utf-8\"></head><body>$html</body></html>"
+}
+
+private suspend fun loadHubNotifications(settings: AppSettings, apiKey: String?, unreadOnly: Boolean): Pair<List<HubNotification>, String> = withContext(Dispatchers.IO) {
+    return@withContext try {
+        val path = if (unreadOnly) "/v1/hub/notifications?unread=1" else "/v1/hub/notifications"
+        val response = httpGetResponse(resolveHermesUrl(settings, path), apiKey)
+        if (response.first !in 200..299) {
+            return@withContext emptyList<HubNotification>() to "Notifiche HTTP ${response.first}: ${extractHumanError(response.second)}"
+        }
+        val root = JSONObject(response.second)
+        val array = root.optJSONArray("items") ?: JSONArray()
+        val items = buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id")
+                if (id.isBlank()) continue
+                add(
+                    HubNotification(
+                        id = id,
+                        title = obj.optString("title", "Hermes"),
+                        message = obj.optString("message", obj.optString("body", obj.optString("text", ""))),
+                        kind = obj.optString("kind", "agent_message"),
+                        severity = obj.optString("severity", "info"),
+                        source = obj.optString("source", "hermes-agent"),
+                        conversationPrompt = obj.optString("conversation_prompt", obj.optString("message")),
+                        createdAt = (obj.optDouble("created_at", 0.0) * 1000).toLong().let { if (it > 0) it else System.currentTimeMillis() },
+                        readAt = (obj.optDouble("read_at", 0.0) * 1000).toLong()
+                    )
+                )
+            }
+        }.sortedByDescending { it.createdAt }
+        val unread = items.count { it.readAt <= 0L }
+        items to if (unread == 1) "1 notifica non letta." else "$unread notifiche non lette."
+    } catch (ex: Exception) {
+        emptyList<HubNotification>() to "Notifiche non disponibili: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private suspend fun markHubNotificationRead(settings: AppSettings, id: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+    return@withContext try {
+        val response = postJson(resolveHermesUrl(settings, "/v1/hub/notifications/${URLEncoder.encode(id, "UTF-8")}"), JSONObject().put("read", true), apiKey, "PATCH")
+        if (response.first in 200..299) "Notifica segnata come letta." else "Notifica non aggiornata: HTTP ${response.first}: ${extractHumanError(response.second)}"
+    } catch (ex: Exception) {
+        "Notifica non aggiornata: ${ex.message ?: ex.javaClass.simpleName}"
+    }
 }
 
 private suspend fun loadCronJobs(settings: AppSettings, apiKey: String?): Pair<List<CronJob>, String> = withContext(Dispatchers.IO) {
@@ -8400,6 +8590,87 @@ private val ALLOWED_CODE_LANGUAGES = setOf(
     "yaml",
     "markdown"
 )
+
+private fun formatDateTime(millis: Long): String {
+    return java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(millis))
+}
+
+private const val HERMES_NOTIFICATION_CHANNEL = "hermes_hub_notifications"
+private const val HERMES_NOTIFICATION_WORK = "hermes_hub_notification_poll"
+
+private fun ensureHermesNotificationChannel(context: Context) {
+    if (Build.VERSION.SDK_INT < 26) return
+    val channel = NotificationChannel(
+        HERMES_NOTIFICATION_CHANNEL,
+        "Hermes Hub",
+        NotificationManager.IMPORTANCE_DEFAULT
+    ).apply {
+        description = "Avvisi da cron e agenti Hermes."
+    }
+    context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+}
+
+private fun scheduleHermesNotificationWorker(context: Context) {
+    val request = PeriodicWorkRequestBuilder<HermesNotificationWorker>(15, TimeUnit.MINUTES)
+        .addTag(HERMES_NOTIFICATION_WORK)
+        .build()
+    WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
+        HERMES_NOTIFICATION_WORK,
+        ExistingPeriodicWorkPolicy.UPDATE,
+        request
+    )
+}
+
+class HermesNotificationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        return try {
+            ensureHermesNotificationChannel(applicationContext)
+            val settings = loadSettings(applicationContext)
+            val apiKey = loadGatewaySecret(applicationContext)
+            val result = loadHubNotifications(settings, apiKey, unreadOnly = true)
+            val prefs = applicationContext.getSharedPreferences(CURRENT_SETTINGS_PREFS, Context.MODE_PRIVATE)
+            val seen = prefs.getStringSet("seenHubNotifications", emptySet())?.toMutableSet() ?: mutableSetOf()
+            var changed = false
+            result.first.sortedBy { it.createdAt }.forEach { item ->
+                if (seen.add(item.id)) {
+                    showHermesSystemNotification(applicationContext, item)
+                    changed = true
+                }
+            }
+            if (changed) {
+                prefs.edit().putStringSet("seenHubNotifications", seen.toList().takeLast(300).toSet()).apply()
+            }
+            Result.success()
+        } catch (_: Exception) {
+            Result.retry()
+        }
+    }
+}
+
+private fun showHermesSystemNotification(context: Context, item: HubNotification) {
+    if (Build.VERSION.SDK_INT >= 33 &&
+        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+    ) {
+        return
+    }
+    val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    val pending = PendingIntent.getActivity(
+        context,
+        item.id.hashCode(),
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    val notification = NotificationCompat.Builder(context, HERMES_NOTIFICATION_CHANNEL)
+        .setSmallIcon(R.mipmap.ic_launcher)
+        .setContentTitle(item.title.ifBlank { "Hermes" })
+        .setContentText(item.message.take(180))
+        .setStyle(NotificationCompat.BigTextStyle().bigText(item.message.take(1200)))
+        .setContentIntent(pending)
+        .setAutoCancel(true)
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .build()
+    NotificationManagerCompat.from(context).notify(item.id.hashCode(), notification)
+}
 
 private fun appVersion(context: Context): String {
     return try {

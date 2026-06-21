@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.111 Release Hermes Hub 0.6.111 news folder-only hotfix
+v0.6.112 Release Hermes Hub 0.6.112 Hermes notifications inbox
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,16 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.112 (Hermes notifications inbox):
+
+Release 0.6.112:
+- Gateway Linux: aggiunto inbox notifiche persistente `GET/POST /v1/hub/notifications` e `PATCH /v1/hub/notifications/{id}` per segnare lettura.
+- Contratto agente: cron/monitor/agent devono pubblicare avvisi importanti su `/v1/hub/notifications` con `title`, `message`, `severity`, `source`, `conversation_prompt`.
+- Windows: nuova sezione `Notifiche`, apertura chat da notifica e poll toast mentre Hermes Hub e' in esecuzione/background.
+- Android: nuova sezione `Notifiche`; WorkManager controlla periodicamente l'inbox anche con app chiusa/schermo spento e mostra notifiche di sistema quando Android consente il background polling.
+- Nota tecnica: Android usa polling periodico OS (minimo pratico WorkManager circa 15 minuti), non FCM realtime. Windows app chiusa completamente non puo' ricevere push vero senza WNS/cloud o helper residente; l'inbox gateway resta persistente e il toast arriva quando processo app e' attivo.
+- Release bump: Windows/AdminBridge `0.6.112`, Android `versionName 0.6.112`, `versionCode 117`.
 
 Hermes Hub 0.6.111 (News folder-only hotfix):
 

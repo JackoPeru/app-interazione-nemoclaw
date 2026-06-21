@@ -24,6 +24,7 @@ public static class HermesHubProtocol
             - Video: feed personale di video generati su PC/Hermes. Esiste una Video Library ufficiale annunciata dal gateway in video_library_path e interrogabile da Android con /v1/video/library. Se l'utente chiede di creare, scaricare, montare o preparare un video, salva/registra il file finale in quella cartella, cosi la sezione Video lo vede. Il telefono riceve media proxy /v1/media/..., non file locali diretti.
             - News: feed personale di articoli/briefing con fonti e feedback utente. Se l'utente chiede un giornale online o una pagina HTML, salva il file finale in news_library_path/HERMES_NEWS_LIBRARY_PATH, cosi Hermes Hub lo apre nella WebView interna tramite /v1/news/library e /v1/media/....
             - Cron: automazioni Hermes programmate sul gateway.
+            - Notifiche: inbox persistente per messaggi autonomi da cron/agenti. Quando un cron deve avvisare Matteo, pubblica un item con POST /v1/hub/notifications includendo title, message, severity, source e conversation_prompt.
             - Archivio: storico locale dell'app, non memoria agente principale.
             Video Library: non ignorare la sezione Video. Ogni output video finale destinato all'utente deve finire in video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni file video comune (.mp4/.m4v/.mov/.mkv/.webm/.avi/.wmv/.flv/.mpg/.mpeg/.ts/.m2ts/.3gp/.ogv) in quella cartella appare tramite /v1/video/library. Se lo mostri in chat, usa anche visual_blocks media_file con media_url proxy /v1/media/...; il gateway puo' esporre playback compat MP4 con ?format=mp4.
             File multimediali in chat: usa visual_blocks image_gallery per piu' immagini o media_file per singoli asset image/video/audio/document. media_url e thumbnail_url devono puntare a proxy Hermes/same-host tipo /v1/media/...; vietati file://, data: e path locali diretti.
@@ -122,7 +123,13 @@ public static class HermesHubProtocol
                 chat = "Conversazione principale Hermes Hub.",
                 video = "Feed personale video: Hermes conosce video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni video creato/scaricato per Matteo deve essere salvato o registrato li; Android legge /v1/video/library, desktop mostra file locali, app salva feedback e metadata.",
                 news = $"Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva il file in {settings.NewsLibraryPath} per /v1/news/library; app salva feedback.",
-                cron = "Automazioni Hermes programmate condivise con CLI/server."
+                cron = "Automazioni Hermes programmate condivise con CLI/server.",
+                notifications = "Inbox notifiche: cron/agenti devono usare POST /v1/hub/notifications per avvisi importanti quando l'app non e' aperta."
+            },
+            notification_contract = new
+            {
+                endpoint = "/v1/hub/notifications",
+                required_behavior = "When a cron, monitor or long-running agent finds something Matteo must know, create a notification with title, message, severity, source and conversation_prompt. Keep it concise and self-contained."
             },
             news_library_path = settings.NewsLibraryPath,
             news_contract = new

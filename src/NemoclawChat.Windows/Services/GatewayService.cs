@@ -73,6 +73,21 @@ public sealed record CronJobsResult(
     IReadOnlyList<CronJobRecord> Jobs,
     string Status);
 
+public sealed record HubNotificationRecord(
+    string Id,
+    string Title,
+    string Message,
+    string Kind,
+    string Severity,
+    string Source,
+    string ConversationPrompt,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ReadAt);
+
+public sealed record HubNotificationsResult(
+    IReadOnlyList<HubNotificationRecord> Items,
+    string Status);
+
 public sealed record HardwareDiskRecord(
     string Device,
     string Mountpoint,
@@ -1011,6 +1026,59 @@ public static class GatewayService
         return response.IsSuccessStatusCode
             ? "Sincronizzato con Hub State."
             : $"Hub State non disponibile: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}";
+    }
+
+    public static async Task<HubNotificationsResult> LoadHubNotificationsAsync(AppSettings settings, bool unreadOnly = false)
+    {
+        try
+        {
+            var path = unreadOnly ? "/v1/hub/notifications?unread=1" : "/v1/hub/notifications";
+            var response = await SendBufferedAsync(token => BuildRequest(HttpMethod.Get, ResolveHermesUri(settings, path), token));
+            if (!response.IsSuccessStatusCode)
+            {
+                return new HubNotificationsResult([], $"Notifiche non disponibili: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}");
+            }
+
+            using var doc = JsonDocument.Parse(response.Body);
+            var items = new List<HubNotificationRecord>();
+            if (doc.RootElement.TryGetProperty("items", out var array) && array.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in array.EnumerateArray())
+                {
+                    var id = ExtractString(item, "id") ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    var created = ExtractDouble(item, "created_at");
+                    var read = ExtractDouble(item, "read_at");
+                    items.Add(new HubNotificationRecord(
+                        id,
+                        ExtractString(item, "title") ?? "Hermes",
+                        ExtractString(item, "message", "body", "text") ?? string.Empty,
+                        ExtractString(item, "kind") ?? "agent_message",
+                        ExtractString(item, "severity") ?? "info",
+                        ExtractString(item, "source") ?? "hermes-agent",
+                        ExtractString(item, "conversation_prompt") ?? ExtractString(item, "message", "body", "text") ?? string.Empty,
+                        created > 0 ? DateTimeOffset.FromUnixTimeSeconds((long)created) : DateTimeOffset.Now,
+                        read > 0 ? DateTimeOffset.FromUnixTimeSeconds((long)read) : null));
+                }
+            }
+
+            var ordered = items.OrderByDescending(item => item.CreatedAt).ToArray();
+            var unread = ordered.Count(item => item.ReadAt is null);
+            return new HubNotificationsResult(ordered, unread == 1 ? "1 notifica non letta." : $"{unread} notifiche non lette.");
+        }
+        catch (Exception ex)
+        {
+            return new HubNotificationsResult([], $"Notifiche non disponibili: {ex.Message}");
+        }
+    }
+
+    public static async Task<string> MarkHubNotificationReadAsync(AppSettings settings, string id)
+    {
+        var payload = JsonSerializer.Serialize(new { read = true });
+        var response = await SendBufferedAsync(token => BuildJsonRequest(HttpMethod.Patch, ResolveHermesUri(settings, $"/v1/hub/notifications/{Uri.EscapeDataString(id)}"), payload, token));
+        return response.IsSuccessStatusCode
+            ? "Notifica segnata come letta."
+            : $"Notifica non aggiornata: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}";
     }
 
     public static async Task<IReadOnlyList<DiagnosticCheckResult>> RunDiagnosticsAsync(AppSettings settings)

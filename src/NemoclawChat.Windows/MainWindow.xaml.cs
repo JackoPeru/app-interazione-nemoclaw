@@ -15,6 +15,7 @@ public sealed partial class MainWindow : Window
 {
     private bool _sidebarCollapsed;
     private bool _closing;
+    private readonly HubNotificationPoller _notificationPoller;
 
     public MainWindow()
     {
@@ -30,6 +31,8 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigated += ContentFrame_Navigated;
         ChatArchiveStore.Changed += RefreshRecentChats;
         Closed += MainWindow_Closed;
+        _notificationPoller = new HubNotificationPoller(DispatcherQueue);
+        _notificationPoller.Start();
         RefreshRecentChats();
     }
 
@@ -41,6 +44,7 @@ public sealed partial class MainWindow : Window
         {
             ChatArchiveStore.Changed -= RefreshRecentChats;
             ContentFrame.Navigated -= ContentFrame_Navigated;
+            _notificationPoller.Stop();
             SaveWindowState();
             Closed -= MainWindow_Closed;
         }
@@ -116,6 +120,11 @@ public sealed partial class MainWindow : Window
     private void Cron_Click(object sender, RoutedEventArgs e)
     {
         ContentFrame.Navigate(typeof(CronPage));
+    }
+
+    private void Notifications_Click(object sender, RoutedEventArgs e)
+    {
+        ContentFrame.Navigate(typeof(NotificationsPage));
     }
 
     private void Server_Click(object sender, RoutedEventArgs e)

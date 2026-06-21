@@ -1529,8 +1529,15 @@ private fun visualBlocksMetadataJson(settings: AppSettings, conversationId: Stri
                 .put("chat", "Conversazione principale Hermes Hub.")
                 .put("video", "Feed personale video: Hermes conosce video_library_path/HERMES_VIDEO_LIBRARY_PATH; ogni video creato/scaricato per Matteo deve essere salvato o registrato li, desktop mostra file locali, app salva feedback e metadata.")
                 .put("news", "Feed personale articoli: Hermes produce articoli con fonti; se crea HTML/giornale online salva in ${settings.newsLibraryPath} per /v1/news/library; app salva feedback.")
+                .put("notifications", "Inbox notifiche: cron/agenti devono usare POST /v1/hub/notifications per avvisi importanti quando l'app non e' aperta.")
                 .put("jobs", "Coda Hermes Jobs condivisa con CLI/server.")
                 .put("runs", "Runs operative Hermes.")
+        )
+        .put(
+            "notification_contract",
+            JSONObject()
+                .put("endpoint", "/v1/hub/notifications")
+                .put("required_behavior", "When a cron, monitor or long-running agent finds something Matteo must know, create a notification with title, message, severity, source and conversation_prompt. Keep it concise and self-contained.")
         )
         .put("news_library_path", settings.newsLibraryPath)
         .put(

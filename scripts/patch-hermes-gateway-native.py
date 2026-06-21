@@ -516,6 +516,81 @@ def _hermes_hub_delete_state(state_id: str) -> Dict[str, Any]:
     return {"object": "hermes.hub.state.delete", "deleted": before - len(current["items"]), "id": state_id}
 
 
+def _hermes_hub_notifications_payload(unread_only: bool = False) -> Dict[str, Any]:
+    path = _hermes_hub_storage_path("HERMES_HUB_NOTIFICATIONS_PATH", "hub_notifications.json")
+    payload = _hermes_hub_read_json(path, {"items": []})
+    items = payload.get("items")
+    if not isinstance(items, list):
+        items = []
+    normalized = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item.setdefault("id", f"hub_notice_{int(time.time() * 1000)}")
+        item.setdefault("title", "Hermes")
+        item.setdefault("message", "")
+        item.setdefault("created_at", time.time())
+        item.setdefault("read_at", None)
+        if unread_only and item.get("read_at"):
+            continue
+        normalized.append(item)
+    normalized.sort(key=lambda x: float(x.get("created_at") or 0), reverse=True)
+    payload["items"] = normalized
+    payload["object"] = "hermes.hub.notifications"
+    payload["status"] = "ok"
+    payload["path"] = str(path)
+    payload["description"] = "Inbox notifiche Hermes Hub: messaggi autonomi da cron/agente verso app Windows/Android."
+    return payload
+
+
+def _hermes_hub_add_notification(payload: Dict[str, Any]) -> Dict[str, Any]:
+    current = _hermes_hub_notifications_payload(False)
+    path = _hermes_hub_storage_path("HERMES_HUB_NOTIFICATIONS_PATH", "hub_notifications.json")
+    items = current.setdefault("items", [])
+    if not isinstance(items, list):
+        items = []
+        current["items"] = items
+    title = str((payload or {}).get("title") or (payload or {}).get("subject") or "Hermes")
+    message = str((payload or {}).get("message") or (payload or {}).get("body") or (payload or {}).get("text") or "")
+    item = {
+        "id": str((payload or {}).get("id") or f"hub_notice_{int(time.time() * 1000)}"),
+        "title": title[:180],
+        "message": message[:8000],
+        "kind": str((payload or {}).get("kind") or "agent_message"),
+        "severity": str((payload or {}).get("severity") or "info"),
+        "source": str((payload or {}).get("source") or "hermes-agent"),
+        "conversation_prompt": str((payload or {}).get("conversation_prompt") or message[:4000]),
+        "payload": (payload or {}).get("payload") if isinstance((payload or {}).get("payload"), dict) else {},
+        "created_at": float((payload or {}).get("created_at") or time.time()),
+        "read_at": None,
+    }
+    items.append(item)
+    items.sort(key=lambda x: float(x.get("created_at") or 0), reverse=True)
+    del items[500:]
+    current["updated_at"] = time.time()
+    _hermes_hub_write_json(path, current)
+    return item
+
+
+def _hermes_hub_patch_notification(notification_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    current = _hermes_hub_notifications_payload(False)
+    path = _hermes_hub_storage_path("HERMES_HUB_NOTIFICATIONS_PATH", "hub_notifications.json")
+    now = time.time()
+    updated = None
+    for item in current.get("items", []):
+        if str(item.get("id", "")) != str(notification_id):
+            continue
+        if bool((payload or {}).get("read", True)):
+            item["read_at"] = now
+        if "archived" in (payload or {}):
+            item["archived"] = bool(payload.get("archived"))
+        updated = item
+        break
+    current["updated_at"] = now
+    _hermes_hub_write_json(path, current)
+    return updated or {"id": notification_id, "missing": True}
+
+
 def _hermes_hub_video_library_payload(request: Optional["web.Request"] = None) -> Dict[str, Any]:
     import mimetypes as _mimetypes
     import urllib.parse as _urlparse
@@ -1423,6 +1498,7 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             r'                "media_transcode_mp4": True,' "\n"
             r'                "hub_memory": True,' "\n"
             r'                "hub_state": True,' "\n",
+            r'                "hub_notifications": True,' "\n",
             "capabilities hub support features",
         )
         changes.append("capabilities hub support features")
@@ -1447,6 +1523,16 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
                 "capabilities news library",
             )
             changes.append("capabilities news library")
+
+        if '"hub_notifications": True,' not in text:
+            text, _ = _replace_regex_once(
+                text,
+                r'(^\s+"features": \{\n)',
+                r'\1'
+                r'                "hub_notifications": True,' "\n",
+                "capabilities hub notifications",
+            )
+            changes.append("capabilities hub notifications")
 
     if '"max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "150")),' not in text:
         text, _ = _replace_regex_once(
@@ -1501,6 +1587,7 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             r'                "media_proxy": {"method": "GET", "path": "/v1/media/{media_id}"},' "\n"
             r'                "hub_memory": {"method": "GET/PATCH", "path": "/v1/hub/memory"},' "\n"
             r'                "hub_state": {"method": "GET/POST", "path": "/v1/hub/state"},' "\n",
+            r'                "hub_notifications": {"method": "GET/POST/PATCH", "path": "/v1/hub/notifications"},' "\n",
             "capabilities hub support endpoints",
         )
         changes.append("capabilities hub support endpoints")
@@ -1524,6 +1611,16 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
                 "capabilities news library endpoint",
             )
             changes.append("capabilities news library endpoint")
+
+        if '"hub_notifications": {"method": "GET/POST/PATCH", "path": "/v1/hub/notifications"}' not in text:
+            text, _ = _replace_regex_once(
+                text,
+                r'(^\s+"hub_state": \{"method": "GET/POST", "path": "/v1/hub/state"\},\n)',
+                r'\1'
+                r'                "hub_notifications": {"method": "GET/POST/PATCH", "path": "/v1/hub/notifications"},' "\n",
+                "capabilities hub notifications endpoint",
+            )
+            changes.append("capabilities hub notifications endpoint")
 
     if "async def _handle_hub_hardware" not in text:
         text, _ = _replace_once(
@@ -1588,10 +1685,73 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "            return auth_error\n"
             "        return web.json_response(_hermes_hub_delete_state(request.match_info.get(\"state_id\", \"\")))\n"
             "\n"
+            "    async def _handle_get_hub_notifications(self, request: \"web.Request\") -> \"web.Response\":\n"
+            "        auth_error = self._check_auth(request)\n"
+            "        if auth_error is not None:\n"
+            "            return auth_error\n"
+            "        unread = str(request.query.get(\"unread\", \"\")).lower() in {\"1\", \"true\", \"yes\"}\n"
+            "        return web.json_response(_hermes_hub_notifications_payload(unread))\n"
+            "\n"
+            "    async def _handle_post_hub_notification(self, request: \"web.Request\") -> \"web.Response\":\n"
+            "        auth_error = self._check_auth(request)\n"
+            "        if auth_error is not None:\n"
+            "            return auth_error\n"
+            "        try:\n"
+            "            body = await request.json()\n"
+            "        except Exception:\n"
+            "            body = {}\n"
+            "        return web.json_response(_hermes_hub_add_notification(body if isinstance(body, dict) else {}))\n"
+            "\n"
+            "    async def _handle_patch_hub_notification(self, request: \"web.Request\") -> \"web.Response\":\n"
+            "        auth_error = self._check_auth(request)\n"
+            "        if auth_error is not None:\n"
+            "            return auth_error\n"
+            "        try:\n"
+            "            body = await request.json()\n"
+            "        except Exception:\n"
+            "            body = {}\n"
+            "        return web.json_response(_hermes_hub_patch_notification(request.match_info.get(\"notification_id\", \"\"), body if isinstance(body, dict) else {}))\n"
+            "\n"
             "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
             "hub support endpoint handlers",
         )
         changes.append("hub support endpoint handlers")
+
+    if "async def _handle_get_hub_notifications" not in text:
+        text, _ = _replace_once(
+            text,
+            "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
+            "    async def _handle_get_hub_notifications(self, request: \"web.Request\") -> \"web.Response\":\n"
+            "        auth_error = self._check_auth(request)\n"
+            "        if auth_error is not None:\n"
+            "            return auth_error\n"
+            "        unread = str(request.query.get(\"unread\", \"\")).lower() in {\"1\", \"true\", \"yes\"}\n"
+            "        return web.json_response(_hermes_hub_notifications_payload(unread))\n"
+            "\n"
+            "    async def _handle_post_hub_notification(self, request: \"web.Request\") -> \"web.Response\":\n"
+            "        auth_error = self._check_auth(request)\n"
+            "        if auth_error is not None:\n"
+            "            return auth_error\n"
+            "        try:\n"
+            "            body = await request.json()\n"
+            "        except Exception:\n"
+            "            body = {}\n"
+            "        return web.json_response(_hermes_hub_add_notification(body if isinstance(body, dict) else {}))\n"
+            "\n"
+            "    async def _handle_patch_hub_notification(self, request: \"web.Request\") -> \"web.Response\":\n"
+            "        auth_error = self._check_auth(request)\n"
+            "        if auth_error is not None:\n"
+            "            return auth_error\n"
+            "        try:\n"
+            "            body = await request.json()\n"
+            "        except Exception:\n"
+            "            body = {}\n"
+            "        return web.json_response(_hermes_hub_patch_notification(request.match_info.get(\"notification_id\", \"\"), body if isinstance(body, dict) else {}))\n"
+            "\n"
+            "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
+            "hub notifications endpoint handlers",
+        )
+        changes.append("hub notifications endpoint handlers")
 
     if "async def _handle_news_library" not in text:
         text, _ = _replace_once(
@@ -2018,6 +2178,18 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
                 "router news library endpoint",
             )
             changes.append("router news library endpoint")
+
+    if 'add_get("/v1/hub/notifications", self._handle_get_hub_notifications)' not in text:
+        text, _ = _replace_regex_once(
+            text,
+            r'(^\s+self\._app\.router\.add_get\("/v1/hub/state", self\._handle_get_hub_state\)\n)',
+            r'\1'
+            r'            self._app.router.add_get("/v1/hub/notifications", self._handle_get_hub_notifications)' "\n"
+            r'            self._app.router.add_post("/v1/hub/notifications", self._handle_post_hub_notification)' "\n"
+            r'            self._app.router.add_patch("/v1/hub/notifications/{notification_id}", self._handle_patch_hub_notification)' "\n",
+            "router hub notifications endpoints",
+        )
+        changes.append("router hub notifications endpoints")
 
     return text, changes
 
