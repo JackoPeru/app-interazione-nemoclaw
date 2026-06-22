@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.112 Release Hermes Hub 0.6.112 Hermes notifications inbox
+v0.6.113 Release Hermes Hub 0.6.113 Notifiche hotfix + Windows Smart App Control
 ```
 
 ## Regola Linux Gateway Update
@@ -137,6 +137,18 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.113 (Notifiche hotfix + Windows Smart App Control):
+
+Release 0.6.113:
+- Hotfix gateway Linux: verifica e hardening del blocco notifiche nel patcher, per evitare scenario dove le route `/v1/hub/notifications` esistono ma le funzioni backend non sono definite (500 Internal Server Error sul server dopo auto-update).
+- Gateway Linux: launcher `hermes-hub-linux.sh` aggiornato per esportare `HERMES_HUB_NOTIFICATIONS_PATH` al default `~/.hermes/hub_notifications.json` se non impostato.
+- Windows: fix installazione post-SAC; l'app MSIX self-signed viene ora firmata con certificato `CN=AppPublisher` e installata via `Add-AppxPackage -ForceUpdateFromAnyVersion -ForceApplicationShutdown`, superando il blocco Smart App Control quando il certificato e' in `TrustedPeople`.
+- Windows: mantenuta compatibilita' updater in-app 0.6.69+ verificato; update futuro via UI resta funzionante perche' il nuovo MSIX e' firmato con lo stesso certificato.
+- Android: conferma funzionamento notifiche e aggiornamento corretto a 0.6.113 tramite `versionCode 118`.
+- Asset release inclusi: Windows MSIX `NemoclawChat.Windows_0.6.113.0_x64.msix`, Android APK `HermesHub-0.6.113-android.apk`, Linux Gateway `HermesHub-0.6.113-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.113`, Android `versionName 0.6.113`, `versionCode 118`.
+- Nota server: dopo pubblicazione release, eseguire sul server Linux `~/.local/bin/hermes-hub-linux-update --restart` per applicare il fix notifiche. Verificare con `curl -H "Authorization: Bearer hermes-hub" http://127.0.0.1:8642/v1/hub/notifications` che risponda 200 e non 500.
 
 Hermes Hub 0.6.112 (Hermes notifications inbox):
 
@@ -1193,7 +1205,7 @@ Windows:
 
 - Progetto: `src/NemoclawChat.Windows`
 - Stack: WinUI 3, C#, .NET 8, Windows App SDK self-contained.
-- Versione app: `0.6.61`.
+- Versione app: `0.6.113`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato agli asset Windows e alla UI principale, dark stile ChatGPT, sidebar, composer largo, menu `+`, settings reali.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, hover `#FFC857`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, card/composer radius premium e bordi soft.
 - Azioni locali: file picker Windows, screen clip, camera URI, nota vocale prompt.
@@ -1232,7 +1244,7 @@ Android:
 
 - Progetto: `src/NemoclawChat.Android/app`
 - Stack: Kotlin, Jetpack Compose, Gradle.
-- Versione app: `0.6.61`, versionCode `73`.
+- Versione app: `0.6.113`, versionCode `118`.
 - Brand/UI: `Hermes Hub`, logo Hermes da `logo hermeshub.png` applicato a launcher + UI, bottom nav primaria ridotta a Chat/Runs/Voce/Video/Profilo, composer mobile compatto stile ChatGPT Android, menu `+` con Material icons, profilo locale con scorciatoie alle aree secondarie.
 - UI design system applicato: superfici elevation-aware `#0F1115/#14171D/#1A1E26/#232831`, accent Hermes amber `#F5A524`, testo muted `#A2ADBF`, bubble utente amber scuro `#7A3E00`, empty state con wash amber e logo grande.
 - Azioni locali: file picker Android, camera intent e prompt helper nel menu `+`; dettatura/mic placeholder rimossi finche' non c'e' integrazione reale.
