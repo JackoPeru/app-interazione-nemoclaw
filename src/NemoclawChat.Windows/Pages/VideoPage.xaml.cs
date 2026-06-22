@@ -29,6 +29,17 @@ public sealed partial class VideoPage : Page
                 FeedbackStatusText.Text = $"Player video: {args.ErrorMessage}. Nessun fallback compatibile disponibile.";
             });
         };
+        FullScreenVideoPlayer.MediaPlayer.MediaFailed += (_, args) =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (TryUseCompatPlayback($"Player fullscreen: {args.ErrorMessage}"))
+                {
+                    return;
+                }
+                FeedbackStatusText.Text = $"Player fullscreen: {args.ErrorMessage}. Nessun fallback compatibile disponibile.";
+            });
+        };
         UpdateAdaptiveLayout(ActualWidth);
         _ = RefreshFeedAsync();
     }
@@ -153,8 +164,39 @@ public sealed partial class VideoPage : Page
             return;
         }
 
-        VideoPlayer.IsFullWindow = true;
-        VideoPlayer.MediaPlayer.Play();
+        if (string.IsNullOrWhiteSpace(_currentPlaybackUrl))
+        {
+            FeedbackStatusText.Text = "Il video non e' ancora pronto per la riproduzione.";
+            return;
+        }
+
+        FullScreenVideoTitleText.Text = SelectedVideoTitleText.Text;
+        FullScreenVideoMetaText.Text = SelectedVideoMetaText.Text;
+        FullScreenVideoOverlay.Visibility = Visibility.Visible;
+        VideoPlayer.MediaPlayer.Pause();
+        SetFullScreenSource(_currentPlaybackUrl);
+        FullScreenVideoPlayer.MediaPlayer.Play();
+    }
+
+    private void CloseFullScreen_Click(object sender, RoutedEventArgs e)
+    {
+        CloseFullScreen();
+    }
+
+    private void CloseFullScreen()
+    {
+        if (FullScreenVideoOverlay.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        FullScreenVideoPlayer.MediaPlayer.Pause();
+        FullScreenVideoPlayer.Source = null;
+        FullScreenVideoOverlay.Visibility = Visibility.Collapsed;
+        if (!string.IsNullOrWhiteSpace(_currentPlaybackUrl))
+        {
+            VideoPlayer.MediaPlayer.Play();
+        }
     }
 
     private void VideoListView_ItemClick(object sender, ItemClickEventArgs e)
@@ -206,7 +248,18 @@ public sealed partial class VideoPage : Page
     private void SetVideoSource(string url)
     {
         _currentPlaybackUrl = AddMediaPlaybackToken(url);
-        VideoPlayer.Source = MediaSource.CreateFromUri(new Uri(_currentPlaybackUrl));
+        var mediaSource = MediaSource.CreateFromUri(new Uri(_currentPlaybackUrl));
+        VideoPlayer.Source = mediaSource;
+        if (FullScreenVideoOverlay.Visibility == Visibility.Visible)
+        {
+            SetFullScreenSource(_currentPlaybackUrl);
+            FullScreenVideoPlayer.MediaPlayer.Play();
+        }
+    }
+
+    private void SetFullScreenSource(string playbackUrl)
+    {
+        FullScreenVideoPlayer.Source = MediaSource.CreateFromUri(new Uri(playbackUrl));
     }
 
     private bool TryUseCompatPlayback(string reason)

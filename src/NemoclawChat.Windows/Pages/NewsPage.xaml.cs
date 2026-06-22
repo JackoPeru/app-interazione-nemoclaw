@@ -11,6 +11,9 @@ public sealed partial class NewsPage : Page
     private IReadOnlyList<NewsHtmlRecord> _htmlPages = [];
     private NewsHtmlRecord? _selectedPage;
     private bool _webViewReady;
+    private bool _fullScreenWebViewReady;
+    private string? _currentHtml;
+    private string? _currentBaseUrl;
 
     public NewsPage()
     {
@@ -126,16 +129,26 @@ public sealed partial class NewsPage : Page
         {
             await EnsureReaderAsync();
             var html = await GatewayService.LoadGatewayTextAsync(AppSettingsStore.Load(), page.Url);
-            NewsWebView.NavigateToString(InjectBaseHref(html, page.Url));
+            _currentHtml = html;
+            _currentBaseUrl = page.Url;
+            OpenNewsFullScreenButton.IsEnabled = true;
+            await RenderCurrentHtmlAsync();
             NewsStatusText.Text = "Articolo aperto.";
             await GatewayService.SaveHubStateAsync(AppSettingsStore.Load(), "news_read", page.Id, new { title = page.Title, file = page.FileName, read = true });
         }
         catch (Exception ex)
         {
             NewsStatusText.Text = $"Errore apertura articolo: {ex.Message}";
+            _currentHtml = null;
+            _currentBaseUrl = null;
+            OpenNewsFullScreenButton.IsEnabled = false;
             if (_webViewReady)
             {
                 NewsWebView.NavigateToString(ErrorHtml(ex.Message));
+            }
+            if (_fullScreenWebViewReady)
+            {
+                FullScreenNewsWebView.NavigateToString(ErrorHtml(ex.Message));
             }
         }
     }
@@ -150,6 +163,54 @@ public sealed partial class NewsPage : Page
         await NewsWebView.EnsureCoreWebView2Async();
         _webViewReady = true;
         NewsWebView.NavigateToString("<!doctype html><html><body style=\"font-family:Segoe UI,sans-serif;background:#111318;color:#e5e7eb;padding:32px\"><h1>News</h1><p>Seleziona un articolo.</p></body></html>");
+    }
+
+    private async Task EnsureFullScreenReaderAsync()
+    {
+        if (_fullScreenWebViewReady)
+        {
+            return;
+        }
+
+        await FullScreenNewsWebView.EnsureCoreWebView2Async();
+        _fullScreenWebViewReady = true;
+        FullScreenNewsWebView.NavigateToString("<!doctype html><html><body style=\"font-family:Segoe UI,sans-serif;background:#111318;color:#e5e7eb;padding:32px\"><h1>News</h1><p>Apri un articolo per usare il fullscreen.</p></body></html>");
+    }
+
+    private async Task RenderCurrentHtmlAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentBaseUrl))
+        {
+            return;
+        }
+
+        var rendered = InjectBaseHref(_currentHtml ?? string.Empty, _currentBaseUrl);
+        NewsWebView.NavigateToString(rendered);
+        if (FullScreenNewsOverlay.Visibility == Visibility.Visible)
+        {
+            await EnsureFullScreenReaderAsync();
+            FullScreenNewsWebView.NavigateToString(rendered);
+        }
+    }
+
+    private async void OpenNewsFullScreen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedPage is null || string.IsNullOrWhiteSpace(_currentBaseUrl))
+        {
+            NewsStatusText.Text = "Apri prima un articolo HTML.";
+            return;
+        }
+
+        await EnsureFullScreenReaderAsync();
+        FullScreenNewsTitleText.Text = _selectedPage.Title;
+        FullScreenNewsMetaText.Text = $"{_selectedPage.FileName} · {_selectedPage.ModifiedAt.LocalDateTime:g} · {FormatSize(_selectedPage.SizeBytes)}";
+        FullScreenNewsOverlay.Visibility = Visibility.Visible;
+        await RenderCurrentHtmlAsync();
+    }
+
+    private void CloseNewsFullScreen_Click(object sender, RoutedEventArgs e)
+    {
+        FullScreenNewsOverlay.Visibility = Visibility.Collapsed;
     }
 
     private static string InjectBaseHref(string html, string baseUrl)

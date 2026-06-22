@@ -114,7 +114,9 @@ public sealed partial class NotificationsPage : Page
     {
         if (sender is not FrameworkElement { Tag: HubNotificationRecord item }) return;
         await GatewayService.MarkHubNotificationReadAsync(AppSettingsStore.Load(), item.Id);
-        var prompt = $"Riprendiamo da questa notifica Hermes:\n\nTitolo: {item.Title}\nMessaggio: {item.Message}\n\nVoglio chiederti una cosa su questa notifica.";
+        var prompt = string.IsNullOrWhiteSpace(item.ConversationPrompt)
+            ? $"Riprendiamo da questa notifica Hermes:\n\nTitolo: {item.Title}\nMessaggio: {item.Message}\n\nVoglio chiederti una cosa su questa notifica."
+            : item.ConversationPrompt;
         Frame.Navigate(typeof(HomePage), new HomeNavigationRequest(Prompt: prompt));
     }
 }

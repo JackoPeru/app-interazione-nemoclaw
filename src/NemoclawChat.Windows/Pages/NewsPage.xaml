@@ -57,24 +57,83 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <StackPanel Padding="18,16" Spacing="4">
-                        <TextBlock
-                            x:Name="NewsReaderTitleText"
-                            FontSize="20"
-                            FontWeight="SemiBold"
-                            Foreground="White"
-                            Text="Seleziona un articolo" />
-                        <TextBlock
-                            x:Name="NewsReaderMetaText"
-                            Foreground="{StaticResource MutedTextBrush}"
-                            Text="La pagina HTML verra' mostrata qui dentro l'app."
-                            TextWrapping="Wrap" />
-                    </StackPanel>
+                    <Grid Padding="18,16" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                x:Name="NewsReaderTitleText"
+                                FontSize="20"
+                                FontWeight="SemiBold"
+                                Foreground="White"
+                                Text="Seleziona un articolo" />
+                            <TextBlock
+                                x:Name="NewsReaderMetaText"
+                                Foreground="{StaticResource MutedTextBrush}"
+                                Text="La pagina HTML verra' mostrata qui dentro l'app."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button
+                            x:Name="OpenNewsFullScreenButton"
+                            Grid.Column="1"
+                            VerticalAlignment="Top"
+                            Click="OpenNewsFullScreen_Click"
+                            Content="Schermo intero"
+                            IsEnabled="False" />
+                    </Grid>
 
                     <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,0">
                         <WebView2 x:Name="NewsWebView" />
                     </Border>
                 </Grid>
+            </Border>
+        </Grid>
+
+        <Grid
+            x:Name="FullScreenNewsOverlay"
+            Grid.RowSpan="2"
+            Background="{StaticResource AppBackgroundBrush}"
+            RowSpacing="18"
+            Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <TextBlock
+                        x:Name="FullScreenNewsTitleText"
+                        FontSize="26"
+                        FontWeight="SemiBold"
+                        Foreground="White"
+                        Text="News" />
+                    <TextBlock
+                        x:Name="FullScreenNewsMetaText"
+                        Foreground="{StaticResource MutedTextBrush}"
+                        Text="Visualizzazione articolo a schermo intero."
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <Button
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Click="CloseNewsFullScreen_Click"
+                    Content="Chiudi" />
+            </Grid>
+
+            <Border
+                Grid.Row="1"
+                Background="#FF0F1115"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="1"
+                CornerRadius="18">
+                <WebView2 x:Name="FullScreenNewsWebView" />
             </Border>
         </Grid>
     </Grid>

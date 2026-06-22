@@ -2931,7 +2931,7 @@ private fun NotificationsScreen(context: Context, settings: AppSettings, onOpenC
                 },
                 onOpenChat = {
                     scope.launch { markHubNotificationRead(settings, item.id, loadGatewaySecret(context)) }
-                    onOpenChatPrompt("Riprendiamo da questa notifica Hermes:\n\nTitolo: ${item.title}\nMessaggio: ${item.message}\n\nVoglio chiederti una cosa su questa notifica.")
+                    onOpenChatPrompt(notificationChatPrompt(item))
                 }
             )
         }
@@ -4049,7 +4049,7 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
             val previousOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             val window = activity?.window
             val insetsController = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             if (window != null) {
                 WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -4083,117 +4083,111 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
             player.release()
         }
     }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onBack) { Text("Indietro") }
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!fullScreen) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { viewContext ->
-                            PlayerView(viewContext).apply {
-                                useController = true
-                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                this.player = player
-                            }
-                        },
-                        update = { view ->
-                            view.player = player
-                        }
-                    )
-                }
-                IconButton(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.62f), CircleShape),
-                    onClick = { fullScreen = true }
-                ) {
-                    Icon(Icons.Rounded.CropFree, contentDescription = "Schermo intero", tint = Color.White)
-                }
-            }
-        }
-        item {
-            Column(modifier = Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(item.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Hermes Hub - ${item.filename} - ${item.sizeBytes.toReadableFileSize()} - ${formatVideoTimestamp(item.modifiedAt)}",
-                    color = AppColors.Muted,
-                    fontSize = 13.sp
-                )
-                Text(status, color = AppColors.Faint, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    VideoReactionButton(
-                        label = "Mi piace",
-                        icon = Icons.Rounded.ThumbUp,
-                        selected = reaction == "like"
-                    ) {
-                        reaction = "like"
-                        status = "Invio like a Hermes..."
-                        scope.launch {
-                            val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
-                            saveVideoFeedback(context, item.id, feedback, reaction, result)
-                            status = result
-                        }
-                    }
-                    VideoReactionButton(
-                        label = "Non mi piace",
-                        icon = Icons.Rounded.ThumbDown,
-                        selected = reaction == "dislike"
-                    ) {
-                        reaction = "dislike"
-                        status = "Invio dislike a Hermes..."
-                        scope.launch {
-                            val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
-                            saveVideoFeedback(context, item.id, feedback, reaction, result)
-                            status = result
-                        }
-                    }
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    VideoFeedChip("Hook") { feedback = appendFeedbackSnippet(feedback, "Hook piu' forte nei primi 5 secondi") }
-                    VideoFeedChip("Ritmo") { feedback = appendFeedbackSnippet(feedback, "Ritmo piu' veloce e meno pause") }
-                    VideoFeedChip("Chiarezza") { feedback = appendFeedbackSnippet(feedback, "Piu' chiarezza didattica e step concreti") }
-                    VideoFeedChip("Montaggio") { feedback = appendFeedbackSnippet(feedback, "Montaggio piu' pulito e meno ridondanza") }
-                }
-                SettingsField("Feedback per Hermes", feedback, { feedback = it })
-                Button(onClick = {
-                    if (feedback.isBlank()) {
-                        status = "Scrivi feedback prima di inviare."
-                        return@Button
-                    }
-                    status = "Invio feedback a Hermes..."
-                    scope.launch {
-                        val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
-                        saveVideoFeedback(context, item.id, feedback, reaction, result)
-                        status = result
-                    }
-                }) { Text("Invia feedback") }
-            }
-        }
-    }
-    if (fullScreen) {
-        Dialog(
-            onDismissRequest = { fullScreen = false },
-            properties = DialogProperties(
-                dismissOnBackPress = true,
-                dismissOnClickOutside = false,
-                usePlatformDefaultWidth = false
-            )
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            item {
+                Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = onBack) { Text("Indietro") }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!fullScreen) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { viewContext ->
+                                PlayerView(viewContext).apply {
+                                    useController = true
+                                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    this.player = player
+                                }
+                            },
+                            update = { view ->
+                                view.player = player
+                            }
+                        )
+                    }
+                    IconButton(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.62f), CircleShape),
+                        onClick = { fullScreen = true }
+                    ) {
+                        Icon(Icons.Rounded.CropFree, contentDescription = "Schermo intero", tint = Color.White)
+                    }
+                }
+            }
+            item {
+                Column(modifier = Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(item.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Hermes Hub - ${item.filename} - ${item.sizeBytes.toReadableFileSize()} - ${formatVideoTimestamp(item.modifiedAt)}",
+                        color = AppColors.Muted,
+                        fontSize = 13.sp
+                    )
+                    Text(status, color = AppColors.Faint, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        VideoReactionButton(
+                            label = "Mi piace",
+                            icon = Icons.Rounded.ThumbUp,
+                            selected = reaction == "like"
+                        ) {
+                            reaction = "like"
+                            status = "Invio like a Hermes..."
+                            scope.launch {
+                                val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
+                                saveVideoFeedback(context, item.id, feedback, reaction, result)
+                                status = result
+                            }
+                        }
+                        VideoReactionButton(
+                            label = "Non mi piace",
+                            icon = Icons.Rounded.ThumbDown,
+                            selected = reaction == "dislike"
+                        ) {
+                            reaction = "dislike"
+                            status = "Invio dislike a Hermes..."
+                            scope.launch {
+                                val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
+                                saveVideoFeedback(context, item.id, feedback, reaction, result)
+                                status = result
+                            }
+                        }
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VideoFeedChip("Hook") { feedback = appendFeedbackSnippet(feedback, "Hook piu' forte nei primi 5 secondi") }
+                        VideoFeedChip("Ritmo") { feedback = appendFeedbackSnippet(feedback, "Ritmo piu' veloce e meno pause") }
+                        VideoFeedChip("Chiarezza") { feedback = appendFeedbackSnippet(feedback, "Piu' chiarezza didattica e step concreti") }
+                        VideoFeedChip("Montaggio") { feedback = appendFeedbackSnippet(feedback, "Montaggio piu' pulito e meno ridondanza") }
+                    }
+                    SettingsField("Feedback per Hermes", feedback, { feedback = it })
+                    Button(onClick = {
+                        if (feedback.isBlank()) {
+                            status = "Scrivi feedback prima di inviare."
+                            return@Button
+                        }
+                        status = "Invio feedback a Hermes..."
+                        scope.launch {
+                            val result = sendVideoLibraryFeedback(settings, item, feedback, reaction, loadGatewaySecret(context))
+                            saveVideoFeedback(context, item.id, feedback, reaction, result)
+                            status = result
+                        }
+                    }) { Text("Invia feedback") }
+                }
+            }
+        }
+
+        if (fullScreen) {
+            BackHandler { fullScreen = false }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -4404,6 +4398,7 @@ private fun NewsHtmlScreen(context: Context, settings: AppSettings, item: NewsHt
     val pageUrl = remember(settings.gatewayUrl, item.url) { resolveWorkspaceUrl(settings, item.url) }
     var status by remember(item.id) { mutableStateOf("Carico pagina HTML...") }
     var html by remember(item.id) { mutableStateOf("") }
+    var fullScreen by rememberSaveable(item.id) { mutableStateOf(false) }
 
     LaunchedEffect(pageUrl, apiKey) {
         val loaded = loadNewsHtml(settings, item, apiKey)
@@ -4411,48 +4406,123 @@ private fun NewsHtmlScreen(context: Context, settings: AppSettings, item: NewsHt
         status = loaded.second
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Button(onClick = onBack) { Text("Indietro") }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(item.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(status, color = AppColors.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    DisposableEffect(fullScreen) {
+        if (!fullScreen) {
+            onDispose { }
+        } else {
+            val activity = context as? Activity
+            val window = activity?.window
+            val insetsController = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (window != null) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+            }
+            insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+            onDispose {
+                window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                insetsController?.show(WindowInsetsCompat.Type.systemBars())
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, true)
+                }
             }
         }
-        HorizontalDivider(color = AppColors.Border)
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { viewContext ->
-                WebView(viewContext).apply {
-                    getSettings().javaScriptEnabled = true
-                    getSettings().domStorageEnabled = true
-                    getSettings().loadWithOverviewMode = true
-                    getSettings().useWideViewPort = true
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
+        if (!fullScreen) {
+            Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(onClick = onBack) { Text("Indietro") }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(item.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(status, color = AppColors.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    IconButton(onClick = { fullScreen = true }) {
+                        Icon(Icons.Rounded.CropFree, contentDescription = "Apri a schermo intero", tint = Color.White)
                     }
                 }
-            },
-            update = { webView ->
-                if (html.isBlank()) {
-                    webView.loadDataWithBaseURL(
-                        pageUrl,
-                        "<html><body style=\"font-family:sans-serif;background:#111827;color:#fff\"><p>Caricamento...</p></body></html>",
-                        "text/html",
-                        "utf-8",
-                        null
-                    )
-                } else {
-                    webView.loadDataWithBaseURL(pageUrl, injectHtmlBase(html, pageUrl), "text/html", "utf-8", null)
+                HorizontalDivider(color = AppColors.Border)
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { viewContext ->
+                        WebView(viewContext).apply {
+                            this.settings.javaScriptEnabled = true
+                            this.settings.domStorageEnabled = true
+                            this.settings.loadWithOverviewMode = true
+                            this.settings.useWideViewPort = true
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
+                            }
+                        }
+                    },
+                    update = { webView ->
+                        if (html.isBlank()) {
+                            webView.loadDataWithBaseURL(
+                                pageUrl,
+                                "<html><body style=\"font-family:sans-serif;background:#111827;color:#fff\"><p>Caricamento...</p></body></html>",
+                                "text/html",
+                                "utf-8",
+                                null
+                            )
+                        } else {
+                            webView.loadDataWithBaseURL(pageUrl, injectHtmlBase(html, pageUrl), "text/html", "utf-8", null)
+                        }
+                    }
+                )
+            }
+        }
+
+        if (fullScreen) {
+            BackHandler { fullScreen = false }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            ) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { viewContext ->
+                        WebView(viewContext).apply {
+                            this.settings.javaScriptEnabled = true
+                            this.settings.domStorageEnabled = true
+                            this.settings.loadWithOverviewMode = true
+                            this.settings.useWideViewPort = true
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
+                            }
+                        }
+                    },
+                    update = { webView ->
+                        if (html.isBlank()) {
+                            webView.loadDataWithBaseURL(
+                                pageUrl,
+                                "<html><body style=\"font-family:sans-serif;background:#111827;color:#fff\"><p>Caricamento...</p></body></html>",
+                                "text/html",
+                                "utf-8",
+                                null
+                            )
+                        } else {
+                            webView.loadDataWithBaseURL(pageUrl, injectHtmlBase(html, pageUrl), "text/html", "utf-8", null)
+                        }
+                    }
+                )
+                Button(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp),
+                    onClick = { fullScreen = false }
+                ) {
+                    Text("Chiudi")
                 }
             }
-        )
+        }
     }
 }
 
@@ -8595,6 +8665,12 @@ private fun formatDateTime(millis: Long): String {
     return java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(millis))
 }
 
+private fun notificationChatPrompt(item: HubNotification): String {
+    return item.conversationPrompt.ifBlank {
+        "Riprendiamo da questa notifica Hermes:\n\nTitolo: ${item.title}\nMessaggio: ${item.message}\n\nVoglio chiederti una cosa su questa notifica."
+    }
+}
+
 private const val HERMES_NOTIFICATION_CHANNEL = "hermes_hub_notifications"
 private const val HERMES_NOTIFICATION_WORK = "hermes_hub_notification_poll"
 
@@ -8632,8 +8708,8 @@ class HermesNotificationWorker(context: Context, params: WorkerParameters) : Cor
             val seen = prefs.getStringSet("seenHubNotifications", emptySet())?.toMutableSet() ?: mutableSetOf()
             var changed = false
             result.first.sortedBy { it.createdAt }.forEach { item ->
-                if (seen.add(item.id)) {
-                    showHermesSystemNotification(applicationContext, item)
+                if (!seen.contains(item.id) && showHermesSystemNotification(applicationContext, item)) {
+                    seen.add(item.id)
                     changed = true
                 }
             }
@@ -8647,11 +8723,11 @@ class HermesNotificationWorker(context: Context, params: WorkerParameters) : Cor
     }
 }
 
-private fun showHermesSystemNotification(context: Context, item: HubNotification) {
+private fun showHermesSystemNotification(context: Context, item: HubNotification): Boolean {
     if (Build.VERSION.SDK_INT >= 33 &&
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
     ) {
-        return
+        return false
     }
     val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     val pending = PendingIntent.getActivity(
@@ -8670,6 +8746,7 @@ private fun showHermesSystemNotification(context: Context, item: HubNotification
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         .build()
     NotificationManagerCompat.from(context).notify(item.id.hashCode(), notification)
+    return true
 }
 
 private fun appVersion(context: Context): String {

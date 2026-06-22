@@ -8,8 +8,9 @@
     xmlns:services="using:NemoclawChat_Windows.Services"
     mc:Ignorable="d">
 
-    <ScrollViewer Background="{StaticResource AppBackgroundBrush}">
-        <Grid Padding="44,36" RowSpacing="22">
+    <Grid Background="{StaticResource AppBackgroundBrush}">
+        <ScrollViewer>
+            <Grid Padding="44,36" RowSpacing="22">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -75,12 +76,12 @@
                 </Grid>
             </Border>
 
-            <Grid
-                x:Name="VideoContentGrid"
-                Grid.Row="2"
-                ColumnSpacing="18"
-                RowSpacing="18"
-                SizeChanged="VideoContentGrid_SizeChanged">
+                <Grid
+                    x:Name="VideoContentGrid"
+                    Grid.Row="2"
+                    ColumnSpacing="18"
+                    RowSpacing="18"
+                    SizeChanged="VideoContentGrid_SizeChanged">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1.2*" />
                     <ColumnDefinition Width="0.95*" />
@@ -247,7 +248,58 @@
                             TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
+                </Grid>
             </Grid>
+        </ScrollViewer>
+
+        <Grid
+            x:Name="FullScreenVideoOverlay"
+            Background="{StaticResource AppBackgroundBrush}"
+            Padding="28"
+            RowSpacing="16"
+            Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <TextBlock
+                        x:Name="FullScreenVideoTitleText"
+                        FontSize="26"
+                        FontWeight="SemiBold"
+                        Foreground="White"
+                        Text="Video" />
+                    <TextBlock
+                        x:Name="FullScreenVideoMetaText"
+                        Foreground="{StaticResource MutedTextBrush}"
+                        Text="Riproduzione a schermo intero."
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <Button
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Click="CloseFullScreen_Click"
+                    Content="Chiudi" />
+            </Grid>
+
+            <Border
+                Grid.Row="1"
+                Background="Black"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="1"
+                CornerRadius="18">
+                <MediaPlayerElement
+                    x:Name="FullScreenVideoPlayer"
+                    AreTransportControlsEnabled="True"
+                    AutoPlay="False"
+                    Stretch="Uniform" />
+            </Border>
         </Grid>
-    </ScrollViewer>
+    </Grid>
 </Page>

@@ -1710,7 +1710,9 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "            body = await request.json()\n"
             "        except Exception:\n"
             "            body = {}\n"
-            "        return web.json_response(_hermes_hub_patch_notification(request.match_info.get(\"notification_id\", \"\"), body if isinstance(body, dict) else {}))\n"
+            "        updated = _hermes_hub_patch_notification(request.match_info.get(\"notification_id\", \"\"), body if isinstance(body, dict) else {})\n"
+            "        status = 404 if isinstance(updated, dict) and updated.get(\"missing\") else 200\n"
+            "        return web.json_response(updated, status=status)\n"
             "\n"
             "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
             "hub support endpoint handlers",
@@ -1746,7 +1748,9 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "            body = await request.json()\n"
             "        except Exception:\n"
             "            body = {}\n"
-            "        return web.json_response(_hermes_hub_patch_notification(request.match_info.get(\"notification_id\", \"\"), body if isinstance(body, dict) else {}))\n"
+            "        updated = _hermes_hub_patch_notification(request.match_info.get(\"notification_id\", \"\"), body if isinstance(body, dict) else {})\n"
+            "        status = 404 if isinstance(updated, dict) and updated.get(\"missing\") else 200\n"
+            "        return web.json_response(updated, status=status)\n"
             "\n"
             "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
             "hub notifications endpoint handlers",
