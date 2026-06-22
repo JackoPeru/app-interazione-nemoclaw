@@ -8792,6 +8792,18 @@ private fun scheduleHermesNotificationWorker(context: Context) {
     val request = PeriodicWorkRequestBuilder<HermesNotificationWorker>(15, TimeUnit.MINUTES)
         .addTag(HERMES_NOTIFICATION_WORK)
         .build()
+    // #region debug-point C:worker-schedule
+    debugReport(
+        hypothesisId = "C",
+        location = "MainActivity.kt:scheduleHermesNotificationWorker",
+        msg = "[DEBUG] scheduling Hermes notification worker",
+        data = mapOf(
+            "workName" to HERMES_NOTIFICATION_WORK,
+            "intervalMinutes" to 15,
+            "requestId" to request.id.toString()
+        )
+    )
+    // #endregion
     WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
         HERMES_NOTIFICATION_WORK,
         ExistingPeriodicWorkPolicy.UPDATE,
@@ -8830,6 +8842,20 @@ class HermesNotificationWorker(context: Context, params: WorkerParameters) : Cor
             val seen = prefs.getStringSet("seenHubNotifications", emptySet())?.toMutableSet() ?: mutableSetOf()
             var changed = false
             result.first.sortedBy { it.createdAt }.forEach { item ->
+                // #region debug-point E:worker-item
+                debugReport(
+                    hypothesisId = "E",
+                    location = "MainActivity.kt:HermesNotificationWorker:item",
+                    msg = "[DEBUG] evaluating notification item for display",
+                    data = mapOf(
+                        "notificationId" to item.id,
+                        "alreadySeen" to seen.contains(item.id),
+                        "createdAt" to item.createdAt,
+                        "readAt" to item.readAt,
+                        "severity" to item.severity
+                    )
+                )
+                // #endregion
                 if (!seen.contains(item.id) && showHermesSystemNotification(applicationContext, item)) {
                     seen.add(item.id)
                     changed = true
@@ -8838,8 +8864,31 @@ class HermesNotificationWorker(context: Context, params: WorkerParameters) : Cor
             if (changed) {
                 prefs.edit().putStringSet("seenHubNotifications", seen.toList().takeLast(300).toSet()).apply()
             }
+            // #region debug-point E:worker-seen-save
+            debugReport(
+                hypothesisId = "E",
+                location = "MainActivity.kt:HermesNotificationWorker:seen-save",
+                msg = "[DEBUG] worker finished notification iteration",
+                data = mapOf(
+                    "changed" to changed,
+                    "seenCount" to seen.size,
+                    "fetchedCount" to result.first.size
+                )
+            )
+            // #endregion
             Result.success()
-        } catch (_: Exception) {
+        } catch (ex: Exception) {
+            // #region debug-point C:worker-error
+            debugReport(
+                hypothesisId = "C",
+                location = "MainActivity.kt:HermesNotificationWorker:error",
+                msg = "[DEBUG] HermesNotificationWorker failed and will retry",
+                data = mapOf(
+                    "error" to (ex.message ?: ex.javaClass.simpleName),
+                    "errorType" to ex.javaClass.simpleName
+                )
+            )
+            // #endregion
             Result.retry()
         }
     }
@@ -8849,6 +8898,14 @@ private fun showHermesSystemNotification(context: Context, item: HubNotification
     if (Build.VERSION.SDK_INT >= 33 &&
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
     ) {
+        // #region debug-point E:system-notification-permission
+        debugReport(
+            hypothesisId = "E",
+            location = "MainActivity.kt:showHermesSystemNotification:permission",
+            msg = "[DEBUG] notification not shown because POST_NOTIFICATIONS is denied",
+            data = mapOf("notificationId" to item.id)
+        )
+        // #endregion
         return false
     }
     val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -8868,6 +8925,18 @@ private fun showHermesSystemNotification(context: Context, item: HubNotification
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         .build()
     NotificationManagerCompat.from(context).notify(item.id.hashCode(), notification)
+    // #region debug-point E:system-notification-shown
+    debugReport(
+        hypothesisId = "E",
+        location = "MainActivity.kt:showHermesSystemNotification:shown",
+        msg = "[DEBUG] notification posted to NotificationManager",
+        data = mapOf(
+            "notificationId" to item.id,
+            "title" to item.title,
+            "severity" to item.severity
+        )
+    )
+    // #endregion
     return true
 }
 
@@ -8953,7 +9022,7 @@ private const val SETTINGS_FIELD_MAX_LENGTH = 2048
 private val gatewaySecretKeyLock = Any()
 
 private const val DEBUG_SERVER_URL = "http://192.168.1.6:7777/event"
-private const val DEBUG_SESSION_ID = "android-notifications-auth"
+private const val DEBUG_SESSION_ID = "android-notifications-missed"
 
 private fun debugTokenFingerprint(value: String?): String {
     if (value.isNullOrBlank()) return "blank"
