@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.118 Release Hermes Hub 0.6.118 Android notifications debug instrumentation
+v0.6.119 Release Hermes Hub 0.6.119 Fix Android startup crash & update versions
 ```
 
 ## Release Corrente
