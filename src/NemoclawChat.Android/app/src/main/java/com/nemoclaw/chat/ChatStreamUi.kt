@@ -100,7 +100,7 @@ internal fun StreamingBubbleView(
 
             if (showMessageMetrics && state.isDone) {
                 val parts = mutableListOf<String>()
-                state.stats?.ttftMs?.takeIf { metricFilter.ttft && it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.0f", it)}ms" }
+                state.stats?.ttftMs?.takeIf { metricFilter.ttft && it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
                 state.stats?.tokensPerSecond?.takeIf { metricFilter.tokensPerSecond && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s" }
                 state.stats?.tokensOut?.takeIf { metricFilter.outputTokens && it > 0 }?.let { parts += "$it tok" }
                 state.stats?.promptTokens?.takeIf { metricFilter.promptTokens && it > 0 }?.let { parts += "prompt $it" }
@@ -282,13 +282,16 @@ internal fun ThinkingExpander(thinking: String, active: Boolean, elapsedSec: Dou
                 .heightIn(min = 48.dp)
                 .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (active) {
                 ShimmerText("Sto pensando")
+                Spacer(modifier = Modifier.weight(1f))
+                Text(text = "${thinking.length / 4} tok", color = AppColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             } else {
                 val label = if (elapsedSec >= 1) "Pensato per ${String.format(java.util.Locale.US, "%.1f", elapsedSec)}s" else "Ragionamento"
                 Text(text = label, color = AppColors.Muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.weight(1f))
             }
             Icon(
                 imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,

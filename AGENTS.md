@@ -38,6 +38,14 @@ v0.6.123 Release Hermes Hub 0.6.123 Background multi-stream fix
 
 ## Release Corrente
 
+Hermes Hub 0.6.125 (UI Tweaks & Metrics):
+
+Release 0.6.125:
+- Windows/Android: Aggiornato il calcolo del TTFT (Time To First Token) da millisecondi a secondi (es. `0.8s`).
+- Windows/Android: Allentati i vincoli per la generazione dei `t/s` (tokens per second). Ora la metrica compare sempre, richiedendo solo 0.2s di durata e 2 token, invece dei precedenti 1.5s e 8 token.
+- Android: Aggiornato `ThinkingExpander`. Ora quando Hermes pensa usa uno stile animato `FlagRow` ("Sto pensando" + token count), coerente con le altre animazioni di stato pre-generazione.
+- Release bump: Windows/AdminBridge `0.6.125`, Android `versionName 0.6.125`, `versionCode 130`.
+
 Hermes Hub 0.6.124 (Live Markdown and Thinking support):
 
 Release 0.6.124:

@@ -1845,7 +1845,7 @@ private fun formatChatStatsLine(stats: ChatStreamStats?, filter: MetricDisplayFi
     if (stats == null) return ""
     val parts = mutableListOf<String>()
     stats.ttftMs?.takeIf { filter.ttft && it > 0 }?.let {
-        parts += "TTFT ${String.format(java.util.Locale.US, "%.0f", it)}ms"
+        parts += "TTFT ${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s"
     }
     stats.tokensPerSecond?.takeIf { filter.tokensPerSecond && it > 0 }?.let {
         parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s"

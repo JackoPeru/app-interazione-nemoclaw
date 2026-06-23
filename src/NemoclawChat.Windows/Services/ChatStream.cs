@@ -1449,7 +1449,7 @@ public static class ChatStreamClient
 
     private static double? CalculateStableTokensPerSecond(int tokensOut, double? firstTokenMs, double? lastTokenMs, double totalMs)
     {
-        if (tokensOut < 8)
+        if (tokensOut < 2)
         {
             return null;
         }
@@ -1457,7 +1457,7 @@ public static class ChatStreamClient
         var durationMs = firstTokenMs.HasValue && lastTokenMs.HasValue
             ? Math.Max(0, lastTokenMs.Value - firstTokenMs.Value)
             : totalMs;
-        if (durationMs < 1500)
+        if (durationMs < 200)
         {
             return null;
         }

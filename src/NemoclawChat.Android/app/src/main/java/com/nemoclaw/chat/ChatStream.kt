@@ -77,13 +77,13 @@ private fun StringBuilder.appendBounded(text: String): Boolean {
 }
 
 private fun calculateStableTokensPerSecond(tokensOut: Int, firstTokenNs: Long?, lastTokenNs: Long?, totalMs: Double): Double? {
-    if (tokensOut < 8) return null
+    if (tokensOut < 2) return null
     val durationMs = if (firstTokenNs != null && lastTokenNs != null) {
         ((lastTokenNs - firstTokenNs).coerceAtLeast(0L)) / 1_000_000.0
     } else {
         totalMs
     }
-    if (durationMs < 1500.0) return null
+    if (durationMs < 200.0) return null
     return validateTokensPerSecond((tokensOut - 1).coerceAtLeast(1) / (durationMs / 1000.0))
 }
 
