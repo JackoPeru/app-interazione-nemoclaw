@@ -609,18 +609,25 @@ public sealed partial class HomePage : Page
                         break;
                     case StreamDone done:
                         finalStats = done.Stats;
+                        if (!string.IsNullOrEmpty(done.AccumulatedText) &&
+                            !string.Equals(finalTextBuilder.ToString(), done.AccumulatedText, StringComparison.Ordinal))
+                        {
+                            finalTextBuilder.Clear();
+                            AppendBounded(finalTextBuilder, done.AccumulatedText);
+                        }
+                        if (!string.IsNullOrEmpty(done.AccumulatedThinking) &&
+                            !string.Equals(finalThinkingBuilder.ToString(), done.AccumulatedThinking, StringComparison.Ordinal))
+                        {
+                            finalThinkingBuilder.Clear();
+                            AppendBounded(finalThinkingBuilder, done.AccumulatedThinking);
+                        }
+                        bubble.SynchronizeFinalContent(
+                            string.IsNullOrEmpty(done.AccumulatedText) ? null : done.AccumulatedText,
+                            string.IsNullOrEmpty(done.AccumulatedThinking) ? null : done.AccumulatedThinking);
                         bubble.Complete(done.Stats);
                         if (IsComposerRunCurrent(composerRunId))
                         {
                             UpdateContextMeter(done.Stats);
-                        }
-                        if (finalTextBuilder.Length == 0 && !string.IsNullOrEmpty(done.AccumulatedText))
-                        {
-                            AppendBounded(finalTextBuilder, done.AccumulatedText);
-                        }
-                        if (finalThinkingBuilder.Length == 0 && !string.IsNullOrEmpty(done.AccumulatedThinking))
-                        {
-                            AppendBounded(finalThinkingBuilder, done.AccumulatedThinking);
                         }
                         break;
                     case StreamError se:

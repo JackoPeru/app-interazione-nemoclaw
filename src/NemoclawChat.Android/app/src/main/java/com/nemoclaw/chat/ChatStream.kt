@@ -574,6 +574,7 @@ fun streamChatRequest(
     for (extracted in thinkExtractor.flush()) {
         emitAndTrackInternal(extracted)
     }
+    flushDeltaBatches()
     val tokensOut = completionTokens ?: max(1, accumText.length / 4)
     val tps = serverTokensPerSecond ?: calculateStableTokensPerSecond(tokensOut, firstOutputTokenNs, lastOutputTokenNs, totalMs)
     if (retriedWithoutPreviousResponseId && emittedResponseId.isNullOrBlank()) {
@@ -1670,4 +1671,3 @@ private class ThinkExtractor {
         return events
     }
 }
-

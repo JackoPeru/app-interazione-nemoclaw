@@ -570,6 +570,32 @@ internal sealed class StreamingBubble
         ScheduleScroll();
     }
 
+    public void SynchronizeFinalContent(string? finalText, string? finalThinking)
+    {
+        if (!string.IsNullOrEmpty(finalText) && !string.Equals(_textBuilder.ToString(), finalText, StringComparison.Ordinal))
+        {
+            _textBuilder.Clear();
+            _textBuilder.Append(finalText);
+            _hasText = _textBuilder.Length > 0;
+            if (_hasText)
+            {
+                _assistantContainer.Visibility = Visibility.Visible;
+            }
+            _renderPending = true;
+        }
+
+        if (_showAdvanced && !string.IsNullOrEmpty(finalThinking) && !string.Equals(_thinkingBuilder.ToString(), finalThinking, StringComparison.Ordinal))
+        {
+            _thinkingBuilder.Clear();
+            _thinkingBuilder.Append(finalThinking);
+            _thinkingText.Text = finalThinking;
+            _hasThinking = _thinkingBuilder.Length > 0;
+            _thinkingExpander.Visibility = _hasThinking ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        FlushTextPreview();
+    }
+
     public void StopShimmer()
     {
         if (_shimmerTimer.IsEnabled)

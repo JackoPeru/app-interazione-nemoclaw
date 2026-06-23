@@ -33,10 +33,27 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.123 Release Hermes Hub 0.6.123 Background multi-stream fix
+v0.6.127 Release Hermes Hub 0.6.127 fix token finale stream e reasoning persistente
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.127 (Stream finale e reasoning persistente):
+
+Release 0.6.127:
+- Android: corretto il flush finale dei delta stream dopo `thinkExtractor.flush()`, cosi' l'ultimo token della risposta non viene piu' perso.
+- Android: il reasoning viene salvato nel `ChatMessage`, mostrato nel messaggio finale e persistito nell'archivio locale, cosi' resta cliccabile anche dopo la fine dello stream.
+- Windows: alla ricezione di `StreamDone` la UI riallinea bubble e builder al testo finale autorevole (`AccumulatedText`/`AccumulatedThinking`), evitando la perdita dell'ultimo token in chiusura stream.
+- Asset release attesi: Android APK `HermesHub-0.6.127-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.127.0_x64.msix`, Linux Gateway `HermesHub-0.6.127-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.127`, Android `versionName 0.6.127`, `versionCode 132`.
+
+Hermes Hub 0.6.126 (Finalizzazione release 0.6.125):
+
+Release 0.6.126:
+- Completata la release GitHub rimasta interrotta durante la preparazione della `0.6.125`, riallineando tutti i file di versione prima della pubblicazione.
+- Mantiene le modifiche UI/metriche della `0.6.125`: TTFT espresso in secondi, soglie `t/s` piu' permissive e `ThinkingExpander` Android aggiornato con stile `FlagRow`.
+- Asset release attesi: Android APK `HermesHub-0.6.126-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.126.0_x64.msix`, Linux Gateway `HermesHub-0.6.126-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.126`, Android `versionName 0.6.126`, `versionCode 131`.
 
 Hermes Hub 0.6.125 (UI Tweaks & Metrics):
 

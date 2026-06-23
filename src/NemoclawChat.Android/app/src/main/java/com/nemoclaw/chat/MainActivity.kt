@@ -295,6 +295,7 @@ data class ChatMessage(
     val text: String,
     val fromUser: Boolean,
     val isAction: Boolean = false,
+    val thinking: String = "",
     val visualBlocksVersion: Int? = null,
     val visualBlocks: List<VisualBlock> = emptyList(),
     val stats: ChatStreamStats? = null,
@@ -1352,6 +1353,7 @@ private fun ChatScreen(
                                                     "Hermes",
                                                     localState.text.streamingCheckpointPreview().ifBlank { "Hermes sta lavorando..." },
                                                     fromUser = false,
+                                                    thinking = localState.thinking,
                                                     visualBlocksVersion = localState.visualBlocksVersion,
                                                     visualBlocks = localState.visualBlocks,
                                                     stats = localState.stats,
@@ -1387,6 +1389,7 @@ private fun ChatScreen(
                                         finalText,
                                         fromUser = false,
                                         isAction = interrupted && partialText.isEmpty(),
+                                        thinking = finalState.thinking,
                                         visualBlocksVersion = finalState.visualBlocksVersion,
                                         visualBlocks = finalState.visualBlocks,
                                         stats = finalState.stats,
@@ -1745,6 +1748,9 @@ private fun MessageBubble(message: ChatMessage, settings: AppSettings) {
                     .padding(horizontal = 2.dp, vertical = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (message.thinking.isNotBlank()) {
+                    ThinkingExpander(thinking = message.thinking, active = false, elapsedSec = 0.0)
+                }
                 MarkdownText(message.text, color = Color.White, fontSize = 15.sp)
                 if (message.visualBlocks.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1784,6 +1790,10 @@ private fun MessageBubble(message: ChatMessage, settings: AppSettings) {
                     if (message.fromUser || message.isAction) {
                         Text(text = message.text, color = Color.White)
                     } else {
+                        if (message.thinking.isNotBlank()) {
+                            ThinkingExpander(thinking = message.thinking, active = false, elapsedSec = 0.0)
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
                         MarkdownText(message.text, color = Color.White)
                     }
                     if (message.visualBlocks.isNotEmpty()) {
@@ -8621,6 +8631,7 @@ private fun readMessages(array: JSONArray): List<ChatMessage> {
                     text = obj.optString("text"),
                     fromUser = obj.optBoolean("fromUser"),
                     isAction = obj.optBoolean("isAction", false),
+                    thinking = obj.optString("thinking"),
                     visualBlocksVersion = obj.optNullableInt("visualBlocksVersion"),
                     visualBlocks = readVisualBlocks(obj.optJSONArray("visualBlocks") ?: JSONArray()),
                     stats = readChatStats(obj.optJSONObject("stats")),
@@ -8642,6 +8653,7 @@ private fun writeMessages(messages: List<ChatMessage>): JSONArray {
                 .put("text", message.text)
                 .put("fromUser", message.fromUser)
                 .put("isAction", message.isAction)
+                .put("thinking", message.thinking)
                 .put("visualBlocksVersion", message.visualBlocksVersion ?: JSONObject.NULL)
                 .put("visualBlocks", writeVisualBlocks(message.visualBlocks))
                 .put("stats", writeChatStats(message.stats) ?: JSONObject.NULL)
