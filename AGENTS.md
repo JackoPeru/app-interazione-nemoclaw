@@ -33,10 +33,18 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.119 Release Hermes Hub 0.6.119 Fix Android startup crash & update versions
+v0.6.120 Release Hermes Hub 0.6.120 Android crash fix
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.120 (Android crash fix):
+
+Release 0.6.120:
+- Android: fix crash all'avvio causato da `ActivityNotFoundException` durante la richiesta esenzione ottimizzazione batteria senza blocco `try-catch`.
+- Windows/Android: pulizia e allineamento build files e plugin.
+- Asset release attesi: Android APK `HermesHub-0.6.120-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.120.0_x64.msix`, Linux Gateway `HermesHub-0.6.120-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.120`, Android `versionName 0.6.120`, `versionCode 125`.
 
 Hermes Hub 0.6.119 (Android notifications background reliability):
 
