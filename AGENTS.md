@@ -36,6 +36,18 @@ Ultimo push release fatto su richiesta utente:
 v0.6.118 Release Hermes Hub 0.6.118 Android notifications debug instrumentation
 ```
 
+## Release Corrente
+
+Hermes Hub 0.6.119 (Android notifications background reliability):
+
+Release 0.6.119:
+- Android notifiche: WorkManager schedulato con `setExpedited()` (Android 12+), vincoli di rete (`NetworkType.CONNECTED`), `setRequiresBatteryNotLow(true)` e `BackoffPolicy.LINEAR` con backoff di 5 minuti.
+- Android notifiche: aggiunto `BootReceiver` che riprogramma il worker all'avvio del dispositivo (`ACTION_BOOT_COMPLETED`), non solo all'apertura dell'app.
+- Android notifiche: aggiunta gestione ottimizzazione batteria con richiesta `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`; l'app guida l'utente nelle impostazioni di sistema per disabilitare le restrizioni batteria.
+- Android notifiche: schedulazione estratta in `NotificationWorkerUtils.kt` per separare logica di utilita' da MainActivity.
+- Asset release attesi: Android APK `HermesHub-0.6.119-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.119.0_x64.msix`.
+- Release bump: Windows/AdminBridge `0.6.119`, Android `versionName 0.6.119`, `versionCode 124`.
+
 ## Regola Linux Gateway Update
 
 Quando serve preparare/aggiornare il server Linux Hermes Gateway:
@@ -137,6 +149,9 @@ Aggiornare questo file ogni volta che cambia qualcosa di importante nel progetto
 Non lasciare `AGENTS.md` obsoleto dopo modifiche rilevanti.
 
 ## Release Corrente
+
+Hermes Hub 0.6.119 (Android notifications background reliability):
+- Vedi sezione "Release Corrente" all'inizio di questo file per i dettagli completi.
 
 Hermes Hub 0.6.118 (Android notifications debug instrumentation):
 

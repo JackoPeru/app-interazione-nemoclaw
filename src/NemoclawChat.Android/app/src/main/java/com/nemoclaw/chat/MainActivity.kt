@@ -254,6 +254,7 @@ class MainActivity : ComponentActivity() {
         ensureHermesNotificationChannel(this)
         requestHermesNotificationPermission()
         scheduleHermesNotificationWorker(this)
+        this.requestBatteryOptimizationExemption()
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             ChatClawTheme {
@@ -8773,8 +8774,7 @@ private fun notificationChatPrompt(item: HubNotification): String {
     }
 }
 
-private const val HERMES_NOTIFICATION_CHANNEL = "hermes_hub_notifications"
-private const val HERMES_NOTIFICATION_WORK = "hermes_hub_notification_poll"
+
 
 private fun ensureHermesNotificationChannel(context: Context) {
     if (Build.VERSION.SDK_INT < 26) return
@@ -8788,27 +8788,17 @@ private fun ensureHermesNotificationChannel(context: Context) {
     context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 }
 
-private fun scheduleHermesNotificationWorker(context: Context) {
-    val request = PeriodicWorkRequestBuilder<HermesNotificationWorker>(15, TimeUnit.MINUTES)
-        .addTag(HERMES_NOTIFICATION_WORK)
-        .build()
-    // #region debug-point C:worker-schedule
-    debugReport(
-        hypothesisId = "C",
-        location = "MainActivity.kt:scheduleHermesNotificationWorker",
-        msg = "[DEBUG] scheduling Hermes notification worker",
-        data = mapOf(
-            "workName" to HERMES_NOTIFICATION_WORK,
-            "intervalMinutes" to 15,
-            "requestId" to request.id.toString()
-        )
-    )
-    // #endregion
-    WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
-        HERMES_NOTIFICATION_WORK,
-        ExistingPeriodicWorkPolicy.UPDATE,
-        request
-    )
+  fun Context.requestBatteryOptimizationExemption() {
+    val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+    val packageName = packageName
+    if (powerManager.isIgnoringBatteryOptimizations(packageName)) {
+        return
+    }
+    val intent = Intent()
+    intent.action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+    intent.data = android.net.Uri.parse("package:$packageName")
+    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    startActivity(intent)
 }
 
 class HermesNotificationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
