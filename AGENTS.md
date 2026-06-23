@@ -38,6 +38,14 @@ v0.6.123 Release Hermes Hub 0.6.123 Background multi-stream fix
 
 ## Release Corrente
 
+Hermes Hub 0.6.124 (Live Markdown and Thinking support):
+
+Release 0.6.124:
+- Windows/Android: Aggiunto supporto al parser streaming (`ThinkExtractor`) per isolare i blocchi `<think>` in `ThinkingDelta`. Questo permette di separare il "pensiero del modello" dal testo mostrato alla fine della generazione e aggiornare in modo coerente lo stato.
+- Windows/Android: Risolto bug di formattazione non funzionante. Sostituito il TextBlock grezzo con un reale `MarkdownRenderer` in Windows e con `MarkdownText` in Android (già introdotto ma ora abilitato su testo in streaming). Il Markdown è ora renderizzato in tempo reale.
+- Windows/Android: Abilitata la possibilità di selezionare e copiare il testo del modello durante e dopo lo stream (`IsTextSelectionEnabled = true` per Windows, aggiunto `SelectionContainer` su Android).
+- Release bump: Windows/AdminBridge `0.6.124`, Android `versionName 0.6.124`, `versionCode 129`.
+
 Hermes Hub 0.6.123 (Background multi-stream):
 
 Release 0.6.123:

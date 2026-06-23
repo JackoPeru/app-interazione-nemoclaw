@@ -244,7 +244,8 @@ internal static class MarkdownRenderer
             TextWrapping = TextWrapping.WrapWholeWords,
             FontSize = fontSize,
             FontWeight = weight,
-            Foreground = new SolidColorBrush(color)
+            Foreground = new SolidColorBrush(color),
+            IsTextSelectionEnabled = true
         };
         foreach (var inline in BuildInlines(text, color))
         {

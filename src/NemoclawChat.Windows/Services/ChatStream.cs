@@ -53,6 +53,7 @@ public static class ChatStreamClient
         IReadOnlyList<ChatInputAttachment>? attachments = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var thinkExtractor = new ThinkExtractor();
         var stopwatch = Stopwatch.StartNew();
         string? responseId = null;
         var accumulatedText = new StringBuilder();
@@ -146,7 +147,20 @@ public static class ChatStreamClient
                             ttft = tokenAt;
                             sawAnyDelta = true;
                         }
-                        AppendBounded(accumulatedText, td.Delta);
+                        foreach (var extractedEvent in thinkExtractor.Process(td.Delta))
+                        {
+                            if (extractedEvent is StreamTextDelta etd)
+                            {
+                                AppendBounded(accumulatedText, etd.Delta);
+                                yield return etd;
+                            }
+                            else if (extractedEvent is StreamThinkingDelta eth)
+                            {
+                                AppendBounded(accumulatedThinking, eth.Delta);
+                                yield return eth;
+                            }
+                        }
+                        continue;
                     }
                     else if (ev is StreamThinkingDelta th)
                     {
@@ -156,6 +170,7 @@ public static class ChatStreamClient
                             sawAnyDelta = true;
                         }
                         AppendBounded(accumulatedThinking, th.Delta);
+                        yield return th;
                     }
                     else if (ev is StreamResponseId rid)
                     {
@@ -194,6 +209,20 @@ public static class ChatStreamClient
                 }
 
                 break;
+            }
+
+            foreach (var extractedEvent in thinkExtractor.Flush())
+            {
+                if (extractedEvent is StreamTextDelta etd)
+                {
+                    AppendBounded(accumulatedText, etd.Delta);
+                    yield return etd;
+                }
+                else if (extractedEvent is StreamThinkingDelta eth)
+                {
+                    AppendBounded(accumulatedThinking, eth.Delta);
+                    yield return eth;
+                }
             }
         }
 
@@ -271,7 +300,20 @@ public static class ChatStreamClient
                         ttft = tokenAt;
                         sawAnyDelta = true;
                     }
-                    AppendBounded(accumulatedText, td.Delta);
+                    foreach (var extractedEvent in thinkExtractor.Process(td.Delta))
+                    {
+                        if (extractedEvent is StreamTextDelta etd)
+                        {
+                            AppendBounded(accumulatedText, etd.Delta);
+                            yield return etd;
+                        }
+                        else if (extractedEvent is StreamThinkingDelta eth)
+                        {
+                            AppendBounded(accumulatedThinking, eth.Delta);
+                            yield return eth;
+                        }
+                    }
+                    continue;
                 }
                 else if (ev is StreamThinkingDelta th)
                 {
@@ -281,6 +323,7 @@ public static class ChatStreamClient
                         sawAnyDelta = true;
                     }
                     AppendBounded(accumulatedThinking, th.Delta);
+                    yield return th;
                 }
                 else if (ev is StreamResponseId rid)
                 {
@@ -306,6 +349,20 @@ public static class ChatStreamClient
                 }
 
                 yield return ev;
+            }
+
+            foreach (var extractedEvent in thinkExtractor.Flush())
+            {
+                if (extractedEvent is StreamTextDelta etd)
+                {
+                    AppendBounded(accumulatedText, etd.Delta);
+                    yield return etd;
+                }
+                else if (extractedEvent is StreamThinkingDelta eth)
+                {
+                    AppendBounded(accumulatedThinking, eth.Delta);
+                    yield return eth;
+                }
             }
         }
 
@@ -1447,3 +1504,85 @@ public static class ChatStreamClient
 
 internal sealed record StreamUsage(int? PromptTokens, int? CompletionTokens, double? TokensPerSecond = null) : ChatStreamEvent;
 internal sealed record StreamContextUsage(int? ContextTokens, int? ContextLength, int? ContextPercent) : ChatStreamEvent;
+
+internal sealed class ThinkExtractor
+{
+    private readonly StringBuilder _buffer = new();
+    private bool _inThink;
+
+    public IEnumerable<ChatStreamEvent> Process(string delta)
+    {
+        if (string.IsNullOrEmpty(delta)) yield break;
+        _buffer.Append(delta);
+        var text = _buffer.ToString();
+
+        while (true)
+        {
+            if (!_inThink)
+            {
+                int start = text.IndexOf("<think>", StringComparison.Ordinal);
+                if (start >= 0)
+                {
+                    if (start > 0)
+                    {
+                        yield return new StreamTextDelta(text.Substring(0, start));
+                    }
+                    text = text.Substring(start + 7);
+                    _buffer.Clear();
+                    _buffer.Append(text);
+                    _inThink = true;
+                }
+                else
+                {
+                    int safeLen = Math.Max(0, text.Length - 6);
+                    if (safeLen > 0)
+                    {
+                        yield return new StreamTextDelta(text.Substring(0, safeLen));
+                        text = text.Substring(safeLen);
+                        _buffer.Clear();
+                        _buffer.Append(text);
+                    }
+                    break;
+                }
+            }
+            else
+            {
+                int end = text.IndexOf("</think>", StringComparison.Ordinal);
+                if (end >= 0)
+                {
+                    if (end > 0)
+                    {
+                        yield return new StreamThinkingDelta(text.Substring(0, end));
+                    }
+                    text = text.Substring(end + 8);
+                    _buffer.Clear();
+                    _buffer.Append(text);
+                    _inThink = false;
+                }
+                else
+                {
+                    int safeLen = Math.Max(0, text.Length - 7);
+                    if (safeLen > 0)
+                    {
+                        yield return new StreamThinkingDelta(text.Substring(0, safeLen));
+                        text = text.Substring(safeLen);
+                        _buffer.Clear();
+                        _buffer.Append(text);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    public IEnumerable<ChatStreamEvent> Flush()
+    {
+        var text = _buffer.ToString();
+        if (text.Length > 0)
+        {
+            if (_inThink) yield return new StreamThinkingDelta(text);
+            else yield return new StreamTextDelta(text);
+        }
+        _buffer.Clear();
+    }
+}

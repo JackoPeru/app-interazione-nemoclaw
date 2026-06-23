@@ -339,6 +339,7 @@ fun streamChatRequest(
     val textBatch = StringBuilder()
     val thinkingBatch = StringBuilder()
     var lastBatchFlushNs = System.nanoTime()
+    val thinkExtractor = ThinkExtractor()
 
     suspend fun flushDeltaBatches() {
         if (textBatch.isNotEmpty()) {
@@ -352,7 +353,7 @@ fun streamChatRequest(
         lastBatchFlushNs = System.nanoTime()
     }
 
-    suspend fun emitAndTrack(ev: ChatStreamEvent): Boolean {
+    suspend fun emitAndTrackInternal(ev: ChatStreamEvent): Boolean {
         when (ev) {
             is ChatStreamEvent.TextDelta -> {
                 val tokenAt = System.nanoTime()
@@ -415,6 +416,17 @@ fun streamChatRequest(
         }
         emit(ev)
         return false
+    }
+
+    suspend fun emitAndTrack(ev: ChatStreamEvent): Boolean {
+        if (ev is ChatStreamEvent.TextDelta) {
+            var stop = false
+            for (extracted in thinkExtractor.process(ev.delta)) {
+                if (emitAndTrackInternal(extracted)) stop = true
+            }
+            return stop
+        }
+        return emitAndTrackInternal(ev)
     }
 
     if (mode.equals("Agente", ignoreCase = true)) {
@@ -559,6 +571,9 @@ fun streamChatRequest(
     }
 
     flushDeltaBatches()
+    for (extracted in thinkExtractor.flush()) {
+        emitAndTrackInternal(extracted)
+    }
     val tokensOut = completionTokens ?: max(1, accumText.length / 4)
     val tps = serverTokensPerSecond ?: calculateStableTokensPerSecond(tokensOut, firstOutputTokenNs, lastOutputTokenNs, totalMs)
     if (retriedWithoutPreviousResponseId && emittedResponseId.isNullOrBlank()) {
@@ -1587,3 +1602,72 @@ private fun visualBlocksMetadataJson(settings: AppSettings, conversationId: Stri
                 .put("media_file", "supported for image/video/audio/document via safe proxy URLs; include media_kind, mime_type, filename, size_bytes, duration_ms, thumbnail_url when known")
         )
 }
+
+private class ThinkExtractor {
+    private val buffer = StringBuilder()
+    private var inThink = false
+
+    fun process(delta: String): List<ChatStreamEvent> {
+        if (delta.isEmpty()) return emptyList()
+        buffer.append(delta)
+        var text = buffer.toString()
+        val events = mutableListOf<ChatStreamEvent>()
+
+        while (true) {
+            if (!inThink) {
+                val start = text.indexOf("<think>")
+                if (start >= 0) {
+                    if (start > 0) {
+                        events.add(ChatStreamEvent.TextDelta(text.substring(0, start)))
+                    }
+                    text = text.substring(start + 7)
+                    buffer.clear()
+                    buffer.append(text)
+                    inThink = true
+                } else {
+                    val safeLen = maxOf(0, text.length - 6)
+                    if (safeLen > 0) {
+                        events.add(ChatStreamEvent.TextDelta(text.substring(0, safeLen)))
+                        text = text.substring(safeLen)
+                        buffer.clear()
+                        buffer.append(text)
+                    }
+                    break
+                }
+            } else {
+                val end = text.indexOf("</think>")
+                if (end >= 0) {
+                    if (end > 0) {
+                        events.add(ChatStreamEvent.ThinkingDelta(text.substring(0, end)))
+                    }
+                    text = text.substring(end + 8)
+                    buffer.clear()
+                    buffer.append(text)
+                    inThink = false
+                } else {
+                    val safeLen = maxOf(0, text.length - 7)
+                    if (safeLen > 0) {
+                        events.add(ChatStreamEvent.ThinkingDelta(text.substring(0, safeLen)))
+                        text = text.substring(safeLen)
+                        buffer.clear()
+                        buffer.append(text)
+                    }
+                    break
+                }
+            }
+        }
+        return events
+    }
+
+    fun flush(): List<ChatStreamEvent> {
+        val text = buffer.toString()
+        val events = mutableListOf<ChatStreamEvent>()
+        if (text.isNotEmpty()) {
+            if (inThink) events.add(ChatStreamEvent.ThinkingDelta(text))
+            else events.add(ChatStreamEvent.TextDelta(text))
+        }
+        buffer.clear()
+        return events
+    }
+}
+

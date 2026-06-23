@@ -614,7 +614,16 @@ internal sealed class StreamingBubble
         }
 
         _renderPending = false;
-        _assistantTextPreview.Text = PreviewText(_textBuilder);
+        var text = PreviewText(_textBuilder);
+        if (text.Length <= MaxMarkdownRenderChars)
+        {
+            _assistantContainer.Content = MarkdownRenderer.Render(text, Colors.White);
+        }
+        else
+        {
+            _assistantTextPreview.Text = text;
+            _assistantContainer.Content = _assistantTextPreview;
+        }
         ScheduleScroll();
     }
 

@@ -69,63 +69,65 @@ internal fun StreamingBubbleView(
     showMessageMetrics: Boolean,
     metricFilter: MetricDisplayFilter
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 2.dp, vertical = 2.dp)
-            .animateContentSize()
-            .semantics {
-                liveRegion = LiveRegionMode.Polite
-            },
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-                val showActivity = !state.isDone || state.hasThinking || (showToolCalls && state.toolCalls.isNotEmpty())
-                if (showActivity) {
-                    HermesActivityExpander(state, showToolCalls)
-                }
+    androidx.compose.foundation.text.selection.SelectionContainer {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp, vertical = 2.dp)
+                .animateContentSize()
+                .semantics {
+                    liveRegion = LiveRegionMode.Polite
+                },
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val showActivity = !state.isDone || state.hasThinking || (showToolCalls && state.toolCalls.isNotEmpty())
+            if (showActivity) {
+                HermesActivityExpander(state, showToolCalls)
+            }
 
-                if (state.text.isNotEmpty()) {
-                    MarkdownText(state.text, color = Color.White, fontSize = 15.sp)
-                }
+            if (state.text.isNotEmpty()) {
+                MarkdownText(state.text, color = Color.White, fontSize = 15.sp)
+            }
 
-                val validBlocks = remember(state.visualBlocks) {
-                    state.visualBlocks.filter { it.isValidVisualBlock() }
-                }
-                validBlocks.forEach { block ->
-                    androidx.compose.runtime.key(block.id) {
-                        VisualBlockView(block)
-                    }
-                }
-
-                if (showMessageMetrics && state.isDone) {
-                    val parts = mutableListOf<String>()
-                    state.stats?.ttftMs?.takeIf { metricFilter.ttft && it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.0f", it)}ms" }
-                    state.stats?.tokensPerSecond?.takeIf { metricFilter.tokensPerSecond && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s" }
-                    state.stats?.tokensOut?.takeIf { metricFilter.outputTokens && it > 0 }?.let { parts += "$it tok" }
-                    state.stats?.promptTokens?.takeIf { metricFilter.promptTokens && it > 0 }?.let { parts += "prompt $it" }
-                    state.stats?.contextTokens()?.takeIf { metricFilter.contextTokens && it > 0 }?.let { parts += "ctx $it" }
-                    state.stats?.contextLength?.takeIf { metricFilter.contextTokens && it > 0 }?.let { parts += "max $it" }
-                    state.stats?.totalMs?.takeIf { metricFilter.duration && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
-                    if (parts.isNotEmpty()) {
-                        Text(
-                            text = parts.joinToString("  ·  "),
-                            color = AppColors.Muted,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-
-                state.error?.let { err ->
-                    if (state.text.isEmpty()) {
-                        Text(
-                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
-                            text = err,
-                            color = AppColors.Muted,
-                            fontSize = 12.sp
-                        )
-                    }
+            val validBlocks = remember(state.visualBlocks) {
+                state.visualBlocks.filter { it.isValidVisualBlock() }
+            }
+            validBlocks.forEach { block ->
+                androidx.compose.runtime.key(block.id) {
+                    VisualBlockView(block)
                 }
             }
+
+            if (showMessageMetrics && state.isDone) {
+                val parts = mutableListOf<String>()
+                state.stats?.ttftMs?.takeIf { metricFilter.ttft && it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.0f", it)}ms" }
+                state.stats?.tokensPerSecond?.takeIf { metricFilter.tokensPerSecond && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s" }
+                state.stats?.tokensOut?.takeIf { metricFilter.outputTokens && it > 0 }?.let { parts += "$it tok" }
+                state.stats?.promptTokens?.takeIf { metricFilter.promptTokens && it > 0 }?.let { parts += "prompt $it" }
+                state.stats?.contextTokens()?.takeIf { metricFilter.contextTokens && it > 0 }?.let { parts += "ctx $it" }
+                state.stats?.contextLength?.takeIf { metricFilter.contextTokens && it > 0 }?.let { parts += "max $it" }
+                state.stats?.totalMs?.takeIf { metricFilter.duration && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
+                if (parts.isNotEmpty()) {
+                    Text(
+                        text = parts.joinToString("  ·  "),
+                        color = AppColors.Muted,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            state.error?.let { err ->
+                if (state.text.isEmpty()) {
+                    Text(
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+                        text = err,
+                        color = AppColors.Muted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
