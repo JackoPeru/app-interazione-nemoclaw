@@ -212,6 +212,8 @@ UPDATE_SERVICE="$(find_one hermes-hub-linux-update.service || true)"
 UPDATE_TIMER="$(find_one hermes-hub-linux-update.timer || true)"
 WAIT_TAILSCALE="$(find_one hermes-wait-tailscale.sh || true)"
 WAIT_LLAMA="$(find_one hermes-wait-llama.sh || true)"
+POWER_MONITOR="$(find_one hermes-power-monitor.sh || true)"
+POWER_MONITOR_SVC="$(find_one hermes-power-monitor.service || true)"
 
 if [ -z "$LAUNCHER" ] || [ -z "$PATCHER" ] || [ -z "$UPDATER" ]; then
   echo "ERROR: asset missing required files: hermes-hub-linux.sh, patch-hermes-gateway-native.py, hermes-hub-linux-update.sh" >&2
@@ -242,6 +244,12 @@ fi
 if [ -n "$WAIT_LLAMA" ]; then
   install -m 0755 "$WAIT_LLAMA" "$RELEASE_DIR/hermes-wait-llama.sh"
 fi
+if [ -n "$POWER_MONITOR" ]; then
+  install -m 0755 "$POWER_MONITOR" "$RELEASE_DIR/hermes-power-monitor.sh"
+fi
+if [ -n "$POWER_MONITOR_SVC" ]; then
+  install -m 0644 "$POWER_MONITOR_SVC" "$RELEASE_DIR/hermes-power-monitor.service"
+fi
 
 ln -sfn "$RELEASE_DIR" "$INSTALL_DIR/current"
 ln -sfn "$INSTALL_DIR/current/hermes-hub-linux.sh" "$HOME/hermes-hub-linux.sh"
@@ -255,6 +263,10 @@ if [ -n "$WAIT_LLAMA" ]; then
   ln -sfn "$INSTALL_DIR/current/hermes-wait-llama.sh" "$BIN_DIR/hermes-wait-llama.sh"
   ln -sfn "$INSTALL_DIR/current/hermes-wait-llama.sh" "$BIN_DIR/hermes-wait-llama"
 fi
+if [ -n "$POWER_MONITOR" ]; then
+  ln -sfn "$INSTALL_DIR/current/hermes-power-monitor.sh" "$BIN_DIR/hermes-power-monitor.sh"
+  ln -sfn "$INSTALL_DIR/current/hermes-power-monitor.sh" "$BIN_DIR/hermes-power-monitor"
+fi
 printf '%s\n' "$LATEST_VERSION" > "$LOCAL_VERSION_FILE"
 
 mkdir -p "$SERVICE_DIR"
@@ -267,6 +279,9 @@ fi
 if [ -n "$UPDATE_TIMER" ]; then
   cp "$UPDATE_TIMER" "$SERVICE_DIR/hermes-hub-linux-update.timer"
 fi
+if [ -n "$POWER_MONITOR_SVC" ]; then
+  cp "$POWER_MONITOR_SVC" "$SERVICE_DIR/hermes-power-monitor.service"
+fi
 
 echo "Installed: $LATEST_VERSION"
 echo "Launcher: $HOME/hermes-hub-linux.sh"
@@ -277,6 +292,10 @@ if [ "$RESTART" = "true" ]; then
     systemctl --user daemon-reload || true
     systemctl --user restart "$SERVICE_NAME"
     echo "Restarted: $SERVICE_NAME"
+    if systemctl --user is-active --quiet hermes-power-monitor.service 2>/dev/null || systemctl --user is-enabled --quiet hermes-power-monitor.service 2>/dev/null; then
+      systemctl --user restart hermes-power-monitor.service || true
+      echo "Restarted: hermes-power-monitor.service"
+    fi
   else
     echo "WARN: systemctl missing; restart manually." >&2
   fi

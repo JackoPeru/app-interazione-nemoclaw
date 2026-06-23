@@ -100,22 +100,29 @@ Dal repo HermesHub prendi SOLO questi file:
 - scripts/hermes-hub-linux-update.timer
 - scripts/hermes-wait-tailscale.sh
 - scripts/hermes-wait-llama.sh
+- scripts/hermes-power-monitor.sh
+- scripts/hermes-power-monitor.service
 
 Copiali sul server Linux in una cartella temporanea, per esempio:
 ~/hermes-hub-transfer/scripts/
 
 Poi sul server esegui:
 cd ~/hermes-hub-transfer/scripts
-chmod +x install-hermes-hub-linux.sh hermes-hub-linux.sh hermes-hub-linux-update.sh hermes-wait-tailscale.sh hermes-wait-llama.sh
-./install-hermes-hub-linux.sh --enable-service --enable-auto-update
+chmod +x install-hermes-hub-linux.sh hermes-hub-linux.sh hermes-hub-linux-update.sh hermes-wait-tailscale.sh hermes-wait-llama.sh hermes-power-monitor.sh
+./install-hermes-hub-linux.sh --enable-service --enable-auto-update --enable-power-monitor
 
 Verifica:
 systemctl --user status hermes-hub.service --no-pager
 systemctl --user list-timers | grep hermes-hub
+systemctl --user status hermes-power-monitor.service --no-pager
 curl -H "Authorization: Bearer hermes-hub" http://127.0.0.1:8642/v1/capabilities
 
 Se curl non risponde, controlla log:
 journalctl --user -u hermes-hub.service -n 100 --no-pager
+
+Configurazione visudo (Obbligatoria per Power Monitor):
+Poichè il servizio gira come utente e deve eseguire lo spegnimento, aggiungi questa riga tramite `sudo visudo`:
+matteo ALL=(ALL) NOPASSWD: /usr/sbin/shutdown
 
 Dopo install iniziale, non trasferire piu' file a mano: per aggiornare usa:
 ~/.local/bin/hermes-hub-linux-update --restart

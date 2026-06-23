@@ -34,7 +34,9 @@ $files = @(
     "hermes-hub-linux-update.service",
     "hermes-hub-linux-update.timer",
     "hermes-wait-tailscale.sh",
-    "hermes-wait-llama.sh"
+    "hermes-wait-llama.sh",
+    "hermes-power-monitor.sh",
+    "hermes-power-monitor.service"
 )
 
 foreach ($file in $files) {

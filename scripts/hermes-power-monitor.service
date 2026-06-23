@@ -1,0 +1,12 @@
+[Unit]
+Description=Hermes Hub Power Monitor (UPS Save)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hermes-power-monitor.sh
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

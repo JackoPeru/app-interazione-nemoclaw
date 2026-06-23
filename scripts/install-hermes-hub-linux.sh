@@ -12,10 +12,11 @@ VERSION="${HERMES_HUB_BUNDLE_VERSION:-local}"
 ENABLE_SERVICE=false
 START_SERVICE=false
 ENABLE_AUTO_UPDATE=false
+ENABLE_POWER_MONITOR=false
 
 usage() {
   cat <<'EOF'
-Usage: ./install-hermes-hub-linux.sh [--enable-service] [--start] [--enable-auto-update]
+Usage: ./install-hermes-hub-linux.sh [--enable-service] [--start] [--enable-auto-update] [--enable-power-monitor]
 
 Installs:
   ~/hermes-hub-linux.sh
@@ -23,10 +24,12 @@ Installs:
   ~/.local/bin/hermes-hub-linux-update
   ~/.local/bin/hermes-wait-tailscale.sh
   ~/.local/bin/hermes-wait-llama.sh
+  ~/.local/bin/hermes-power-monitor.sh
   ~/.config/systemd/user/hermes-hub.service
 
 Optional:
   --enable-auto-update installs/enables daily user timer.
+  --enable-power-monitor installs/enables UPS save power monitor service.
 EOF
 }
 
@@ -41,6 +44,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --enable-auto-update)
       ENABLE_AUTO_UPDATE=true
+      ;;
+    --enable-power-monitor)
+      ENABLE_POWER_MONITOR=true
       ;;
     -h|--help)
       usage
@@ -92,6 +98,12 @@ fi
 if [ -f "$SCRIPT_DIR/hermes-hub-linux-update.timer" ]; then
   install -m 0644 "$SCRIPT_DIR/hermes-hub-linux-update.timer" "$RELEASE_DIR/hermes-hub-linux-update.timer"
 fi
+if [ -f "$SCRIPT_DIR/hermes-power-monitor.sh" ]; then
+  install -m 0755 "$SCRIPT_DIR/hermes-power-monitor.sh" "$RELEASE_DIR/hermes-power-monitor.sh"
+fi
+if [ -f "$SCRIPT_DIR/hermes-power-monitor.service" ]; then
+  install -m 0644 "$SCRIPT_DIR/hermes-power-monitor.service" "$RELEASE_DIR/hermes-power-monitor.service"
+fi
 
 ln -sfn "$RELEASE_DIR" "$INSTALL_DIR/current"
 ln -sfn "$INSTALL_DIR/current/hermes-hub-linux.sh" "$HOME/hermes-hub-linux.sh"
@@ -101,6 +113,10 @@ ln -sfn "$INSTALL_DIR/current/hermes-wait-tailscale.sh" "$BIN_DIR/hermes-wait-ta
 ln -sfn "$INSTALL_DIR/current/hermes-wait-llama.sh" "$BIN_DIR/hermes-wait-llama.sh"
 ln -sfn "$INSTALL_DIR/current/hermes-wait-tailscale.sh" "$BIN_DIR/hermes-wait-tailscale"
 ln -sfn "$INSTALL_DIR/current/hermes-wait-llama.sh" "$BIN_DIR/hermes-wait-llama"
+if [ -f "$INSTALL_DIR/current/hermes-power-monitor.sh" ]; then
+  ln -sfn "$INSTALL_DIR/current/hermes-power-monitor.sh" "$BIN_DIR/hermes-power-monitor.sh"
+  ln -sfn "$INSTALL_DIR/current/hermes-power-monitor.sh" "$BIN_DIR/hermes-power-monitor"
+fi
 printf '%s\n' "$VERSION" > "$INSTALL_DIR/VERSION"
 
 cp "$SCRIPT_DIR/hermes-hub-linux.service" "$SERVICE_DIR/hermes-hub.service"
@@ -109,6 +125,9 @@ if [ -f "$SCRIPT_DIR/hermes-hub-linux-update.service" ]; then
 fi
 if [ -f "$SCRIPT_DIR/hermes-hub-linux-update.timer" ]; then
   cp "$SCRIPT_DIR/hermes-hub-linux-update.timer" "$SERVICE_DIR/hermes-hub-linux-update.timer"
+fi
+if [ -f "$SCRIPT_DIR/hermes-power-monitor.service" ]; then
+  cp "$SCRIPT_DIR/hermes-power-monitor.service" "$SERVICE_DIR/hermes-power-monitor.service"
 fi
 
 echo "Installed Hermes Gateway helper: $INSTALL_DIR/current"
@@ -125,6 +144,9 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
   if [ "$ENABLE_AUTO_UPDATE" = "true" ]; then
     systemctl --user enable --now hermes-hub-linux-update.timer
+  fi
+  if [ "$ENABLE_POWER_MONITOR" = "true" ]; then
+    systemctl --user enable --now hermes-power-monitor.service
   fi
 else
   echo "WARN: systemctl missing; service not enabled." >&2
