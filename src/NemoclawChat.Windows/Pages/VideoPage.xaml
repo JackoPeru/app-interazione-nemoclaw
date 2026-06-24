@@ -293,7 +293,7 @@
                 Background="Black"
                 BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
-                CornerRadius="18">
+                CornerRadius="0">
                 <MediaPlayerElement
                     x:Name="FullScreenVideoPlayer"
                     AreTransportControlsEnabled="True"
