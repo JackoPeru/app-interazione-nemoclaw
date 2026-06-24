@@ -2258,6 +2258,24 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("router audio transcriptions endpoints")
 
+    if "def _hermes_hub_preload_whisper():" not in text:
+        text += (
+            "\n\n"
+            "def _hermes_hub_preload_whisper():\n"
+            "    try:\n"
+            "        import os\n"
+            "        from faster_whisper import WhisperModel\n"
+            "        global _hermes_hub_whisper_model\n"
+            "        print('Pre-loading faster-whisper large-v3-turbo on GPU 1...')\n"
+            "        _hermes_hub_whisper_model = WhisperModel('large-v3-turbo', device='cuda', compute_type='int8', device_index=[1])\n"
+            "        print('Whisper model loaded successfully.')\n"
+            "    except Exception as e:\n"
+            "        print('Failed to pre-load Whisper model:', e)\n"
+            "\n"
+            "_hermes_hub_preload_whisper()\n"
+        )
+        changes.append("pre-load whisper model at startup")
+
     return text, changes
 
 

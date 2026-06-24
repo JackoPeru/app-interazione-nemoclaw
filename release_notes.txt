@@ -1,4 +1,4 @@
-﻿Release 0.6.129:
-- Windows/Android: Implementato sistema video immersivo "stile YouTube" a vero schermo intero.
-- Windows: AppWindow.SetPresenter massimizza il video oscurando taskbar e barra laterale, senza più artefatti di layout.
-- Android: Player inserito in un Dialog Compose con decorFitsSystemWindows = false, bypassando lo Scaffold principale per eliminare le barre di navigazione residue in landscape.
+Release 0.6.130:
+- Windows/Android: Eliminati i prompt automatici (es. "Analizza l'immagine") all'inserimento di allegati. I file vengono ora inviati puri al modello, senza contaminare il testo dell'utente.
+- Windows/Android: Aggiunto pulsante Microfono nella chat per la dettatura vocale (Speech-to-Text). Registra la voce e usa Whisper per trascrivere l'audio. Il testo viene inserito nel composer permettendo la revisione prima dell'invio.
+- Server Gateway: Integrato faster-whisper e l'endpoint /v1/audio/transcriptions. Configurati per utilizzare il modello large-v3-turbo in formato int8 sulla GPU, ottimizzato per trascrizioni accurate in italiano. Il modello Whisper viene ora precaricato all'avvio del server (dopo l'LLM) per garantire risposte istantanee. Risolto anche il caricamento automatico delle librerie CUDA (cuBLAS/cuDNN) via LD_LIBRARY_PATH.
