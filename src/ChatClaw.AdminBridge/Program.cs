@@ -490,13 +490,13 @@ sealed class AuditLog(string path)
                 RotateIfNeeded();
                 File.AppendAllText(path, line, System.Text.Encoding.UTF8);
             }
-            catch (IOException)
+            catch (IOException ex)
             {
-                // audit failure non blocca request
+                Console.Error.WriteLine($"[admin-bridge] AuditLog I/O error: {ex.Message}");
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                // idem
+                Console.Error.WriteLine($"[admin-bridge] AuditLog auth error: {ex.Message}");
             }
         }
     }
@@ -517,8 +517,8 @@ sealed class AuditLog(string path)
             }
             File.Move(path, $"{path}.1", overwrite: true);
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (IOException ex) { Console.Error.WriteLine($"[admin-bridge] Rotate I/O error: {ex.Message}"); }
+        catch (UnauthorizedAccessException ex) { Console.Error.WriteLine($"[admin-bridge] Rotate auth error: {ex.Message}"); }
     }
 }
 

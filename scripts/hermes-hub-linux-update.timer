@@ -3,7 +3,7 @@ Description=Hermes Hub Linux gateway helper update check
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=2min
+OnUnitActiveSec=1h
 AccuracySec=30s
 
 [Install]

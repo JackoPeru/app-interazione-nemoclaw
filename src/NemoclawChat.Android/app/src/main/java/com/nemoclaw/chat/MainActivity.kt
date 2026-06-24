@@ -82,6 +82,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.ManageSearch
 import androidx.compose.material.icons.rounded.AccountCircle
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
@@ -97,8 +98,10 @@ import androidx.compose.material.icons.rounded.ManageSearch
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TaskAlt
@@ -1118,13 +1121,6 @@ private fun ChatScreen(
                 if (attachment != null) {
                     state.pendingAttachments.add(attachment)
                     state.messages.add(ChatMessage("Allegato", "${attachment.filename} pronto per Hermes (${attachment.sizeBytes.toReadableFileSize()}).", fromUser = false, isAction = true))
-                    if (state.draft.isBlank()) {
-                        state.draft = if (attachment.mimeType.startsWith("image/", ignoreCase = true)) {
-                            "Analizza l'immagine allegata."
-                        } else {
-                            "Analizza il file allegato."
-                        }
-                    }
                 } else {
                     state.messages.add(ChatMessage("Allegato", "File vuoto, non leggibile o troppo grande. Limite attuale: ${settings.maxAttachmentMb} MB.", fromUser = false, isAction = true))
                 }
@@ -1241,6 +1237,18 @@ private fun ChatScreen(
                 )
             }
         }
+        var mediaRecorder by remember { mutableStateOf<android.media.MediaRecorder?>(null) }
+        val permissionLauncher = rememberLauncherForActivityResult(
+            contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+            onResult = { isGranted ->
+                if (isGranted) {
+                    android.widget.Toast.makeText(context, "Permesso microfono concesso.", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    android.widget.Toast.makeText(context, "Permesso microfono negato.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+
         Composer(
             context = context,
             value = state.draft,
@@ -1253,20 +1261,14 @@ private fun ChatScreen(
                     if (attachment != null) {
                         state.pendingAttachments.add(attachment)
                         state.messages.add(ChatMessage("Incolla immagine", "${attachment.filename} pronta per Hermes (${attachment.sizeBytes.toReadableFileSize()}).", fromUser = false, isAction = true))
-                        if (state.draft.isBlank()) {
-                            state.draft = "Analizza l'immagine allegata."
-                        }
                     } else {
-                        state.messages.add(ChatMessage("Incolla immagine", "Nessuna immagine valida negli appunti Android. Usa Allega file se l'app che ha creato lo screenshot non espone un URI immagine.", fromUser = false, isAction = true))
+                        android.widget.Toast.makeText(context, "Nessuna immagine valida negli appunti", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
             },
-            onRemoveAttachment = { attachment -> state.pendingAttachments.remove(attachment) },
+            onRemoveAttachment = { state.pendingAttachments.remove(it) },
             onAction = { title, text, prompt ->
                 state.messages.add(ChatMessage(title, text, fromUser = false, isAction = true))
-                if (prompt.isNotBlank()) {
-                    state.draft = appendPrompt(state.draft, prompt)
-                }
             },
             onModeChange = { state.mode = it },
             onSend = {
@@ -1276,9 +1278,7 @@ private fun ChatScreen(
                     return@Composer
                 }
                 if ((text.isNotEmpty() || state.pendingAttachments.isNotEmpty()) && !state.sending && state.activeStreamJob == null) {
-                    if (text.isBlank()) {
-                        text = "Analizza l'immagine allegata."
-                    }
+                    // No fallback prompt required when only sending attachments
                     val attachments = state.pendingAttachments.toList()
                     state.pendingAttachments.clear()
                     val displayText = if (attachments.isEmpty()) {
@@ -1472,7 +1472,99 @@ private fun ChatScreen(
                 }
                 state.activeStreamJob?.cancel()
             },
-            isBusy = state.sending && state.streamingState?.status?.contains("Interruzione") != true
+            isBusy = state.sending && state.streamingState?.status?.contains("Interruzione") != true,
+            isRecordingVoiceNote = state.isRecordingVoiceNote,
+            onToggleVoiceNote = {
+                if (!state.isRecordingVoiceNote) {
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        return@Composer
+                    }
+                    try {
+                        val tempFile = java.io.File.createTempFile("voice_note", ".m4a", context.cacheDir)
+                        state.tempVoiceNoteFile = tempFile
+                        val recorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            android.media.MediaRecorder(context)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            android.media.MediaRecorder()
+                        }
+                        recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                        recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                        recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                        recorder.setOutputFile(tempFile.absolutePath)
+                        recorder.prepare()
+                        recorder.start()
+                        mediaRecorder = recorder
+                        state.isRecordingVoiceNote = true
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        state.messages.add(ChatMessage("Errore Voce", "Impossibile registrare audio: ${e.message}", fromUser = false, isAction = true))
+                    }
+                } else {
+                    try {
+                        mediaRecorder?.stop()
+                        mediaRecorder?.release()
+                        mediaRecorder = null
+                        state.isRecordingVoiceNote = false
+                        
+                        val file = state.tempVoiceNoteFile
+                        if (file != null && file.exists()) {
+                            scope.launch {
+                                try {
+                                    val secret = loadGatewaySecret(context) ?: ""
+                                    val baseUrl = settings.gatewayUrl.trimEnd('/')
+                                    
+                                    val client = okhttp3.OkHttpClient.Builder()
+                                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                                        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                                        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                                        .build()
+                                        
+                                    val requestBody = okhttp3.MultipartBody.Builder()
+                                        .setType(okhttp3.MultipartBody.FORM)
+                                        .addFormDataPart("file", file.name, okhttp3.RequestBody.create("audio/mp4".toMediaTypeOrNull(), file))
+                                        .build()
+                                        
+                                    val requestBuilder = okhttp3.Request.Builder()
+                                        .url("$baseUrl/audio/transcriptions")
+                                        .post(requestBody)
+                                        
+                                    if (secret.isNotEmpty()) {
+                                        requestBuilder.header("Authorization", "Bearer $secret")
+                                    }
+                                    
+                                    val response = withContext(Dispatchers.IO) { client.newCall(requestBuilder.build()).execute() }
+                                    if (response.isSuccessful) {
+                                        val responseStr = response.body?.string()
+                                        if (responseStr != null) {
+                                            val json = org.json.JSONObject(responseStr)
+                                            val text = json.optString("text", "")
+                                            if (text.isNotEmpty()) {
+                                                if (state.draft.isNotEmpty() && !state.draft.endsWith(" ")) {
+                                                    state.draft += " "
+                                                }
+                                                state.draft += text
+                                            }
+                                        }
+                                    } else {
+                                        state.messages.add(ChatMessage("Errore Voce", "Trascrizione fallita: ${response.code}", fromUser = false, isAction = true))
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    state.messages.add(ChatMessage("Errore Voce", "Invio audio fallito.", fromUser = false, isAction = true))
+                                } finally {
+                                    file.delete()
+                                    state.tempVoiceNoteFile = null
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        state.messages.add(ChatMessage("Errore Voce", "Errore arresto registrazione.", fromUser = false, isAction = true))
+                    }
+                }
+            }
         )
     }
 }
@@ -1761,9 +1853,7 @@ private fun MessageBubble(message: ChatMessage, settings: AppSettings) {
                     }
                 }
                 RawHermesEventsView(message.rawEvents)
-                if (settings.showMessageMetrics) {
-                    ChatStatsFooter(message.stats, settings.metricFilter())
-                }
+                MessageFooter(message.text, message.stats, settings.showMessageMetrics, settings.metricFilter())
             }
             return@SelectionContainer
         }
@@ -1806,9 +1896,7 @@ private fun MessageBubble(message: ChatMessage, settings: AppSettings) {
                         }
                     }
                     RawHermesEventsView(message.rawEvents)
-                    if (settings.showMessageMetrics) {
-                        ChatStatsFooter(message.stats, settings.metricFilter())
-                    }
+                    MessageFooter(message.text, message.stats, settings.showMessageMetrics, settings.metricFilter())
                 }
             }
         }
@@ -1839,16 +1927,41 @@ private fun RawHermesEventsView(events: List<HermesRawEvent>) {
 }
 
 @Composable
-private fun ChatStatsFooter(stats: ChatStreamStats?, filter: MetricDisplayFilter) {
-    val line = remember(stats, filter) { formatChatStatsLine(stats, filter) }
-    if (line.isNotBlank()) {
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = line,
-            color = AppColors.Muted,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace
-        )
+private fun MessageFooter(text: String, stats: ChatStreamStats?, showMetrics: Boolean, filter: MetricDisplayFilter) {
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val line = remember(stats, filter, showMetrics) { 
+        if (showMetrics) formatChatStatsLine(stats, filter) else "" 
+    }
+    
+    Spacer(modifier = Modifier.height(2.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (line.isNotBlank()) {
+            Text(
+                text = line,
+                color = AppColors.Muted,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.weight(1f)
+            )
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
+        }
+        
+        androidx.compose.material3.IconButton(
+            onClick = { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text)) },
+            modifier = Modifier.size(24.dp)
+        ) {
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Rounded.ContentCopy,
+                contentDescription = "Copia messaggio",
+                tint = AppColors.Muted,
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 
@@ -2162,8 +2275,23 @@ private fun decodeAttachmentPreview(dataUrl: String): Bitmap? {
         val payload = dataUrl.substringAfter(',', missingDelimiterValue = "")
         if (payload.isBlank()) return null
         val bytes = Base64.decode(payload, Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.scaleBitmapToMaxWidth(240)
+        
+        val options = BitmapFactory.Options()
+        options.inJustDecodeBounds = true
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        
+        val maxWidth = 240
+        var scale = 1
+        if (options.outWidth > maxWidth) {
+            scale = options.outWidth / maxWidth
+        }
+        
+        val decodeOptions = BitmapFactory.Options()
+        decodeOptions.inSampleSize = scale
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)?.scaleBitmapToMaxWidth(maxWidth)
     } catch (_: Exception) {
+        null
+    } catch (_: OutOfMemoryError) {
         null
     }
 }
@@ -2311,7 +2439,9 @@ private fun Composer(
     onModeChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    isBusy: Boolean
+    isBusy: Boolean,
+    isRecordingVoiceNote: Boolean,
+    onToggleVoiceNote: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -2492,7 +2622,11 @@ private fun Composer(
                     if (attachments.isNotEmpty()) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             attachments.forEach { attachment ->
-                                val preview = remember(attachment.dataUrl) { decodeAttachmentPreview(attachment.dataUrl) }
+                                val preview by produceState<Bitmap?>(initialValue = null, attachment.dataUrl) {
+                                    this.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        decodeAttachmentPreview(attachment.dataUrl)
+                                    }
+                                }
                                 Surface(
                                     color = AppColors.Surface,
                                     shape = RoundedCornerShape(12.dp),
@@ -2505,9 +2639,10 @@ private fun Composer(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        if (preview != null) {
+                                        val p = preview
+                                        if (p != null) {
                                             Image(
-                                                bitmap = preview.asImageBitmap(),
+                                                bitmap = p.asImageBitmap(),
                                                 contentDescription = attachment.filename,
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier
@@ -2564,6 +2699,26 @@ private fun Composer(
                     }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
+                
+                Surface(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clickable(enabled = true) {
+                            onToggleVoiceNote()
+                        },
+                    color = Color.Transparent,
+                    shape = CircleShape,
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            imageVector = if (isRecordingVoiceNote) Icons.Rounded.Stop else Icons.Rounded.Mic,
+                            contentDescription = if (isRecordingVoiceNote) "Ferma registrazione" else "Registra nota vocale",
+                            tint = if (isRecordingVoiceNote) Color.Red else AppColors.Muted
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                
                 val canSend = (value.isNotBlank() || attachments.isNotEmpty()) && !isBusy
                 val canPress = isBusy || canSend
                 Surface(
@@ -2595,7 +2750,7 @@ private fun ArchiveScreen(
 ) {
     var refreshKey by remember { mutableStateOf(0) }
     val archive = remember(refreshKey) { loadArchiveItems(context) }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     var filter by remember { mutableStateOf("Tutto") }
     var status by remember { mutableStateOf("Pronto.") }
     var pendingDelete by remember { mutableStateOf<ArchiveItem?>(null) }
@@ -3635,9 +3790,9 @@ private fun OperatorScreen(context: Context, settings: AppSettings) {
     var approvalId by remember { mutableStateOf("") }
     var baseHash by remember { mutableStateOf("") }
     var configPatch by remember { mutableStateOf("{\"ops\":[]}") }
-    var workspacePath by remember { mutableStateOf("") }
-    var workspaceText by remember { mutableStateOf("") }
-    var quickRunText by remember { mutableStateOf("Controlla lo stato operativo e riassumi cosa richiede attenzione.") }
+    var workspacePath by rememberSaveable { mutableStateOf("") }
+    var workspaceText by rememberSaveable { mutableStateOf("") }
+    var quickRunText by rememberSaveable { mutableStateOf("Controlla lo stato operativo e riassumi cosa richiede attenzione.") }
     var status by remember { mutableStateOf("Pronto.") }
     var summary by remember { mutableStateOf("Nessuna risposta.") }
     var raw by remember { mutableStateOf("") }

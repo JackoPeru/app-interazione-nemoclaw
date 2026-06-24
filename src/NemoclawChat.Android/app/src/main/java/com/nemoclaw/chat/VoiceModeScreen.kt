@@ -25,6 +25,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 private const val VoiceSceneUrl = "file:///android_asset/hermes_scene/orange_particles_3d.html"
 
@@ -49,6 +52,21 @@ internal fun VoiceModeScreen() {
             webViewRef?.stopLoading()
             webViewRef?.destroy()
             webViewRef = null
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                webViewRef?.onPause()
+            } else if (event == Lifecycle.Event.ON_RESUME) {
+                webViewRef?.onResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 

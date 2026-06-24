@@ -38,6 +38,15 @@ v0.6.127 Release Hermes Hub 0.6.127 fix token finale stream e reasoning persiste
 
 ## Release Corrente
 
+Hermes Hub 0.6.130 (Speech-to-Text & Prompt Fix):
+
+Release 0.6.130:
+- Windows/Android: Eliminati i prompt automatici (es. "Analizza l'immagine") all'inserimento di allegati. I file vengono ora inviati puri al modello, senza contaminare il testo dell'utente.
+- Windows/Android: Aggiunto pulsante Microfono nella chat per la dettatura vocale (Speech-to-Text). Registra la voce e usa Whisper per trascrivere l'audio. Il testo viene inserito nel composer permettendo la revisione prima dell'invio.
+- Server Gateway: Integrato `faster-whisper` e l'endpoint `/v1/audio/transcriptions`. Configurati per utilizzare il modello `large-v3-turbo` in formato int8 sulla GPU, ottimizzato per trascrizioni accurate in italiano.
+- Asset release attesi: Android APK `HermesHub-0.6.130-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.130.0_x64.msix`, Linux Gateway `HermesHub-0.6.130-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.130`, Android `versionName 0.6.130`, `versionCode 135`.
+
 Hermes Hub 0.6.129 (True Full Screen UX):
 
 Release 0.6.129:

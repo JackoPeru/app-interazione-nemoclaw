@@ -19,6 +19,8 @@ internal class ChatStateHolder {
     var mode: String by mutableStateOf("Chat")
     var activeConversationId: String? by mutableStateOf(null)
     var previousResponseId: String? by mutableStateOf(null)
+    var isRecordingVoiceNote: Boolean by mutableStateOf(false)
+    var tempVoiceNoteFile: java.io.File? = null
 
     val activeStreams: androidx.compose.runtime.snapshots.SnapshotStateMap<String, ActiveStreamState> = androidx.compose.runtime.mutableStateMapOf()
 

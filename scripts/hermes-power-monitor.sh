@@ -7,8 +7,16 @@ set -euo pipefail
 
 MAX_FAILURES=3
 CHECK_INTERVAL_SEC=300
-TARGET_HOST="8.8.8.8"
+GATEWAY_IP=$(ip route show default | awk '/default/ {print $3}' | head -n1)
+TARGET_HOST="${GATEWAY_IP:-8.8.8.8}"
 
+HERMES_API_KEY="hermes-hub"
+if [ -f "$HOME/.hermes/.env" ]; then
+  ENV_KEY=$(grep '^HERMES_API_KEY=' "$HOME/.hermes/.env" | cut -d '=' -f2 | tr -d '"'\''')
+  if [ -n "$ENV_KEY" ]; then
+    HERMES_API_KEY="$ENV_KEY"
+  fi
+fi
 fail_count=0
 
 echo "Avvio Hermes Power Monitor..."
@@ -29,7 +37,7 @@ while true; do
       # Invia una notifica al gateway locale prima di spegnere (opzionale, utile per history)
       curl -s -X POST http://127.0.0.1:8642/v1/hub/notifications \
            -H "Content-Type: application/json" \
-           -H "Authorization: Bearer hermes-hub" \
+           -H "Authorization: Bearer $HERMES_API_KEY" \
            -d '{
                  "title": "Avviso Spegnimento (UPS)",
                  "message": "Spegnimento automatico del server per presunta mancanza di corrente elettrica (15 min offline).",

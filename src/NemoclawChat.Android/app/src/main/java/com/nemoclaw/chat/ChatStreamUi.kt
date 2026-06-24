@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -98,21 +99,46 @@ internal fun StreamingBubbleView(
                 }
             }
 
-            if (showMessageMetrics && state.isDone) {
+            if (state.isDone) {
+                val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
                 val parts = mutableListOf<String>()
-                state.stats?.ttftMs?.takeIf { metricFilter.ttft && it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
-                state.stats?.tokensPerSecond?.takeIf { metricFilter.tokensPerSecond && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s" }
-                state.stats?.tokensOut?.takeIf { metricFilter.outputTokens && it > 0 }?.let { parts += "$it tok" }
-                state.stats?.promptTokens?.takeIf { metricFilter.promptTokens && it > 0 }?.let { parts += "prompt $it" }
-                state.stats?.contextTokens()?.takeIf { metricFilter.contextTokens && it > 0 }?.let { parts += "ctx $it" }
-                state.stats?.contextLength?.takeIf { metricFilter.contextTokens && it > 0 }?.let { parts += "max $it" }
-                state.stats?.totalMs?.takeIf { metricFilter.duration && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
-                if (parts.isNotEmpty()) {
-                    Text(
-                        text = parts.joinToString("  ·  "),
-                        color = AppColors.Muted,
-                        fontSize = 11.sp
-                    )
+                if (showMessageMetrics) {
+                    state.stats?.ttftMs?.takeIf { metricFilter.ttft && it > 0 }?.let { parts += "TTFT ${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
+                    state.stats?.tokensPerSecond?.takeIf { metricFilter.tokensPerSecond && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.2f", it)} t/s" }
+                    state.stats?.tokensOut?.takeIf { metricFilter.outputTokens && it > 0 }?.let { parts += "$it tok" }
+                    state.stats?.promptTokens?.takeIf { metricFilter.promptTokens && it > 0 }?.let { parts += "prompt $it" }
+                    state.stats?.contextTokens()?.takeIf { metricFilter.contextTokens && it > 0 }?.let { parts += "ctx $it" }
+                    state.stats?.contextLength?.takeIf { metricFilter.contextTokens && it > 0 }?.let { parts += "max $it" }
+                    state.stats?.totalMs?.takeIf { metricFilter.duration && it > 0 }?.let { parts += "${String.format(java.util.Locale.US, "%.1f", it / 1000.0)}s" }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (parts.isNotEmpty()) {
+                        Text(
+                            text = parts.joinToString("  ·  "),
+                            color = AppColors.Muted,
+                            fontSize = 11.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                    
+                    androidx.compose.material3.IconButton(
+                        onClick = { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(state.text)) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ContentCopy,
+                            contentDescription = "Copia messaggio",
+                            tint = AppColors.Muted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
 
@@ -577,18 +603,40 @@ internal fun MarkdownText(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
                     Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (block.language.isNotBlank()) {
-                            Text(block.language, color = AppColors.Muted, fontSize = 11.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (block.language.isNotBlank()) {
+                                Text(block.language, color = AppColors.Muted, fontSize = 11.sp)
+                            } else {
+                                Text("code", color = AppColors.Muted, fontSize = 11.sp)
+                            }
+                            androidx.compose.material3.IconButton(
+                                onClick = { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(block.code)) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ContentCopy,
+                                    contentDescription = "Copia codice",
+                                    tint = AppColors.Muted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
-                        Text(
-                            block.code,
-                            color = color,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            softWrap = false,
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        )
+                        androidx.compose.foundation.text.selection.SelectionContainer {
+                            Text(
+                                block.code,
+                                color = color,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                softWrap = false,
+                                modifier = Modifier.horizontalScroll(rememberScrollState())
+                            )
+                        }
                     }
                 }
             }

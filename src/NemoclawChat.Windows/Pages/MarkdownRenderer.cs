@@ -328,33 +328,62 @@ internal static class MarkdownRenderer
     private static UIElement BuildCodeBlock(string language, string code, Color color)
     {
         var panel = new StackPanel { Spacing = 4 };
-        if (!string.IsNullOrWhiteSpace(language))
+
+        var headerPanel = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+        headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var langText = new TextBlock
         {
-            panel.Children.Add(new TextBlock
+            Text = string.IsNullOrWhiteSpace(language) ? "code" : language,
+            FontSize = 11,
+            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(langText, 0);
+        headerPanel.Children.Add(langText);
+
+        var copyButton = new Button
+        {
+            Content = new FontIcon { Glyph = "\uE8C8", FontSize = 12 },
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        ToolTipService.SetToolTip(copyButton, "Copia codice");
+        copyButton.Click += (s, e) =>
+        {
+            var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            dp.SetText(code);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+            copyButton.Content = new FontIcon { Glyph = "\uE8FB", FontSize = 12 };
+        };
+        Grid.SetColumn(copyButton, 1);
+        headerPanel.Children.Add(copyButton);
+
+        panel.Children.Add(headerPanel);
+
+        panel.Children.Add(new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = new TextBlock
             {
-                Text = language,
-                FontSize = 11,
-                Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
-            });
-        }
-        panel.Children.Add(new TextBlock
-        {
-            Text = code,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 12,
-            Foreground = new SolidColorBrush(color),
-            TextWrapping = TextWrapping.NoWrap
+                Text = code,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 12,
+                Foreground = new SolidColorBrush(color),
+                TextWrapping = TextWrapping.NoWrap,
+                IsTextSelectionEnabled = true
+            }
         });
+
         return new Border
         {
             Background = (Brush)Application.Current.Resources["ComposerBrush"],
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(10),
-            Child = new ScrollViewer
-            {
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = panel
-            }
+            Child = panel
         };
     }
 }

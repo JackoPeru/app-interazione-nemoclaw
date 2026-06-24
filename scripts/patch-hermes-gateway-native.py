@@ -1586,8 +1586,9 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             r'                "news_library": {"method": "GET", "path": "/v1/news/library"},' "\n"
             r'                "media_proxy": {"method": "GET", "path": "/v1/media/{media_id}"},' "\n"
             r'                "hub_memory": {"method": "GET/PATCH", "path": "/v1/hub/memory"},' "\n"
-            r'                "hub_state": {"method": "GET/POST", "path": "/v1/hub/state"},' "\n",
-            r'                "hub_notifications": {"method": "GET/POST/PATCH", "path": "/v1/hub/notifications"},' "\n",
+            r'                "hub_state": {"method": "GET/POST", "path": "/v1/hub/state"},' "\n"
+            r'                "hub_notifications": {"method": "GET/POST/PATCH", "path": "/v1/hub/notifications"},' "\n"
+            r'                "audio_transcriptions": {"method": "POST", "path": "/v1/audio/transcriptions"},' "\n",
             "capabilities hub support endpoints",
         )
         changes.append("capabilities hub support endpoints")
@@ -1621,6 +1622,58 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
                 "capabilities hub notifications endpoint",
             )
             changes.append("capabilities hub notifications endpoint")
+
+        if '"audio_transcriptions": {"method": "POST", "path": "/v1/audio/transcriptions"}' not in text:
+            text, _ = _replace_regex_once(
+                text,
+                r'(^\s+"hub_notifications": \{"method": "GET/POST/PATCH", "path": "/v1/hub/notifications"\},\n)',
+                r'\1'
+                r'                "audio_transcriptions": {"method": "POST", "path": "/v1/audio/transcriptions"},' "\n",
+                "capabilities audio transcriptions endpoint",
+            )
+            changes.append("capabilities audio transcriptions endpoint")
+
+    if "async def _handle_audio_transcriptions" not in text:
+        text, _ = _replace_once(
+            text,
+            "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
+            "    async def _handle_audio_transcriptions(self, request: \"web.Request\") -> \"web.Response\":\n"
+            "        auth_error = self._check_auth(request)\n"
+            "        if auth_error is not None:\n"
+            "            return auth_error\n"
+            "        reader = await request.multipart()\n"
+            "        field = await reader.next()\n"
+            "        audio_data = None\n"
+            "        while field is not None:\n"
+            "            if field.name == \"file\":\n"
+            "                audio_data = await field.read()\n"
+            "            field = await reader.next()\n"
+            "        if not audio_data:\n"
+            "            return web.json_response({\"error\": \"No audio file provided\"}, status=400)\n"
+            "\n"
+            "        import tempfile\n"
+            "        import os\n"
+            "        with tempfile.NamedTemporaryFile(delete=False, suffix=\".m4a\") as tmp:\n"
+            "            tmp.write(audio_data)\n"
+            "            tmp_path = tmp.name\n"
+            "        try:\n"
+            "            from faster_whisper import WhisperModel\n"
+            "            global _hermes_hub_whisper_model\n"
+            "            if \"_hermes_hub_whisper_model\" not in globals():\n"
+            "                _hermes_hub_whisper_model = WhisperModel(\"large-v3-turbo\", device=\"cuda\", compute_type=\"int8\", device_index=[1])\n"
+            "            segments, info = _hermes_hub_whisper_model.transcribe(tmp_path, beam_size=5, language=\"it\")\n"
+            "            result_text = \"\".join(segment.text for segment in segments)\n"
+            "            return web.json_response({\"text\": result_text.strip()})\n"
+            "        except Exception as e:\n"
+            "            return web.json_response({\"error\": str(e)}, status=500)\n"
+            "        finally:\n"
+            "            if os.path.exists(tmp_path):\n"
+            "                os.remove(tmp_path)\n"
+            "\n"
+            "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
+            "audio transcriptions endpoint handler",
+        )
+        changes.append("audio transcriptions endpoint handler")
 
     if "async def _handle_hub_hardware" not in text:
         text, _ = _replace_once(
@@ -2194,6 +2247,16 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "router hub notifications endpoints",
         )
         changes.append("router hub notifications endpoints")
+
+    if 'add_post("/v1/audio/transcriptions", self._handle_audio_transcriptions)' not in text:
+        text, _ = _replace_regex_once(
+            text,
+            r'(^\s+self\._app\.router\.add_get\("/v1/hub/state", self\._handle_get_hub_state\)\n)',
+            r'\1'
+            r'            self._app.router.add_post("/v1/audio/transcriptions", self._handle_audio_transcriptions)' "\n",
+            "router audio transcriptions endpoints",
+        )
+        changes.append("router audio transcriptions endpoints")
 
     return text, changes
 

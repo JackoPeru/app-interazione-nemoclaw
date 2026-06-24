@@ -17,6 +17,8 @@ using System.Text.Json;
 using System.Threading.Channels;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
+using Windows.Media.Capture;
+using Windows.Media.MediaProperties;
 using Windows.Storage.Pickers;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -63,6 +65,10 @@ public sealed partial class HomePage : Page
     private Popup? _slashPopup;
     private ListView? _slashList;
     private readonly List<SlashCommand> _slashCommands;
+
+    private MediaCapture? _mediaCapture;
+    private bool _isRecordingVoiceNote;
+    private StorageFile? _tempVoiceNoteFile;
 
     public HomePage()
     {
@@ -237,9 +243,6 @@ public sealed partial class HomePage : Page
         _pendingAttachments.Add(attachment);
         RenderAttachmentPreviews();
         AddAction("Allegato", $"{file.Name} pronto per Hermes ({FormatAttachmentBytes(attachment.SizeBytes)}).");
-        PromptBox.Text = AppendPrompt(attachment.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
-            ? "Analizza l'immagine allegata."
-            : "Analizza il file allegato.");
     }
 
     private async void PasteImage_Click(object sender, RoutedEventArgs e)
@@ -260,7 +263,6 @@ public sealed partial class HomePage : Page
         _pendingAttachments.Add(attachment);
         RenderAttachmentPreviews();
         AddAction("Incolla immagine", $"{attachment.FileName} pronta per Hermes ({FormatAttachmentBytes(attachment.SizeBytes)}).");
-        PromptBox.Text = AppendPrompt("Analizza l'immagine allegata.");
         PromptBox.Focus(FocusState.Programmatic);
     }
 
@@ -272,7 +274,6 @@ public sealed partial class HomePage : Page
             launched
                 ? "Strumento cattura di Windows aperto. Incolla o salva lo screenshot, poi allegalo al task."
                 : "Impossibile aprire lo strumento cattura. Usa una cattura manuale e allega il file al task.");
-        PromptBox.Text = AppendPrompt("Usa uno screenshot come contesto visivo per capire lo stato dell'app o del server.");
     }
 
     private async void TakePhoto_Click(object sender, RoutedEventArgs e)
@@ -283,44 +284,151 @@ public sealed partial class HomePage : Page
             launched
                 ? "App Fotocamera aperta. Salva la foto e allegala al task quando pronta."
                 : "Impossibile aprire Fotocamera. Scatta o seleziona una foto manualmente e allegala al task.");
-        PromptBox.Text = AppendPrompt("Acquisisci una foto e usala come allegato per la conversazione.");
     }
 
-    private void VoiceNote_Click(object sender, RoutedEventArgs e)
+    private async void VoiceNote_Click(object sender, RoutedEventArgs e)
     {
-        AddAction("Voce", "Nota vocale preparata. Usa dettatura Windows o scrivi qui il testo da inviare.");
-        PromptBox.Text = AppendPrompt("Trascrivi questa nota vocale e usala come contesto: ");
-        PromptBox.Focus(FocusState.Programmatic);
+        var button = sender as Button;
+        if (button == null) return;
+        var icon = button.Content as FontIcon;
+        if (icon == null) return;
+
+        if (!_isRecordingVoiceNote)
+        {
+            try
+            {
+                _mediaCapture = new MediaCapture();
+                var settings = new MediaCaptureInitializationSettings
+                {
+                    StreamingCaptureMode = StreamingCaptureMode.Audio
+                };
+                await _mediaCapture.InitializeAsync(settings);
+
+                var tempFolder = ApplicationData.Current.TemporaryFolder;
+                _tempVoiceNoteFile = await tempFolder.CreateFileAsync("voice_note.m4a", CreationCollisionOption.GenerateUniqueName);
+
+                var profile = MediaEncodingProfile.CreateM4a(AudioEncodingQuality.Medium);
+                await _mediaCapture.StartRecordToStorageFileAsync(profile, _tempVoiceNoteFile);
+
+                _isRecordingVoiceNote = true;
+                button.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Red);
+                icon.Glyph = "\xE71A"; // Stop icon
+                PromptBox.PlaceholderText = "Registrazione in corso... Clicca per trascrivere.";
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error starting voice note: {ex}");
+                AddAction("Errore Voce", "Impossibile accedere al microfono. Controlla le impostazioni di privacy di Windows.");
+            }
+        }
+        else
+        {
+            try
+            {
+                await _mediaCapture!.StopRecordAsync();
+                _isRecordingVoiceNote = false;
+
+                button.Foreground = (Brush)Application.Current.Resources["MutedTextBrush"];
+                icon.Glyph = "\xE720"; // Mic icon
+                PromptBox.PlaceholderText = "Elaborazione audio...";
+
+                _mediaCapture.Dispose();
+                _mediaCapture = null;
+
+                if (_tempVoiceNoteFile != null)
+                {
+                    await ProcessVoiceNoteAsync(_tempVoiceNoteFile.Path);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error stopping voice note: {ex}");
+                PromptBox.PlaceholderText = "Fai una domanda";
+            }
+        }
+    }
+
+    private async Task ProcessVoiceNoteAsync(string filePath)
+    {
+        try
+        {
+            var settings = AppSettingsStore.Load();
+            var gatewayBaseUrl = settings.GatewayUrl;
+            var secret = GatewayCredentialStore.LoadSecret();
+
+            using var httpClient = new System.Net.Http.HttpClient();
+            if (!string.IsNullOrEmpty(secret))
+            {
+                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
+            }
+
+            using var form = new System.Net.Http.MultipartFormDataContent();
+            using var fs = System.IO.File.OpenRead(filePath);
+            using var streamContent = new System.Net.Http.StreamContent(fs);
+            streamContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("audio/mp4");
+            form.Add(streamContent, "file", "voice_note.m4a");
+
+            var url = $"{gatewayBaseUrl}/audio/transcriptions";
+            var response = await httpClient.PostAsync(url, form);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var responseString = await response.Content.ReadAsStringAsync();
+                var json = JsonDocument.Parse(responseString);
+                if (json.RootElement.TryGetProperty("text", out var textProp))
+                {
+                    var transcribedText = textProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(transcribedText))
+                    {
+                        var currentText = PromptBox.Text;
+                        if (!string.IsNullOrEmpty(currentText) && !currentText.EndsWith(" "))
+                            currentText += " ";
+                        PromptBox.Text = currentText + transcribedText;
+                        PromptBox.SelectionStart = PromptBox.Text.Length;
+                    }
+                }
+            }
+            else
+            {
+                var responseString = await response.Content.ReadAsStringAsync();
+                AddAction("Errore Voce", $"Errore trascrizione: {response.StatusCode} {responseString}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error uploading voice note: {ex}");
+            AddAction("Errore Voce", $"Errore invio audio: {ex.Message}");
+        }
+        finally
+        {
+            PromptBox.PlaceholderText = "Fai una domanda";
+            try { System.IO.File.Delete(filePath); } catch { }
+        }
     }
 
     private void CreateImage_Click(object sender, RoutedEventArgs e)
     {
         AddAction("Immagine", "Generazione immagine richiedera' tool Hermes dedicato e conferma prima di chiamate esterne.");
-        PromptBox.Text = AppendPrompt("Prepara una richiesta di generazione immagine, ma chiedi conferma prima di usare tool esterni.");
     }
 
     private void DeepResearch_Click(object sender, RoutedEventArgs e)
     {
         AddAction("Deep Research", "Ricerca approfondita abilitera' rete solo dopo approvazione esplicita.");
-        PromptBox.Text = AppendPrompt("Esegui una ricerca approfondita e cita fonti, usando rete solo dopo approvazione.");
     }
 
     private void WebSearch_Click(object sender, RoutedEventArgs e)
     {
         AddAction("Web", "Ricerca web marcata come azione autorizzabile: nessuna rete fuori LAN/VPN senza conferma.");
-        PromptBox.Text = AppendPrompt("Cerca sul web informazioni aggiornate, chiedendo conferma prima di uscire dalla LAN/VPN.");
     }
 
     private void VisualExplanation_Click(object sender, RoutedEventArgs e)
     {
         AddAction("Visuale", "Spiegazione visiva richiesta: Hermes usera' blocchi statici sicuri se disponibili.");
-        PromptBox.Text = AppendPrompt("Spiega anche con blocchi visuali se utile: tabella, diagramma, chart o callout. Mantieni output_text completo.");
     }
 
     private void Projects_Click(object sender, RoutedEventArgs e)
     {
         AddAction("Workspace", "Workspace/progetti saranno collegati agli artifact Hermes con audit trail.");
-        PromptBox.Text = AppendPrompt("Lavora sul workspace/progetto selezionato e mostra piano prima di modificare file.");
     }
 
     private void SetModeChat_Click(object sender, RoutedEventArgs e)
@@ -466,10 +574,7 @@ public sealed partial class HomePage : Page
             ReleaseComposerRun(composerRunId);
             return;
         }
-        if (string.IsNullOrWhiteSpace(prompt))
-        {
-            prompt = "Analizza l'immagine allegata.";
-        }
+        // No fallback prompt required when only sending attachments
 
         CloseSlashPopup();
 
@@ -1272,10 +1377,7 @@ public sealed partial class HomePage : Page
                 content.Children.Add(RenderRawHermesEvent(raw));
             }
         }
-        if (advanced || AppSettingsStore.Load().ShowMessageMetrics)
-        {
-            AddStatsFooter(content, stats);
-        }
+        AddFooter(content, stats, text);
 
         var bubble = new Border
         {
@@ -1295,22 +1397,51 @@ public sealed partial class HomePage : Page
         UpdateContextMeter();
     }
 
-    private static void AddStatsFooter(StackPanel content, ChatStreamStats? stats)
+    private static void AddFooter(StackPanel content, ChatStreamStats? stats, string copyText)
     {
-        var line = FormatChatStats(stats, AppSettingsStore.Load());
-        if (string.IsNullOrWhiteSpace(line))
+        var settings = AppSettingsStore.Load();
+        var line = FormatChatStats(stats, settings);
+        var showStats = !string.IsNullOrWhiteSpace(line) && (settings.AdvancedChatDetails || settings.ShowMessageMetrics);
+
+        var footerGrid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        if (showStats)
         {
-            return;
+            var statsText = new TextBlock
+            {
+                Text = line,
+                FontSize = 11,
+                FontFamily = new FontFamily("Consolas"),
+                Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
+                TextWrapping = TextWrapping.WrapWholeWords,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(statsText, 0);
+            footerGrid.Children.Add(statsText);
         }
 
-        content.Children.Add(new TextBlock
+        var copyBtn = new Button
         {
-            Text = line,
-            FontSize = 11,
-            FontFamily = new FontFamily("Consolas"),
-            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
-            TextWrapping = TextWrapping.WrapWholeWords
-        });
+            Content = new FontIcon { Glyph = "\uE8C8", FontSize = 12 },
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        ToolTipService.SetToolTip(copyBtn, "Copia messaggio");
+        copyBtn.Click += (s, e) =>
+        {
+            var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            dp.SetText(copyText);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+            copyBtn.Content = new FontIcon { Glyph = "\uE8FB", FontSize = 12 };
+        };
+        Grid.SetColumn(copyBtn, 1);
+        footerGrid.Children.Add(copyBtn);
+
+        content.Children.Add(footerGrid);
     }
 
     private static UIElement RenderRawHermesEvent(HermesRawEventRecord raw)
@@ -1627,7 +1758,7 @@ public sealed partial class HomePage : Page
         {
             if (item is StorageFile file)
             {
-                PromptBox.Text = AppendPrompt($"File allegato: {file.Path}");
+                // Let the backend handle empty prompts if needed
             }
         }
     }
