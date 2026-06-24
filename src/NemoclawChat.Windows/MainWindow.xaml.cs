@@ -186,16 +186,76 @@ public sealed partial class MainWindow : Window
 
         foreach (var conversation in recent)
         {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var textBlock = new TextBlock
+            {
+                Text = conversation.Title,
+                TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            grid.Children.Add(textBlock);
+            Grid.SetColumn(textBlock, 0);
+
+            var moreButton = new Button
+            {
+                Content = new FontIcon { Glyph = "\uE712", FontSize = 14 },
+                Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(4),
+                Margin = new Thickness(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed
+            };
+            grid.Children.Add(moreButton);
+            Grid.SetColumn(moreButton, 1);
+
+            var flyout = new MenuFlyout();
+            
+            var renameItem = new MenuFlyoutItem { Text = "Rinomina" };
+            renameItem.Icon = new FontIcon { Glyph = "\uE70F" };
+            renameItem.Click += async (s, e) => {
+                var tb = new TextBox { Text = conversation.Title };
+                var dialog = new ContentDialog
+                {
+                    Title = "Rinomina chat",
+                    Content = tb,
+                    PrimaryButtonText = "Salva",
+                    CloseButtonText = "Annulla",
+                    XamlRoot = this.Content.XamlRoot
+                };
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(tb.Text))
+                {
+                    ChatArchiveStore.Rename(conversation.Id, tb.Text);
+                    RefreshRecentChats();
+                }
+            };
+            flyout.Items.Add(renameItem);
+
+            var deleteItem = new MenuFlyoutItem { Text = "Elimina", Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red) };
+            deleteItem.Icon = new FontIcon { Glyph = "\uE74D", Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red) };
+            deleteItem.Click += (s, e) => {
+                ChatArchiveStore.Delete(conversation.Id);
+                RefreshRecentChats();
+            };
+            flyout.Items.Add(deleteItem);
+
+            moreButton.Flyout = flyout;
+
             var button = new Button
             {
                 Style = (Style)Application.Current.Resources["SidebarButtonStyle"],
                 Tag = conversation,
-                Content = new TextBlock
-                {
-                    Text = conversation.Title,
-                    TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis
-                }
+                Content = grid,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch
             };
+            
+            button.PointerEntered += (s, e) => moreButton.Visibility = Visibility.Visible;
+            button.PointerExited += (s, e) => moreButton.Visibility = Visibility.Collapsed;
+
             Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(button, conversation.Title);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Apri chat: {conversation.Title}");
             button.Click += OpenChat_Click;

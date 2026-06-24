@@ -38,6 +38,15 @@ v0.6.127 Release Hermes Hub 0.6.127 fix token finale stream e reasoning persiste
 
 ## Release Corrente
 
+Hermes Hub 0.6.131 (Chat Context Menu):
+
+Release 0.6.131:
+- Windows: Implementato il menu contestuale al passaggio del mouse sulle chat recenti nella barra laterale (stile ChatGPT).
+- Windows: Il menu a tre puntini consente di accedere a opzioni rapide come `Rinomina` (tramite finestra di dialogo modale) ed `Elimina`.
+- Backend Windows: Introdotto il metodo `Rename` nel `ChatArchiveStore` per il salvataggio persistente dei nuovi titoli.
+- Asset release attesi: Android APK `HermesHub-0.6.131-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.131.0_x64.msix`, Linux Gateway `HermesHub-0.6.131-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.131`, Android `versionName 0.6.131`, `versionCode 136`.
+
 Hermes Hub 0.6.130 (Speech-to-Text & Prompt Fix):
 
 Release 0.6.130:

@@ -264,6 +264,24 @@ public static class ChatArchiveStore
         }
     }
 
+    public static bool Rename(string id, string newTitle)
+    {
+        lock (_cacheLock)
+        {
+            var items = Load();
+            var conversation = items.FirstOrDefault(item => item.Id == id);
+            if (conversation is not null)
+            {
+                conversation.Title = newTitle;
+                conversation.UpdatedAt = DateTimeOffset.Now;
+                SaveAll(items);
+                return true;
+            }
+
+            return false;
+        }
+    }
+
     private static void SaveAll(List<ConversationRecord> items)
     {
         var ordered = items

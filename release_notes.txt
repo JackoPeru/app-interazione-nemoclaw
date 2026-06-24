@@ -1,4 +1,4 @@
-Release 0.6.130:
-- Windows/Android: Eliminati i prompt automatici (es. "Analizza l'immagine") all'inserimento di allegati. I file vengono ora inviati puri al modello, senza contaminare il testo dell'utente.
-- Windows/Android: Aggiunto pulsante Microfono nella chat per la dettatura vocale (Speech-to-Text). Registra la voce e usa Whisper per trascrivere l'audio. Il testo viene inserito nel composer permettendo la revisione prima dell'invio.
-- Server Gateway: Integrato faster-whisper e l'endpoint /v1/audio/transcriptions. Configurati per utilizzare il modello large-v3-turbo in formato int8 sulla GPU, ottimizzato per trascrizioni accurate in italiano. Il modello Whisper viene ora precaricato all'avvio del server (dopo l'LLM) per garantire risposte istantanee. Risolto anche il caricamento automatico delle librerie CUDA (cuBLAS/cuDNN) via LD_LIBRARY_PATH.
+Release 0.6.131:
+- Windows: Implementato il menu contestuale al passaggio del mouse sulle chat recenti nella barra laterale (stile ChatGPT).
+- Windows: Il menu a tre puntini consente di accedere a opzioni rapide come Rinomina (tramite finestra di dialogo modale) ed Elimina.
+- Backend Windows: Introdotto il metodo Rename nel ChatArchiveStore per il salvataggio persistente dei nuovi titoli.
