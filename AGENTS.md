@@ -33,7 +33,7 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.132 Release Hermes Hub 0.6.132 fix whitespace token stream
+v0.6.133 Release Hermes Hub 0.6.133 chat archive sync
 ```
 
 ## Release Corrente
