@@ -451,7 +451,8 @@ data class LocalConversation(
     val updatedAt: Long,
     val messages: List<ChatMessage>,
     val previousResponseId: String? = null,
-    val serverConversationId: String? = null
+    val serverConversationId: String? = null,
+    val deletedAt: Long? = null
 )
 
 data class WorkspaceRequest(
@@ -7207,7 +7208,7 @@ private suspend fun postHubState(settings: AppSettings, kind: String, entityId: 
 
 private suspend fun syncConversationsToHub(context: Context, settings: AppSettings, apiKey: String?): String = withContext(Dispatchers.IO) {
     try {
-        val items = conversationsToJsonArray(loadConversations(context))
+        val items = conversationsToJsonArray(loadConversations(context, includeDeleted = true))
         val payload = JSONObject().put("items", items)
         val response = postJson(resolveHermesUrl(settings, "/v1/hub/conversations/import"), payload, apiKey)
         if (response.first !in 200..299) {
@@ -7235,7 +7236,7 @@ private suspend fun restoreConversationsFromHub(
         if (remote.isEmpty()) {
             return@withContext "Archivio server vuoto."
         }
-        val byId = loadConversations(context).associateBy { it.id }.toMutableMap()
+        val byId = loadConversations(context, includeDeleted = true).associateBy { it.id }.toMutableMap()
         remote.forEach { incoming ->
             val existing = byId[incoming.id]
             if (existing == null || incoming.updatedAt >= existing.updatedAt) {
@@ -8642,8 +8643,8 @@ private fun saveConversationExchange(
     visualBlocksVersion: Int? = null
 ): LocalConversation {
     synchronized(localArchiveLock) {
-        val conversations = loadConversations(context).toMutableList()
-        val index = conversations.indexOfFirst { it.id == conversationId }
+        val conversations = loadConversations(context, includeDeleted = true).toMutableList()
+        val index = conversations.indexOfFirst { it.id == conversationId && it.deletedAt == null }
         val now = System.currentTimeMillis()
         val newMessages = listOf(
             ChatMessage("Tu", prompt, fromUser = true),
@@ -8696,8 +8697,8 @@ private fun saveConversationSnapshot(
     responseId: String? = null
 ): LocalConversation {
     synchronized(localArchiveLock) {
-        val conversations = loadConversations(context).toMutableList()
-        val index = conversations.indexOfFirst { it.id == conversationId }
+        val conversations = loadConversations(context, includeDeleted = true).toMutableList()
+        val index = conversations.indexOfFirst { it.id == conversationId && it.deletedAt == null }
         val now = System.currentTimeMillis()
         val newConversationId = "conv_$now"
         val conversation = if (index >= 0) {
@@ -8742,9 +8743,9 @@ private fun saveProjectConversation(
     prompt: String
 ): LocalConversation {
     synchronized(localArchiveLock) {
-        val conversations = loadConversations(context).toMutableList()
+        val conversations = loadConversations(context, includeDeleted = true).toMutableList()
         val now = System.currentTimeMillis()
-        val index = conversations.indexOfFirst { it.kind == "Progetto" && it.title.equals(title, ignoreCase = true) }
+        val index = conversations.indexOfFirst { it.deletedAt == null && it.kind == "Progetto" && it.title.equals(title, ignoreCase = true) }
         val project = if (index >= 0) {
             conversations[index].copy(description = description, prompt = prompt, updatedAt = now)
         } else {
@@ -8773,8 +8774,8 @@ private fun renameConversation(context: Context, id: String, newTitle: String): 
     if (newTitle.isBlank()) return false
 
     synchronized(localArchiveLock) {
-        val conversations = loadConversations(context).toMutableList()
-        val index = conversations.indexOfFirst { it.id == id }
+        val conversations = loadConversations(context, includeDeleted = true).toMutableList()
+        val index = conversations.indexOfFirst { it.id == id && it.deletedAt == null }
         if (index < 0) return false
 
         conversations[index] = conversations[index].copy(title = newTitle, updatedAt = System.currentTimeMillis())
@@ -8785,12 +8786,23 @@ private fun renameConversation(context: Context, id: String, newTitle: String): 
 
 private fun deleteConversation(context: Context, id: String): Boolean {
     synchronized(localArchiveLock) {
-        val conversations = loadConversations(context).toMutableList()
-        val removed = conversations.removeAll { it.id == id }
-        if (removed) {
-            saveConversations(context, conversations)
-        }
-        return removed
+        val conversations = loadConversations(context, includeDeleted = true).toMutableList()
+        val index = conversations.indexOfFirst { it.id == id && it.deletedAt == null }
+        if (index < 0) return false
+        val now = System.currentTimeMillis()
+        conversations[index] = conversations[index].copy(
+            title = "Chat eliminata",
+            kind = "Deleted",
+            description = "",
+            prompt = "",
+            updatedAt = now,
+            messages = emptyList(),
+            previousResponseId = null,
+            serverConversationId = null,
+            deletedAt = now
+        )
+        saveConversations(context, conversations)
+        return true
     }
 }
 
@@ -8897,7 +8909,7 @@ private fun parseArchiveExportText(text: String): List<LocalConversation> {
     }
 }
 
-private fun loadConversations(context: Context): List<LocalConversation> {
+private fun loadConversations(context: Context, includeDeleted: Boolean = false): List<LocalConversation> {
     synchronized(localArchiveLock) {
         val raw = migratePrefs(context, CURRENT_ARCHIVE_PREFS, LEGACY_ARCHIVE_PREFS).getString("items", "[]") ?: "[]"
         return try {
@@ -8915,11 +8927,15 @@ private fun loadConversations(context: Context): List<LocalConversation> {
                             updatedAt = obj.optLong("updatedAt"),
                             messages = readMessages(obj.optJSONArray("messages") ?: JSONArray()),
                             previousResponseId = obj.optString("previousResponseId").takeIf { it.isNotBlank() },
-                            serverConversationId = obj.optString("serverConversationId").takeIf { it.isNotBlank() }
+                            serverConversationId = obj.optString("serverConversationId").takeIf { it.isNotBlank() },
+                            deletedAt = obj.optLong("deletedAt").takeIf { it > 0 }
+                                ?: obj.optLong("deleted_at").takeIf { it > 0 }
                         )
                     )
                 }
-            }.sortedByDescending { it.updatedAt }
+            }
+                .filter { includeDeleted || it.deletedAt == null }
+                .sortedByDescending { it.updatedAt }
         } catch (_: Exception) {
             emptyList()
         }
@@ -8942,7 +8958,10 @@ private fun conversationsToJsonArray(conversations: List<LocalConversation>): JS
     val array = JSONArray()
     conversations
         .sortedByDescending { it.updatedAt }
-        .take(200)
+        .let { items ->
+            items.filter { it.deletedAt == null }.take(200) +
+                items.filter { it.deletedAt != null }.take(300)
+        }
         .forEach { conversation ->
             array.put(
                 JSONObject()
@@ -8952,6 +8971,7 @@ private fun conversationsToJsonArray(conversations: List<LocalConversation>): JS
                     .put("description", conversation.description)
                     .put("prompt", conversation.prompt)
                     .put("updatedAt", conversation.updatedAt)
+                    .put("deletedAt", conversation.deletedAt ?: JSONObject.NULL)
                     .put("previousResponseId", conversation.previousResponseId ?: JSONObject.NULL)
                     .put("serverConversationId", conversation.serverConversationId ?: JSONObject.NULL)
                     .put("messages", writeMessages(conversation.messages))
@@ -8975,7 +8995,9 @@ private fun readConversationsFromJsonArray(array: JSONArray): List<LocalConversa
                     updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
                     messages = readMessages(obj.optJSONArray("messages") ?: JSONArray()),
                     previousResponseId = obj.optString("previousResponseId").takeIf { it.isNotBlank() },
-                    serverConversationId = obj.optString("serverConversationId").takeIf { it.isNotBlank() }
+                    serverConversationId = obj.optString("serverConversationId").takeIf { it.isNotBlank() },
+                    deletedAt = obj.optLong("deletedAt").takeIf { it > 0 }
+                        ?: obj.optLong("deleted_at").takeIf { it > 0 }
                 )
             )
         }

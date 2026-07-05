@@ -1048,6 +1048,7 @@ public static class GatewayService
                     description = item.Description,
                     prompt = item.Prompt,
                     updatedAt = item.UpdatedAt.ToUnixTimeMilliseconds(),
+                    deletedAt = item.DeletedAt?.ToUnixTimeMilliseconds(),
                     previousResponseId = string.IsNullOrWhiteSpace(item.PreviousResponseId) ? null : item.PreviousResponseId,
                     serverConversationId = string.IsNullOrWhiteSpace(item.ServerConversationId) ? null : item.ServerConversationId,
                     messages = item.Messages.Select(message => new
@@ -1091,6 +1092,11 @@ public static class GatewayService
                     var id = ExtractString(item, "id", "conversationId", "conversation_id");
                     if (string.IsNullOrWhiteSpace(id)) continue;
                     var updated = ExtractDouble(item, "updatedAt");
+                    var deleted = ExtractDouble(item, "deletedAt");
+                    if (deleted <= 0)
+                    {
+                        deleted = ExtractDouble(item, "deleted_at");
+                    }
                     var messages = new List<ChatMessageRecord>();
                     if (item.TryGetProperty("messages", out var messageArray) && messageArray.ValueKind == JsonValueKind.Array)
                     {
@@ -1112,6 +1118,7 @@ public static class GatewayService
                         Description = ExtractString(item, "description") ?? string.Empty,
                         Prompt = ExtractString(item, "prompt") ?? string.Empty,
                         UpdatedAt = updated > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)updated) : DateTimeOffset.Now,
+                        DeletedAt = deleted > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)deleted) : null,
                         PreviousResponseId = ExtractString(item, "previousResponseId", "previous_response_id") ?? string.Empty,
                         ServerConversationId = ExtractString(item, "serverConversationId", "server_conversation_id") ?? string.Empty,
                         Messages = messages

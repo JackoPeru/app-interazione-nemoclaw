@@ -37,7 +37,7 @@ public sealed partial class ArchivePage : Page
     private async void UploadServer_Click(object sender, RoutedEventArgs e)
     {
         StatusText.Text = "Carico archivio sul gateway...";
-        var result = await GatewayService.SaveHubConversationsAsync(AppSettingsStore.Load(), ChatArchiveStore.Load());
+        var result = await GatewayService.SaveHubConversationsAsync(AppSettingsStore.Load(), ChatArchiveStore.Load(includeDeleted: true));
         StatusText.Text = result;
     }
 

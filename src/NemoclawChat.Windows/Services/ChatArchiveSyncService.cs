@@ -110,7 +110,7 @@ public sealed class ChatArchiveSyncService : IDisposable
 
         try
         {
-            await GatewayService.SaveHubConversationsAsync(AppSettingsStore.Load(), ChatArchiveStore.Load());
+            await GatewayService.SaveHubConversationsAsync(AppSettingsStore.Load(), ChatArchiveStore.Load(includeDeleted: true));
         }
         finally
         {

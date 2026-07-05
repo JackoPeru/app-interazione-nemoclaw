@@ -33,10 +33,20 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.134 Release Hermes Hub 0.6.134 automatic chat archive sync
+v0.6.135 Release Hermes Hub 0.6.135 synced chat deletion
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.135 (Synced chat deletion):
+
+Release 0.6.135:
+- Windows/Android/Gateway: aggiunto sync cancellazione chat tramite tombstone `deletedAt`. Quando una chat viene eliminata su un dispositivo, il marker viene caricato sul gateway e gli altri dispositivi la rimuovono al sync senza farla riapparire.
+- Windows: `ChatArchiveStore` conserva marker eliminazione non visibili nella UI, li include nel sync, e il merge applica last-write-wins tra aggiornamenti e cancellazioni.
+- Android: `LocalConversation.deletedAt` viene persistito, caricato/scaricato dal gateway e filtrato dalla UI; `deleteConversation` crea tombstone invece di rimuovere silenziosamente la chat.
+- Gateway Linux: `/v1/hub/conversations/import` conserva `deletedAt`; `DELETE /v1/hub/conversations/{id}` crea tombstone persistente invece di hard delete immediata.
+- Asset release attesi: Android APK `HermesHub-0.6.135-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.135.0_x64.msix`, Linux Gateway `HermesHub-0.6.135-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.135`, Android `versionName 0.6.135`, `versionCode 140`.
 
 Hermes Hub 0.6.134 (Automatic chat archive sync):
 

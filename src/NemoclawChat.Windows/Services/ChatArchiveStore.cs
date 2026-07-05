@@ -23,6 +23,7 @@ public sealed class ConversationRecord
     public string PreviousResponseId { get; set; } = string.Empty;
     public string ServerConversationId { get; set; } = string.Empty;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset? DeletedAt { get; set; }
     public List<ChatMessageRecord> Messages { get; set; } = [];
 }
 
@@ -77,13 +78,13 @@ public static class ChatArchiveStore
         }
     }
 
-    public static List<ConversationRecord> Load()
+    public static List<ConversationRecord> Load(bool includeDeleted = false)
     {
         lock (_cacheLock)
         {
             if (_cache is not null)
             {
-                return CloneConversations(_cache);
+                return CloneConversations(includeDeleted ? _cache : _cache.Where(item => item.DeletedAt is null));
             }
 
             var content = AtomicJsonFile.Read(StorePath);
@@ -101,7 +102,7 @@ public static class ChatArchiveStore
             {
                 _cache = [];
             }
-            return CloneConversations(_cache);
+            return CloneConversations(includeDeleted ? _cache : _cache.Where(item => item.DeletedAt is null));
         }
     }
 
@@ -130,10 +131,10 @@ public static class ChatArchiveStore
     {
         lock (_cacheLock)
         {
-            var items = Load();
+            var items = Load(includeDeleted: true);
             var conversation = string.IsNullOrWhiteSpace(conversationId)
                 ? null
-                : items.FirstOrDefault(item => item.Id == conversationId);
+                : items.FirstOrDefault(item => item.Id == conversationId && item.DeletedAt is null);
 
             if (conversation is null)
             {
@@ -178,10 +179,10 @@ public static class ChatArchiveStore
     {
         lock (_cacheLock)
         {
-            var items = Load();
+            var items = Load(includeDeleted: true);
             var conversation = string.IsNullOrWhiteSpace(conversationId)
                 ? null
-                : items.FirstOrDefault(item => item.Id == conversationId);
+                : items.FirstOrDefault(item => item.Id == conversationId && item.DeletedAt is null);
 
             if (conversation is null)
             {
@@ -215,8 +216,9 @@ public static class ChatArchiveStore
     {
         lock (_cacheLock)
         {
-            var items = Load();
+            var items = Load(includeDeleted: true);
             var existing = items.FirstOrDefault(item =>
+                item.DeletedAt is null &&
                 item.Kind == "Progetto" &&
                 string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase));
 
@@ -253,14 +255,25 @@ public static class ChatArchiveStore
     {
         lock (_cacheLock)
         {
-            var items = Load();
-            var removed = items.RemoveAll(item => item.Id == id) > 0;
-            if (removed)
+            var items = Load(includeDeleted: true);
+            var existing = items.FirstOrDefault(item => item.Id == id);
+            if (existing is null)
             {
-                SaveAll(items);
+                return false;
             }
 
-            return removed;
+            var now = DateTimeOffset.Now;
+            existing.Title = "Chat eliminata";
+            existing.Kind = "Deleted";
+            existing.Description = string.Empty;
+            existing.Prompt = string.Empty;
+            existing.PreviousResponseId = string.Empty;
+            existing.ServerConversationId = string.Empty;
+            existing.Messages = [];
+            existing.UpdatedAt = now;
+            existing.DeletedAt = now;
+            SaveAll(items);
+            return true;
         }
     }
 
@@ -268,8 +281,8 @@ public static class ChatArchiveStore
     {
         lock (_cacheLock)
         {
-            var items = Load();
-            var conversation = items.FirstOrDefault(item => item.Id == id);
+            var items = Load(includeDeleted: true);
+            var conversation = items.FirstOrDefault(item => item.Id == id && item.DeletedAt is null);
             if (conversation is not null)
             {
                 conversation.Title = newTitle;
@@ -286,7 +299,7 @@ public static class ChatArchiveStore
     {
         lock (_cacheLock)
         {
-            var items = Load();
+            var items = Load(includeDeleted: true);
             var byId = items
                 .Where(item => !string.IsNullOrWhiteSpace(item.Id))
                 .ToDictionary(item => item.Id, item => item, StringComparer.OrdinalIgnoreCase);
@@ -299,6 +312,9 @@ public static class ChatArchiveStore
                     continue;
                 }
 
+                var incomingUpdated = conversation.UpdatedAt;
+                var incomingDeletedAt = conversation.DeletedAt;
+
                 if (!byId.TryGetValue(conversation.Id, out var existing))
                 {
                     items.Add(conversation);
@@ -307,7 +323,7 @@ public static class ChatArchiveStore
                     continue;
                 }
 
-                if (conversation.UpdatedAt >= existing.UpdatedAt)
+                if (incomingUpdated >= existing.UpdatedAt)
                 {
                     existing.Title = conversation.Title;
                     existing.Kind = conversation.Kind;
@@ -316,6 +332,7 @@ public static class ChatArchiveStore
                     existing.PreviousResponseId = conversation.PreviousResponseId;
                     existing.ServerConversationId = conversation.ServerConversationId;
                     existing.UpdatedAt = conversation.UpdatedAt;
+                    existing.DeletedAt = incomingDeletedAt;
                     existing.Messages = conversation.Messages.ToList();
                     changed++;
                 }
@@ -332,9 +349,17 @@ public static class ChatArchiveStore
 
     private static void SaveAll(List<ConversationRecord> items)
     {
-        var ordered = items
+        var active = items
+            .Where(item => item.DeletedAt is null)
             .OrderByDescending(item => item.UpdatedAt)
-            .Take(200)
+            .Take(200);
+        var deleted = items
+            .Where(item => item.DeletedAt is not null)
+            .OrderByDescending(item => item.UpdatedAt)
+            .Take(300);
+        var ordered = active
+            .Concat(deleted)
+            .OrderByDescending(item => item.UpdatedAt)
             .ToList();
         AtomicJsonFile.Write(StorePath, JsonSerializer.Serialize(ordered, JsonOptions));
         lock (_cacheLock)
@@ -358,6 +383,7 @@ public static class ChatArchiveStore
             PreviousResponseId = item.PreviousResponseId,
             ServerConversationId = item.ServerConversationId,
             UpdatedAt = item.UpdatedAt,
+            DeletedAt = item.DeletedAt,
             Messages = item.Messages.ToList()
         };
 
