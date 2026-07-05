@@ -104,10 +104,17 @@ def _patch_text(text: str) -> tuple[str, list[str]]:
         text, _ = _replace_regex_once(
             text,
             r'^MAX_REQUEST_BYTES\s*=\s*[0-9_]+\s*#.*$',
-            'MAX_REQUEST_BYTES = int(os.environ.get("HERMES_GATEWAY_MAX_REQUEST_MB", "0")) * 1024 * 1024  # 0 disables gateway body limit',
+            '_HERMES_GATEWAY_MAX_REQUEST_MB = int(os.environ.get("HERMES_GATEWAY_MAX_REQUEST_MB", "0"))\nMAX_REQUEST_BYTES = (_HERMES_GATEWAY_MAX_REQUEST_MB if _HERMES_GATEWAY_MAX_REQUEST_MB > 0 else 102400) * 1024 * 1024  # 0 maps to a 100GB practical ceiling for aiohttp',
             "gateway max request bytes env",
         )
         changes.append("gateway max request bytes env")
+
+    if 'MAX_REQUEST_BYTES = int(os.environ.get("HERMES_GATEWAY_MAX_REQUEST_MB", "0")) * 1024 * 1024  # 0 disables gateway body limit' in text:
+        text = text.replace(
+            'MAX_REQUEST_BYTES = int(os.environ.get("HERMES_GATEWAY_MAX_REQUEST_MB", "0")) * 1024 * 1024  # 0 disables gateway body limit',
+            '_HERMES_GATEWAY_MAX_REQUEST_MB = int(os.environ.get("HERMES_GATEWAY_MAX_REQUEST_MB", "0"))\nMAX_REQUEST_BYTES = (_HERMES_GATEWAY_MAX_REQUEST_MB if _HERMES_GATEWAY_MAX_REQUEST_MB > 0 else 102400) * 1024 * 1024  # 0 maps to a 100GB practical ceiling for aiohttp',
+        )
+        changes.append("gateway zero request limit maps to practical ceiling")
 
     if "if MAX_REQUEST_BYTES > 0 and int(cl) > MAX_REQUEST_BYTES:" not in text:
         text = text.replace(

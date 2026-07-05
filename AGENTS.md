@@ -33,10 +33,19 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.137 Release Hermes Hub 0.6.137 unlimited gateway uploads
+v0.6.138 Release Hermes Hub 0.6.138 practical unlimited gateway uploads
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.138 (Practical unlimited gateway uploads):
+
+Release 0.6.138:
+- Gateway Linux: hotfix limite upload. `aiohttp` non tratta `client_max_size=0` come unlimited nel modo atteso; ora `HERMES_GATEWAY_MAX_REQUEST_MB=0` viene tradotto in un ceiling pratico da 100GB, evitando il 413 su audio da 15MB e su file lunghi senza lasciare il vecchio limite 10MB.
+- Gateway Linux: mantiene `HERMES_HUB_MAX_UPLOAD_MB=0` come nessun limite applicativo per `/v1/media/upload`; restano solo limiti fisici di RAM/disco/rete/timeout.
+- Windows/Android: solo bump app per mantenere updater app allineato alla latest release; nessun cambio UI.
+- Asset release attesi: Android APK `HermesHub-0.6.138-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.138.0_x64.msix`, Linux Gateway `HermesHub-0.6.138-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.138`, Android `versionName 0.6.138`, `versionCode 143`.
 
 Hermes Hub 0.6.137 (Unlimited gateway uploads):
 
