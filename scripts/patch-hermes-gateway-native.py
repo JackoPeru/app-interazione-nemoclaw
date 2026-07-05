@@ -100,6 +100,23 @@ def _replace_regex_once(text: str, pattern: str, repl: str, label: str) -> tuple
 def _patch_text(text: str) -> tuple[str, list[str]]:
     changes: list[str] = []
 
+    if "HERMES_GATEWAY_MAX_REQUEST_MB" not in text:
+        text, _ = _replace_regex_once(
+            text,
+            r'^MAX_REQUEST_BYTES\s*=\s*[0-9_]+\s*#.*$',
+            'MAX_REQUEST_BYTES = int(os.environ.get("HERMES_GATEWAY_MAX_REQUEST_MB", "0")) * 1024 * 1024  # 0 disables gateway body limit',
+            "gateway max request bytes env",
+        )
+        changes.append("gateway max request bytes env")
+
+    if "if MAX_REQUEST_BYTES > 0 and int(cl) > MAX_REQUEST_BYTES:" not in text:
+        text = text.replace(
+            "if int(cl) > MAX_REQUEST_BYTES:",
+            "if MAX_REQUEST_BYTES > 0 and int(cl) > MAX_REQUEST_BYTES:",
+            1,
+        )
+        changes.append("gateway body limit disable support")
+
     if "def _hermes_hub_api_keys" not in text:
         text, _ = _replace_once(
             text,
@@ -127,6 +144,21 @@ def _patch_text(text: str) -> tuple[str, list[str]]:
             "hermes hub api key aliases",
         )
         changes.append("hermes hub api key aliases")
+
+    if 'os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "150")' in text:
+        text = text.replace(
+            'os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "150")',
+            'os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "0")',
+        )
+        changes.append("unlimited hub upload default")
+
+    if "if not payload or len(payload) > max_bytes:" in text:
+        text = text.replace(
+            "if not payload or len(payload) > max_bytes:",
+            "if not payload or (max_bytes > 0 and len(payload) > max_bytes):",
+            1,
+        )
+        changes.append("unlimited hub upload guard")
 
     if "def _hermes_hub_save_upload" not in text:
         text, _ = _replace_once(
@@ -171,8 +203,8 @@ def _hermes_hub_save_upload(filename: str, mime_type: str, data_url: str) -> Dic
     detected_mime = meta[5:].split(";", 1)[0].strip() or str(mime_type or "application/octet-stream")
     mime = str(mime_type or detected_mime or "application/octet-stream")
     payload = _base64.b64decode(encoded, validate=False)
-    max_bytes = int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "150")) * 1024 * 1024
-    if not payload or len(payload) > max_bytes:
+    max_bytes = int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "0")) * 1024 * 1024
+    if not payload or (max_bytes > 0 and len(payload) > max_bytes):
         raise ValueError("upload empty or over max size")
 
     root = _hermes_hub_upload_root()
@@ -2089,15 +2121,23 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             )
             changes.append("capabilities hub notifications")
 
-    if '"max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "150")),' not in text:
+    if '"max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "0")),' not in text:
         text, _ = _replace_regex_once(
             text,
             r'(^\s+"features": \{\n)',
             r'\1'
-            r'                "max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "150")),' "\n",
+            r'                "max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "0")),' "\n",
             "capabilities max upload mb",
         )
         changes.append("capabilities max upload mb")
+
+    if '"max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "150")),' in text:
+        text = text.replace(
+            '"max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "150")),',
+            '"max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "0")),',
+            1,
+        )
+        changes.append("capabilities unlimited upload default")
 
     if "_RUN_STREAM_TTL = 21600" not in text:
         patched = text.replace("_RUN_STREAM_TTL = 300", "_RUN_STREAM_TTL = 21600", 1)

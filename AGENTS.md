@@ -33,10 +33,20 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.136 Release Hermes Hub 0.6.136 tombstone patcher hotfix
+v0.6.137 Release Hermes Hub 0.6.137 unlimited gateway uploads
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.137 (Unlimited gateway uploads):
+
+Release 0.6.137:
+- Gateway Linux: rimosso il limite applicativo hardcoded `MAX_REQUEST_BYTES = 10_000_000` che bloccava upload audio sopra circa 10MB su `/v1/audio/transcriptions`.
+- Gateway Linux: nuova variabile `HERMES_GATEWAY_MAX_REQUEST_MB`; default `0` significa nessun limite gateway applicativo. `web.Application(client_max_size=0)` e `body_limit_middleware` non rigettano piu' body grandi quando il valore e' `0`.
+- Gateway Linux: `HERMES_HUB_MAX_UPLOAD_MB` passa a default `0`; `0` significa nessun limite per `/v1/media/upload` lato gateway. Restano limiti fisici di RAM/disco/rete/timeout, non un cap artificiale Hermes Hub.
+- Windows/Android: solo bump app per mantenere updater app allineato alla latest release; nessun cambio UI.
+- Asset release attesi: Android APK `HermesHub-0.6.137-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.137.0_x64.msix`, Linux Gateway `HermesHub-0.6.137-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.137`, Android `versionName 0.6.137`, `versionCode 142`.
 
 Hermes Hub 0.6.136 (Tombstone patcher hotfix):
 
