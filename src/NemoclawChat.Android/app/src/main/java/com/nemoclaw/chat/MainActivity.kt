@@ -2,10 +2,10 @@ package com.nemoclaw.chat
 
 import android.Manifest
 import android.app.Activity
-import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ContentValues
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -2189,6 +2189,8 @@ private fun MediaFileBlock(block: VisualBlock) {
     }
     val clipboard = remember(context) { context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager }
     val apiKey = remember { loadGatewaySecret(context) }
+    val scope = rememberCoroutineScope()
+    var isDownloading by remember(block.mediaUrl) { mutableStateOf(false) }
     val canOpen = resolvedMediaUrl != null
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2240,18 +2242,27 @@ private fun MediaFileBlock(block: VisualBlock) {
                         }
                     ) { Text("Apri") }
                     Button(
-                        enabled = canOpen,
+                        enabled = canOpen && !isDownloading,
                         onClick = {
                             val url = resolvedMediaUrl ?: return@Button
-                            enqueueHermesMediaDownload(
-                                context = context,
-                                url = url,
-                                filename = block.filename.ifBlank { block.title.ifBlank { "hermes-file" } },
-                                mimeType = block.mimeType,
-                                apiKey = apiKey
-                            )
+                            val filename = block.filename.ifBlank { block.title.ifBlank { "hermes-file" } }
+                            isDownloading = true
+                            android.widget.Toast.makeText(context, "Scaricamento: ${sanitizeDownloadFilename(filename)}", android.widget.Toast.LENGTH_SHORT).show()
+                            scope.launch {
+                                val message = runCatching {
+                                    downloadHermesMediaFile(
+                                        context = context,
+                                        url = url,
+                                        filename = filename,
+                                        mimeType = block.mimeType,
+                                        apiKey = apiKey
+                                    )
+                                }.getOrElse { "Download fallito: ${it.message ?: "errore sconosciuto"}" }
+                                isDownloading = false
+                                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+                            }
                         }
-                    ) { Text("Scarica") }
+                    ) { Text(if (isDownloading) "Scarico..." else "Scarica") }
                     Button(
                         enabled = canOpen,
                         onClick = {
@@ -2266,31 +2277,70 @@ private fun MediaFileBlock(block: VisualBlock) {
     }
 }
 
-private fun enqueueHermesMediaDownload(context: Context, url: String, filename: String, mimeType: String, apiKey: String?) {
+suspend fun downloadHermesMediaFile(context: Context, url: String, filename: String, mimeType: String, apiKey: String?): String = withContext(Dispatchers.IO) {
     val safeName = sanitizeDownloadFilename(filename.ifBlank {
         runCatching { Uri.parse(url).lastPathSegment.orEmpty() }.getOrDefault("").ifBlank { "hermes-file" }
     })
+    val parsed = Uri.parse(url)
+    val needsHermesAuth = parsed.path.orEmpty().startsWith("/v1/media/", ignoreCase = true)
+    val candidates = if (needsHermesAuth) hermesAuthCandidates(apiKey) else listOf<String?>(null)
+    var lastError = "nessuna risposta"
+    for (token in candidates) {
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .header("Accept", "*/*")
+            .header("User-Agent", "HermesHub-Android")
+            .apply {
+                if (!token.isNullOrBlank()) {
+                    header("Authorization", "Bearer $token")
+                }
+            }
+            .build()
+        apiHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                lastError = "HTTP ${response.code}"
+                return@use
+            }
+            val body = response.body
+            saveDownloadBytes(context, safeName, mimeType.ifBlank { body.contentType()?.toString().orEmpty() }, body.byteStream())
+            return@withContext "File salvato in Download: $safeName"
+        }
+    }
+    throw IllegalStateException(lastError)
+}
+
+private fun saveDownloadBytes(context: Context, filename: String, mimeType: String, input: java.io.InputStream) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw IllegalStateException("cartella Download non accessibile")
+        }
+        File(dir, filename).outputStream().use { output ->
+            input.use { it.copyTo(output) }
+        }
+        return
+    }
+
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+        put(MediaStore.MediaColumns.MIME_TYPE, mimeType.ifBlank { "application/octet-stream" })
+        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    val target = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        ?: throw IllegalStateException("impossibile creare file in Download")
     try {
-        val uri = Uri.parse(url)
-        val request = DownloadManager.Request(uri)
-            .setTitle(safeName)
-            .setDescription("File condiviso da Hermes Hub")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safeName)
-        if (mimeType.isNotBlank()) {
-            request.setMimeType(mimeType)
-        }
-        request.addRequestHeader("User-Agent", "HermesHub-Android")
-        if (uri.path.orEmpty().startsWith("/v1/media/", ignoreCase = true)) {
-            val token = apiKey?.trim()?.takeIf { it.isNotBlank() } ?: HERMES_FALLBACK_API_KEY
-            request.addRequestHeader("Authorization", "Bearer $token")
-        }
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        manager.enqueue(request)
-        android.widget.Toast.makeText(context, "Download avviato: $safeName", android.widget.Toast.LENGTH_SHORT).show()
-    } catch (_: Exception) {
-        android.widget.Toast.makeText(context, "Download non avviato. Apro il file.", android.widget.Toast.LENGTH_SHORT).show()
-        openAndroidIntent(context, Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        resolver.openOutputStream(target)?.use { output ->
+            input.use { it.copyTo(output) }
+        } ?: throw IllegalStateException("impossibile scrivere file")
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(target, values, null, null)
+    } catch (ex: Exception) {
+        resolver.delete(target, null, null)
+        throw ex
     }
 }
 

@@ -33,10 +33,19 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.139 Release Hermes Hub 0.6.139 chat file cards
+v0.6.140 Release Hermes Hub 0.6.140 Android file download hotfix
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.140 (Android file download hotfix):
+
+Release 0.6.140:
+- Android: hotfix del pulsante `Scarica` nelle card `media_file`. Rimosso l'uso opaco di `DownloadManager`, che poteva accodare il download e poi fallire senza notifica o file visibile.
+- Android: il download ora passa dall'app con `OkHttp`, usando gli stessi header `Authorization`/fallback API key di Hermes Hub e mostrando errore reale se il gateway risponde `401`, `404` o altro.
+- Android: salvataggio diretto nella cartella pubblica `Download` tramite `MediaStore.Downloads` su Android 10+; fallback su cartella pubblica `Download` per versioni precedenti.
+- Asset release attesi: Android APK `HermesHub-0.6.140-android.apk`. Windows MSIX e Linux Gateway non inclusi perche' invariati in questa release Android-only.
+- Release bump: Android `versionName 0.6.140`, `versionCode 145`.
 
 Hermes Hub 0.6.139 (Chat file cards):
 
