@@ -2406,6 +2406,65 @@ public sealed partial class HomePage : Page
         };
         actions.Children.Add(open);
 
+        var download = new Button
+        {
+            Content = "Scarica",
+            IsEnabled = safeMedia,
+            Padding = new Thickness(12, 4, 12, 4)
+        };
+        download.Click += async (_, _) =>
+        {
+            if (block.MediaUrl is not { Length: > 0 } value || !IsSafeMediaUrl(value)) return;
+            
+            var picker = new FileSavePicker();
+            picker.SuggestedFileName = block.Filename ?? "download";
+            var ext = System.IO.Path.GetExtension(picker.SuggestedFileName);
+            if (string.IsNullOrWhiteSpace(ext))
+            {
+                picker.FileTypeChoices.Add("File", new List<string> { "." });
+            }
+            else
+            {
+                picker.FileTypeChoices.Add($"File {ext}", new List<string> { ext });
+            }
+
+            if (App.MainWindow is not null)
+            {
+                InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.MainWindow));
+            }
+
+            var file = await picker.PickSaveFileAsync();
+            if (file == null) return;
+
+            download.IsEnabled = false;
+            download.Content = "Scaricamento...";
+            try
+            {
+                using var httpClient = new System.Net.Http.HttpClient();
+                var apiKey = GatewayCredentialStore.LoadSecret();
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                {
+                    httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+                }
+                var uri = ResolveMediaUri(value);
+                using var stream = await httpClient.GetStreamAsync(uri);
+                using var fileStream = await file.OpenStreamForWriteAsync();
+                await stream.CopyToAsync(fileStream);
+                download.Content = "Scaricato";
+            }
+            catch (Exception)
+            {
+                download.Content = "Errore";
+            }
+            finally
+            {
+                await Task.Delay(2000);
+                download.Content = "Scarica";
+                download.IsEnabled = true;
+            }
+        };
+        actions.Children.Add(download);
+
         var copy = new Button
         {
             Content = "Copia link",
@@ -2524,9 +2583,24 @@ public sealed partial class HomePage : Page
 
     private static Uri ResolveMediaUri(string value)
     {
-        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
-            ? uri
-            : new Uri($"{GatewayService.HermesRoot(AppSettingsStore.Load()).TrimEnd('/')}{value}");
+        var settings = AppSettingsStore.Load();
+        var uri = Uri.TryCreate(value, UriKind.Absolute, out var parsed)
+            ? parsed
+            : new Uri($"{GatewayService.HermesRoot(settings).TrimEnd('/')}{value}");
+
+        var apiKey = GatewayCredentialStore.LoadSecret();
+        if (uri.AbsolutePath.StartsWith("/v1/media/", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(apiKey))
+        {
+            var builder = new UriBuilder(uri);
+            var query = builder.Query;
+            if (query.Length > 1) query = query.Substring(1) + "&";
+            else query = "";
+            query += $"hub_token={Uri.EscapeDataString(apiKey)}";
+            builder.Query = query;
+            return builder.Uri;
+        }
+
+        return uri;
     }
 }
 

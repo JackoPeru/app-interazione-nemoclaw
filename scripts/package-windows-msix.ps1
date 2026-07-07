@@ -92,6 +92,12 @@ if (-not $SkipSigning) {
     Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\TrustedPeople | Out-Null
     Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
 
+    $lmRootCert = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
+    if (-not $lmRootCert) {
+        Write-Host "Richiesta privilegi per installare il certificato in LocalMachine\Root (necessario per App Installer)..."
+        Start-Process powershell.exe -ArgumentList "-NoProfile -WindowStyle Hidden -Command `"Import-Certificate -FilePath '$certPath' -CertStoreLocation Cert:\LocalMachine\Root`"" -Verb RunAs -Wait
+    }
+
     $signTool = Get-SignTool
     & $signTool sign /fd SHA256 /sha1 $cert.Thumbprint /tr http://timestamp.digicert.com /td SHA256 $msix.FullName
     if ($LASTEXITCODE -ne 0) {

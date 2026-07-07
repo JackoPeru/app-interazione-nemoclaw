@@ -33,10 +33,19 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.144 Release Hermes Hub 0.6.144 realtime chat archive sync
+v0.6.145 Release Hermes Hub 0.6.145 Windows media download
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.145 (Windows media download support):
+
+Release 0.6.145:
+- Windows: aggiunto il pulsante `Scarica` nelle card `media_file` inviate dal proxy. Apre un FileSavePicker nativo e usa `HttpClient` con l'API key caricata dal `GatewayCredentialStore` (o `hermes-hub` compat) per scaricare correttamente il file aggirando le restrizioni di autenticazione del browser di sistema.
+- Windows: i pulsanti `Apri` e `Copia link` per i media proxy `/v1/media/...` ora appendono automaticamente `?hub_token=<chiave>` all'URL. Questo permette di aprire file o immagini nel browser predefinito di Windows o condividerli anche da reti esterne Tailscale dove l'header `Authorization` non puo' essere impostato.
+- Windows: corretto lo script di pacchettizzazione `package-windows-msix.ps1` per installare il certificato di firma `AppPublisher` in `LocalMachine\Root` richiedendo l'elevazione UAC. Risolve definitivamente l'errore `0x800B0109` ("certificato radice non attendibile") durante l'installazione tramite App Installer.
+- Asset release attesi: Android APK `HermesHub-0.6.145-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.145.0_x64.msix`. Linux Gateway non incluso perche' invariato in questa release app-only.
+- Release bump: Windows/AdminBridge `0.6.145`, Android `versionName 0.6.145`, `versionCode 149`.
 
 Hermes Hub 0.6.144 (Realtime chat archive sync):
 
