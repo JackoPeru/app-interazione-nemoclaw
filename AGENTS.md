@@ -45,6 +45,8 @@ Release 0.6.142:
 - Android: le anteprime immagini proxy `/v1/media/...` usano la stessa autenticazione del download, evitando card vuote quando il proxy richiede Bearer token.
 - Android: `Apri` per file proxy usa URL temporaneo con `hub_token`, necessario per intent Android esterni che non possono inviare header Authorization.
 - Android: la tendina `Ragionamento/Sto pensando` non si apre piu' automaticamente sopra la risposta; il reasoning resta consultabile nella sua tendina e, quando aperto, resta confinato in box scrollabile.
+- Server maintenance 2026-07-07: applicati update apt normali (`iproute2`, `kpartx`, `multipath-tools`, `tailscale 1.98.8`) e firmware `UEFI dbx` via `fwupdmgr update -y`; reboot completato, `/var/run/reboot-required` assente, `fwupdmgr get-upgrades` non mostra piu' upgrade dbx, `tailscaled`, `hermes-llama` e `hermes-hub` attivi. Restano solo 17 update ESM Apps non applicabili senza Ubuntu Pro attach.
+- Server verification 2026-07-07: `GET /v1/capabilities` 200, `GET /v1/media/autonomous-business-research-full.md` con Bearer 200, senza auth 401, con `hub_token=hermes-hub` 200, `POST /v1/chat/completions` risponde `OK`.
 - Asset release attesi: Android APK `HermesHub-0.6.142-android.apk`. Windows MSIX e Linux Gateway non inclusi perche' invariati in questa release Android-only.
 - Release bump: Android `versionName 0.6.142`, `versionCode 147`.
 
