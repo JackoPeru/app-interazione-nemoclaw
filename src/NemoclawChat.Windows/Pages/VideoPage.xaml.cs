@@ -299,6 +299,7 @@ public sealed partial class VideoPage : Page
         }
 
         var token = GatewayCredentialStore.LoadSecret();
+        if (string.IsNullOrWhiteSpace(token)) token = GatewayCredentialStore.DefaultApiKey;
         if (string.IsNullOrWhiteSpace(token))
         {
             return url;

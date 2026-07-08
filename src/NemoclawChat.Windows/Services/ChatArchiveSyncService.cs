@@ -108,10 +108,7 @@ public sealed class ChatArchiveSyncService : IDisposable
 
     private async Task PushAsync(CancellationToken cancellationToken)
     {
-        if (!await _syncLock.WaitAsync(0, cancellationToken))
-        {
-            return;
-        }
+        await _syncLock.WaitAsync(cancellationToken);
 
         try
         {

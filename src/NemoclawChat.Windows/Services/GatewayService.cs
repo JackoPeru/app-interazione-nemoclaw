@@ -1107,10 +1107,13 @@ public static class GatewayService
                         foreach (var message in messageArray.EnumerateArray())
                         {
                             var timestamp = ExtractDouble(message, "timestamp");
+                            var visualBlocks = ReadMessageVisualBlocks(message);
                             messages.Add(new ChatMessageRecord(
                                 ExtractString(message, "author", "role") ?? "Hermes",
                                 ExtractString(message, "text", "content", "message") ?? string.Empty,
-                                timestamp > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)timestamp) : DateTimeOffset.Now));
+                                timestamp > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)timestamp) : DateTimeOffset.Now,
+                                ReadMessageVisualBlocksVersion(message),
+                                visualBlocks.Count > 0 ? visualBlocks : null));
                         }
                     }
 
@@ -1136,6 +1139,40 @@ public static class GatewayService
         {
             return new HubConversationsResult([], $"Archivio server non disponibile: {ex.Message}");
         }
+    }
+
+    private static int? ReadMessageVisualBlocksVersion(JsonElement message)
+    {
+        var version = ExtractDouble(message, "visualBlocksVersion");
+        if (version <= 0)
+        {
+            version = ExtractDouble(message, "visual_blocks_version");
+        }
+
+        return version > 0 ? (int)version : null;
+    }
+
+    private static List<VisualBlockRecord> ReadMessageVisualBlocks(JsonElement message)
+    {
+        if (message.ValueKind != JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        JsonElement blocksElement;
+        if (!message.TryGetProperty("visualBlocks", out blocksElement) &&
+            !message.TryGetProperty("visual_blocks", out blocksElement))
+        {
+            return [];
+        }
+
+        if (blocksElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var wrapped = $$"""{"visual_blocks":{{blocksElement.GetRawText()}}}""";
+        return VisualBlockParser.ExtractFromResponse(wrapped).ToList();
     }
 
     public static async Task StreamHubConversationEventsAsync(AppSettings settings, Func<CancellationToken, Task> onChanged, CancellationToken cancellationToken)

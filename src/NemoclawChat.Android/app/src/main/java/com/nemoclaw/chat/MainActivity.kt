@@ -348,7 +348,10 @@ private object ConversationArchiveAutoSync {
     }
 
     private suspend fun pushToHub(context: Context) {
-        if (!syncActive.compareAndSet(false, true)) return
+        if (!syncActive.compareAndSet(false, true)) {
+            scheduleUpload(context)
+            return
+        }
         try {
             syncConversationsToHub(context, loadSettings(context), loadGatewaySecret(context))
         } finally {
@@ -2249,7 +2252,7 @@ private fun MediaFileBlock(block: VisualBlock) {
     val context = LocalContext.current
     val settings = remember { loadSettings(context) }
     val allowExternalImage = block.mediaKind == "image"
-    val resolvedMediaUrl = remember(settings.gatewayUrl, block.mediaUrl, allowExternalImage) { resolveMediaUrl(settings, block.mediaUrl, allowExternalImage) }
+    val resolvedMediaUrl = remember(settings.gatewayUrl, block.mediaUrl, allowExternalImage) { resolveMediaUrl(settings, block.mediaUrl, allowExternalImage, allowExternalMedia = true) }
     val previewUrl = remember(settings.gatewayUrl, block.thumbnailUrl, allowExternalImage) { resolveMediaUrl(settings, block.thumbnailUrl, allowExternalImage) }
     val previewSource = when {
         block.mediaKind == "image" && resolvedMediaUrl != null -> block.mediaUrl
@@ -2337,7 +2340,7 @@ private fun MediaFileBlock(block: VisualBlock) {
                         enabled = canOpen,
                         onClick = {
                             val url = resolvedMediaUrl ?: return@Button
-                            clipboard.setPrimaryClip(ClipData.newPlainText("hermes-media-url", url))
+                            clipboard.setPrimaryClip(ClipData.newPlainText("hermes-media-url", withHermesMediaQueryToken(url, loadGatewaySecret(context))))
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.Elevated)
                     ) { Text("Copia link") }
@@ -2351,36 +2354,37 @@ suspend fun downloadHermesMediaFile(context: Context, url: String, filename: Str
     val safeName = sanitizeDownloadFilename(filename.ifBlank {
         runCatching { Uri.parse(url).lastPathSegment.orEmpty() }.getOrDefault("").ifBlank { "hermes-file" }
     })
-    val parsed = Uri.parse(url)
-    val needsHermesAuth = parsed.path.orEmpty().startsWith("/v1/media/", ignoreCase = true)
-    val candidates = if (needsHermesAuth) hermesAuthCandidates(apiKey) else listOf<String?>(null)
     var lastError = "nessuna risposta"
-    for (token in candidates) {
-        val urls = if (needsHermesAuth && !token.isNullOrBlank()) {
-            listOf(url, withHermesMediaQueryToken(url, token))
-        } else {
-            listOf(url)
-        }
-        for ((index, attemptUrl) in urls.distinct().withIndex()) {
-            val request = Request.Builder()
-                .url(attemptUrl)
-                .get()
-                .header("Accept", "*/*")
-                .header("User-Agent", "HermesHub-Android")
-                .apply {
-                    if (!token.isNullOrBlank() && index == 0) {
-                        header("Authorization", "Bearer $token")
+    for (candidateUrl in plugAndPlayUrlCandidates(url)) {
+        val needsHermesAuth = Uri.parse(candidateUrl).path.orEmpty().startsWith("/v1/media/", ignoreCase = true)
+        val candidates = if (needsHermesAuth) hermesAuthCandidates(apiKey) else listOf<String?>(null)
+        for (token in candidates) {
+            val urls = if (needsHermesAuth && !token.isNullOrBlank()) {
+                listOf(candidateUrl, withHermesMediaQueryToken(candidateUrl, token))
+            } else {
+                listOf(candidateUrl)
+            }
+            for ((index, attemptUrl) in urls.distinct().withIndex()) {
+                val request = Request.Builder()
+                    .url(attemptUrl)
+                    .get()
+                    .header("Accept", "*/*")
+                    .header("User-Agent", "HermesHub-Android")
+                    .apply {
+                        if (!token.isNullOrBlank() && index == 0) {
+                            header("Authorization", "Bearer $token")
+                        }
                     }
+                    .build()
+                apiHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        lastError = "HTTP ${response.code}"
+                        return@use
+                    }
+                    val body = response.body
+                    saveDownloadBytes(context, safeName, mimeType.ifBlank { body.contentType()?.toString().orEmpty() }, body.byteStream())
+                    return@withContext "File salvato in Download: $safeName"
                 }
-                .build()
-            apiHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    lastError = "HTTP ${response.code}"
-                    return@use
-                }
-                val body = response.body
-                saveDownloadBytes(context, safeName, mimeType.ifBlank { body.contentType()?.toString().orEmpty() }, body.byteStream())
-                return@withContext "File salvato in Download: $safeName"
             }
         }
     }
@@ -2578,7 +2582,7 @@ private fun RemoteGalleryImage(settings: AppSettings, image: VisualGalleryImage,
     )
 }
 
-private fun resolveMediaUrl(settings: AppSettings, value: String, allowExternalImage: Boolean = false): String? {
+private fun resolveMediaUrl(settings: AppSettings, value: String, allowExternalImage: Boolean = false, allowExternalMedia: Boolean = false): String? {
     return if (value.startsWith("http://", true) || value.startsWith("https://", true)) {
         try {
             val uri = URI(value)
@@ -2596,6 +2600,12 @@ private fun resolveMediaUrl(settings: AppSettings, value: String, allowExternalI
                 !uri.host.isNullOrBlank() &&
                 !value.startsWith("file:", ignoreCase = true) &&
                 !value.startsWith("data:", ignoreCase = true)
+            ) {
+                value
+            } else if (
+                allowExternalMedia &&
+                uri.scheme == "https" &&
+                !uri.host.isNullOrBlank()
             ) {
                 value
             } else {
@@ -7688,14 +7698,41 @@ private fun findJsonArray(value: Any?, key: String): JSONArray? {
 }
 
 private fun readVisualBlock(obj: JSONObject): VisualBlock {
+    val type = obj.optString("type")
+    val isMediaFile = type.equals("media_file", ignoreCase = true)
+    val mediaUrl = if (isMediaFile) {
+        firstNonBlank(
+            obj.optString("media_url"),
+            obj.optString("download_url"),
+            obj.optString("downloadUrl"),
+            obj.optString("url"),
+            obj.optString("file_url"),
+            obj.optString("fileUrl")
+        ).trimEnd('.', ',', ';', ':')
+    } else {
+        obj.optString("media_url")
+    }
+    val filename = if (isMediaFile) {
+        firstNonBlank(
+            obj.optString("filename"),
+            inferVisualBlockFilename(obj.optString("title", "File Hermes"), mediaUrl),
+            "download"
+        )
+    } else {
+        obj.optString("filename")
+    }
+    val mediaKind = if (isMediaFile) normalizeVisualBlockMediaKind(obj.optString("media_kind"), inferVisualBlockMediaKind(filename, mediaUrl)) else obj.optString("media_kind")
+    val mimeType = if (isMediaFile) firstNonBlank(obj.optString("mime_type"), inferVisualBlockMimeType(filename, mediaUrl)) else obj.optString("mime_type")
+    val alt = if (isMediaFile) firstNonBlank(obj.optString("alt"), obj.optString("title"), filename, "File Hermes") else obj.optString("alt")
+
     return VisualBlock(
         id = obj.optString("id"),
-        type = obj.optString("type"),
+        type = type,
         title = obj.optString("title"),
         caption = obj.optString("caption"),
         text = obj.optString("text"),
         language = obj.optString("language", "plaintext"),
-        filename = obj.optString("filename"),
+        filename = filename,
         code = obj.optString("code"),
         highlightLines = readIntArray(obj.optJSONArray("highlight_lines")),
         columns = readVisualColumns(obj.optJSONArray("columns") ?: JSONArray()),
@@ -7709,13 +7746,13 @@ private fun readVisualBlock(obj: JSONObject): VisualBlock {
         sourceFormat = obj.optString("source_format"),
         source = obj.optString("source"),
         renderedMediaUrl = obj.optString("rendered_media_url"),
-        mediaUrl = obj.optString("media_url"),
-        mediaKind = obj.optString("media_kind"),
-        mimeType = obj.optString("mime_type"),
+        mediaUrl = mediaUrl,
+        mediaKind = mediaKind,
+        mimeType = mimeType,
         sizeBytes = obj.optLongOrNull("size_bytes"),
         durationMs = obj.optLongOrNull("duration_ms"),
         thumbnailUrl = obj.optString("thumbnail_url"),
-        alt = obj.optString("alt"),
+        alt = alt,
         layout = obj.optString("layout"),
         images = readVisualImages(obj.optJSONArray("images") ?: JSONArray()),
         variant = obj.optString("variant"),
@@ -7801,6 +7838,71 @@ private fun isSafeMediaUrl(value: String): Boolean {
         (uri.scheme == "http" || uri.scheme == "https") && uri.path.startsWith("/v1/media/")
     } catch (_: Exception) {
         false
+    }
+}
+
+private fun firstNonBlank(vararg values: String?): String {
+    return values.firstOrNull { !it.isNullOrBlank() }.orEmpty()
+}
+
+private fun inferVisualBlockFilename(label: String, url: String): String {
+    val candidate = label.takeIf { it.contains('.') } ?: url.substringAfterLast('/').substringAfterLast('\\')
+    return candidate.substringBefore('?').substringBefore('#').take(180).ifBlank { "download" }
+}
+
+private fun inferVisualBlockMediaKind(filename: String, url: String): String {
+    val value = "$filename $url".lowercase()
+    return when {
+        listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp").any { value.contains(it) } -> "image"
+        listOf(".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".flv", ".mpg", ".mpeg", ".ts", ".m2ts", ".3gp", ".ogv").any { value.contains(it) } -> "video"
+        listOf(".mp3", ".wav", ".m4a", ".flac", ".ogg").any { value.contains(it) } -> "audio"
+        else -> "document"
+    }
+}
+
+private fun normalizeVisualBlockMediaKind(value: String?, inferred: String): String {
+    return when (value.orEmpty().trim().lowercase().replace("_", "-")) {
+        "image", "video", "audio", "document" -> value.orEmpty().trim().lowercase()
+        "file", "attachment", "download", "binary" -> "document"
+        else -> inferred.ifBlank { "document" }
+    }
+}
+
+private fun inferVisualBlockMimeType(filename: String, url: String): String {
+    val value = "$filename $url".lowercase()
+    return when {
+        value.contains(".png") -> "image/png"
+        value.contains(".jpg") || value.contains(".jpeg") -> "image/jpeg"
+        value.contains(".webp") -> "image/webp"
+        value.contains(".gif") -> "image/gif"
+        value.contains(".mp4") || value.contains(".m4v") -> "video/mp4"
+        value.contains(".mov") -> "video/quicktime"
+        value.contains(".webm") -> "video/webm"
+        value.contains(".mkv") -> "video/x-matroska"
+        value.contains(".avi") -> "video/x-msvideo"
+        value.contains(".wmv") -> "video/x-ms-wmv"
+        value.contains(".flv") -> "video/x-flv"
+        value.contains(".mpg") || value.contains(".mpeg") -> "video/mpeg"
+        value.contains(".ts") || value.contains(".m2ts") -> "video/mp2t"
+        value.contains(".3gp") -> "video/3gpp"
+        value.contains(".ogv") -> "video/ogg"
+        value.contains(".mp3") -> "audio/mpeg"
+        value.contains(".wav") -> "audio/wav"
+        value.contains(".m4a") -> "audio/mp4"
+        value.contains(".flac") -> "audio/flac"
+        value.contains(".ogg") -> "audio/ogg"
+        value.contains(".pdf") -> "application/pdf"
+        value.contains(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        value.contains(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        value.contains(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        value.contains(".svg") -> "image/svg+xml"
+        value.contains(".zip") -> "application/zip"
+        value.contains(".md") || value.contains(".markdown") -> "text/markdown"
+        value.contains(".txt") -> "text/plain"
+        value.contains(".csv") -> "text/csv"
+        value.contains(".json") -> "application/json"
+        value.contains(".html") || value.contains(".htm") -> "text/html"
+        else -> ""
     }
 }
 

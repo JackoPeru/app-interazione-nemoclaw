@@ -33,10 +33,23 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.145 Release Hermes Hub 0.6.145 Windows media download
+v0.6.146 Release Hermes Hub 0.6.146 Canva downloads and archive sync hardening
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.146 (Canva downloads and archive sync hardening):
+
+Release 0.6.146:
+- Windows/Android: le card `media_file` ora accettano anche alias comuni prodotti da backend/tool esterni (`download_url`, `downloadUrl`, `url`, `file_url`, `fileUrl`) oltre a `media_url`. Questo evita che file esportati da Canva o da altri tool restino invisibili/non scaricabili se il payload non usa esattamente il nome campo Hermes.
+- Windows/Android: download file piu' robusto per asset esterni HTTPS e proxy Hermes. Gli URL esterni espliciti nelle card file sono ammessi, mentre il Bearer token Hermes viene inviato solo ai proxy `/v1/media/...` per evitare rifiuti di server terzi e leak token. I media Hermes provano fallback host Tailscale/MagicDNS quando un nome non risolve.
+- Windows/Android: normalizzato `media_kind` non standard come `file`, `attachment`, `download` o `binary` a `document`, cosi le card file restano valide anche con payload meno rigorosi.
+- Windows: il picker `Scarica` usa fallback estensione `.bin` quando il nome file non ha estensione, invece di registrare un tipo file fragile.
+- Windows: il sync archivio conserva `visualBlocks` quando scarica chat dal gateway, evitando che card file/download spariscano dopo sync su un altro dispositivo.
+- Windows/Android: hardening sync archivio. Gli upload non vengono piu' persi quando coincidono con pull/eventi gia' in corso; Android rimette in coda l'upload, Windows attende il lock invece di saltare.
+- Verifiche pre-release: Windows build Debug 0 errori, Android `assembleDebug` OK, gateway live `capabilities`, `hub/conversations`, `hub/conversations/events` e media proxy HTTP 200.
+- Asset release attesi: Android APK `HermesHub-0.6.146-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.146.0_x64.msix`. Linux Gateway non incluso perche' invariato in questa release app-only.
+- Release bump: Windows/AdminBridge `0.6.146`, Android `versionName 0.6.146`, `versionCode 150`.
 
 Hermes Hub 0.6.145 (Windows media download support):
 

@@ -90,6 +90,21 @@ public sealed record VisualBlockRecord
     [JsonPropertyName("media_url")]
     public string? MediaUrl { get; init; }
 
+    [JsonPropertyName("download_url")]
+    public string? DownloadUrl { get; init; }
+
+    [JsonPropertyName("downloadUrl")]
+    public string? DownloadUrlCamel { get; init; }
+
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+
+    [JsonPropertyName("file_url")]
+    public string? FileUrl { get; init; }
+
+    [JsonPropertyName("fileUrl")]
+    public string? FileUrlCamel { get; init; }
+
     [JsonPropertyName("media_kind")]
     public string? MediaKind { get; init; }
 
@@ -227,6 +242,10 @@ public static class VisualBlockParser
                 foreach (var item in blocksElement.EnumerateArray().Take(VisualBlocksContract.MaxBlocks))
                 {
                     var block = JsonSerializer.Deserialize<VisualBlockRecord>(item.GetRawText(), JsonOptions);
+                    if (block is not null)
+                    {
+                        block = NormalizeBlock(block);
+                    }
                     if (block is not null && IsValid(block))
                     {
                         blocks.Add(block);
@@ -245,6 +264,46 @@ public static class VisualBlockParser
         }
 
         return [];
+    }
+
+    private static VisualBlockRecord NormalizeBlock(VisualBlockRecord block)
+    {
+        if (!string.Equals(block.Type, "media_file", StringComparison.OrdinalIgnoreCase))
+        {
+            return block;
+        }
+
+        var mediaUrl = FirstNonBlank(
+            block.MediaUrl,
+            block.DownloadUrl,
+            block.DownloadUrlCamel,
+            block.Url,
+            block.FileUrl,
+            block.FileUrlCamel).TrimEnd('.', ',', ';', ':');
+        var filename = FirstNonBlank(block.Filename, InferMediaFilename(block.Title ?? "File Hermes", mediaUrl), "download");
+        var mediaKind = NormalizeMediaKind(block.MediaKind, InferMediaKind(filename, mediaUrl));
+        var mimeType = FirstNonBlank(block.MimeType, InferMimeType(filename, mediaUrl));
+        var alt = FirstNonBlank(block.Alt, block.Title, filename, "File Hermes");
+
+        return block with
+        {
+            MediaUrl = mediaUrl,
+            Filename = filename,
+            MediaKind = mediaKind,
+            MimeType = mimeType,
+            Alt = alt
+        };
+    }
+
+    private static string NormalizeMediaKind(string? value, string inferred)
+    {
+        var candidate = (value ?? string.Empty).Trim().ToLowerInvariant().Replace("_", "-");
+        return candidate switch
+        {
+            "image" or "video" or "audio" or "document" => candidate,
+            "file" or "attachment" or "download" or "binary" => "document",
+            _ => FirstNonBlank(inferred, "document")
+        };
     }
 
     public static IReadOnlyList<VisualBlockRecord> ExtractInlineMediaBlocks(string text)

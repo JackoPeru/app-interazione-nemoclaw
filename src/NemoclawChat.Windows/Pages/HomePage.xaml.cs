@@ -2341,7 +2341,7 @@ public sealed partial class HomePage : Page
     {
         var panel = new StackPanel { Spacing = 10 };
         var allowExternalImage = block.MediaKind == "image";
-        var safeMedia = IsSafeMediaUrl(block.MediaUrl, allowExternalImage);
+        var safeMedia = IsSafeMediaUrl(block.MediaUrl, allowExternalImage, allowExternalMedia: true);
         var previewUrl = block.MediaKind == "image" && safeMedia
             ? block.MediaUrl
             : IsSafeMediaUrl(block.ThumbnailUrl, allowExternalImage) ? block.ThumbnailUrl : null;
@@ -2399,7 +2399,7 @@ public sealed partial class HomePage : Page
         };
         open.Click += async (_, _) =>
         {
-            if (block.MediaUrl is { Length: > 0 } value && IsSafeMediaUrl(value))
+            if (block.MediaUrl is { Length: > 0 } value && IsSafeMediaUrl(value, allowExternalMedia: true))
             {
                 await Launcher.LaunchUriAsync(ResolveMediaUri(value));
             }
@@ -2414,14 +2414,14 @@ public sealed partial class HomePage : Page
         };
         download.Click += async (_, _) =>
         {
-            if (block.MediaUrl is not { Length: > 0 } value || !IsSafeMediaUrl(value)) return;
+            if (block.MediaUrl is not { Length: > 0 } value || !IsSafeMediaUrl(value, allowExternalMedia: true)) return;
             
             var picker = new FileSavePicker();
             picker.SuggestedFileName = block.Filename ?? "download";
             var ext = System.IO.Path.GetExtension(picker.SuggestedFileName);
             if (string.IsNullOrWhiteSpace(ext))
             {
-                picker.FileTypeChoices.Add("File", new List<string> { "." });
+                picker.FileTypeChoices.Add("File", new List<string> { ".bin" });
             }
             else
             {
@@ -2442,14 +2442,40 @@ public sealed partial class HomePage : Page
             {
                 using var httpClient = new System.Net.Http.HttpClient();
                 var apiKey = GatewayCredentialStore.LoadSecret();
-                if (!string.IsNullOrWhiteSpace(apiKey))
-                {
-                    httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-                }
+                if (string.IsNullOrWhiteSpace(apiKey)) apiKey = GatewayCredentialStore.DefaultApiKey;
                 var uri = ResolveMediaUri(value);
-                using var stream = await httpClient.GetStreamAsync(uri);
-                using var fileStream = await file.OpenStreamForWriteAsync();
-                await stream.CopyToAsync(fileStream);
+                Exception? lastError = null;
+                foreach (var candidateUri in MediaDownloadUriCandidates(uri))
+                {
+                    try
+                    {
+                        using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, candidateUri);
+                        request.Headers.TryAddWithoutValidation("Accept", "*/*");
+                        request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows");
+                        if (IsHermesMediaUri(candidateUri) && !string.IsNullOrWhiteSpace(apiKey))
+                        {
+                            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {apiKey}");
+                        }
+
+                        using var response = await httpClient.SendAsync(request, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            lastError = new System.Net.Http.HttpRequestException($"HTTP {(int)response.StatusCode}");
+                            continue;
+                        }
+
+                        await using var stream = await response.Content.ReadAsStreamAsync();
+                        using var fileStream = await file.OpenStreamForWriteAsync();
+                        await stream.CopyToAsync(fileStream);
+                        lastError = null;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastError = ex;
+                    }
+                }
+                if (lastError is not null) throw lastError;
                 download.Content = "Scaricato";
             }
             catch (Exception)
@@ -2473,7 +2499,7 @@ public sealed partial class HomePage : Page
         };
         copy.Click += (_, _) =>
         {
-            if (block.MediaUrl is not { Length: > 0 } value || !IsSafeMediaUrl(value))
+            if (block.MediaUrl is not { Length: > 0 } value || !IsSafeMediaUrl(value, allowExternalMedia: true))
             {
                 return;
             }
@@ -2551,7 +2577,7 @@ public sealed partial class HomePage : Page
         };
     }
 
-    private static bool IsSafeMediaUrl(string? value, bool allowExternalImage = false)
+    private static bool IsSafeMediaUrl(string? value, bool allowExternalImage = false, bool allowExternalMedia = false)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -2573,6 +2599,11 @@ public sealed partial class HomePage : Page
             return true;
         }
 
+        if (allowExternalMedia && uri.Scheme == "https" && !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            return true;
+        }
+
         if (uri.Scheme is not ("http" or "https") || !uri.AbsolutePath.StartsWith("/v1/media/", StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -2589,6 +2620,7 @@ public sealed partial class HomePage : Page
             : new Uri($"{GatewayService.HermesRoot(settings).TrimEnd('/')}{value}");
 
         var apiKey = GatewayCredentialStore.LoadSecret();
+        if (string.IsNullOrWhiteSpace(apiKey)) apiKey = GatewayCredentialStore.DefaultApiKey;
         if (uri.AbsolutePath.StartsWith("/v1/media/", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(apiKey))
         {
             var builder = new UriBuilder(uri);
@@ -2601,6 +2633,44 @@ public sealed partial class HomePage : Page
         }
 
         return uri;
+    }
+
+    private static bool IsHermesMediaUri(Uri uri)
+    {
+        return uri.Scheme is "http" or "https" &&
+               uri.AbsolutePath.StartsWith("/v1/media/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<Uri> MediaDownloadUriCandidates(Uri uri)
+    {
+        yield return uri;
+
+        if (!IsHermesMediaUri(uri) || uri.Port != 8642)
+        {
+            yield break;
+        }
+
+        var suffix = uri.PathAndQuery;
+        var roots = new[]
+        {
+            "http://hermes:8642",
+            "http://100.94.223.14:8642",
+            "http://hermes.local:8642",
+            "http://hermes-hub:8642",
+            "http://hermeshub:8642",
+            "http://home-server:8642",
+            "http://server:8642",
+            "http://100.105.46.6:8642"
+        };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { uri.ToString() };
+        foreach (var root in roots)
+        {
+            if (Uri.TryCreate(root.TrimEnd('/') + suffix, UriKind.Absolute, out var candidate) &&
+                seen.Add(candidate.ToString()))
+            {
+                yield return candidate;
+            }
+        }
     }
 }
 
