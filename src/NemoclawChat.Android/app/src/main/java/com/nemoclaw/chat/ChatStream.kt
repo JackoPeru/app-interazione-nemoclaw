@@ -22,6 +22,7 @@ import java.net.URI
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 private const val STREAM_ACCUM_MAX_CHARS = 2_000_000
 private const val STREAM_UI_BATCH_MAX_CHARS = 2048
@@ -135,6 +136,7 @@ data class StreamingState(
     val stats: ChatStreamStats? = null,
     val status: String = "Invio prompt a Hermes...",
     val promptProgressPercent: Int? = null,
+    val promptProgressEstimated: Boolean = false,
     val activityLog: List<String> = listOf("0.0s  Invio prompt a Hermes..."),
     val error: String? = null,
     val source: String = "Hermes",
@@ -151,6 +153,8 @@ data class StreamingState(
             copy(
                 text = cleanedText,
                 visualBlocks = nextBlocks,
+                promptProgressPercent = null,
+                promptProgressEstimated = false,
                 status = if (toolCalls.any { inferToolPendingStatus(it) }) status else "Hermes sta scrivendo la risposta...",
                 thinkingFrozen = thinkingFrozen || hasThinking,
                 thinkingElapsedSec = if (!thinkingFrozen && hasThinking) {
@@ -162,6 +166,8 @@ data class StreamingState(
             thinking = mergeTextDelta(thinking, event.delta),
             hasThinking = true,
             thinkingFrozen = false,
+            promptProgressPercent = null,
+            promptProgressEstimated = false,
             status = "Hermes sta ragionando..."
         ).withActivity(if (!hasThinking) "Reasoning ricevuto." else null)
         is ChatStreamEvent.ToolCallStart -> copy(
@@ -196,13 +202,16 @@ data class StreamingState(
             .withActivity("Evento Hermes: ${event.name} ${event.json.take(300)}")
         is ChatStreamEvent.PromptProgress -> copy(
             promptProgressPercent = event.percent.coerceIn(0, 100),
+            promptProgressEstimated = event.estimated,
             status = event.label.ifBlank { "llama.cpp: prefill prompt" }
         ).withActivity("Prefill prompt ${event.percent}%")
         is ChatStreamEvent.Done -> copy(
+            text = stripReasoningArtifacts(text),
             stats = event.stats,
             isDone = true,
             status = "Risposta completata.",
             promptProgressPercent = 100,
+            promptProgressEstimated = false,
             thinkingFrozen = true,
             thinkingElapsedSec = if (thinkingElapsedSec > 0) thinkingElapsedSec
                 else (System.nanoTime() - startedAtNs) / 1_000_000_000.0
@@ -279,7 +288,7 @@ sealed class ChatStreamEvent {
     data class RawHermesEvent(val name: String, val json: String) : ChatStreamEvent()
     data class Usage(val promptTokens: Int?, val completionTokens: Int?, val tokensPerSecond: Double? = null) : ChatStreamEvent()
     data class ContextUsage(val tokens: Int?, val length: Int?, val percent: Int?) : ChatStreamEvent()
-    data class PromptProgress(val percent: Int, val label: String = "llama.cpp: prefill prompt") : ChatStreamEvent()
+    data class PromptProgress(val percent: Int, val label: String = "llama.cpp: prefill prompt", val estimated: Boolean = false) : ChatStreamEvent()
     data class Done(val stats: ChatStreamStats) : ChatStreamEvent()
     data class Error(val message: String) : ChatStreamEvent()
 }
@@ -1014,15 +1023,15 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
             return out
         }
         t.contains("prompt.progress") || t.contains("processing.progress") -> {
-            val percent = obj.optInt("percent", obj.optInt("progress", -1))
-            if (percent in 0..100) {
+            val percent = obj.optProgressPercent()
+            if (percent != null) {
                 val rawLabel = obj.optString("label", "")
                 val label = if (rawLabel.isBlank() || rawLabel.contains("processing prompt", ignoreCase = true)) {
                     "llama.cpp: prefill prompt"
                 } else {
                     rawLabel
                 }
-                out += ChatStreamEvent.PromptProgress(percent, label)
+                out += ChatStreamEvent.PromptProgress(percent, label, obj.optBoolean("estimated", false))
             }
             return out
         }
@@ -1601,6 +1610,13 @@ private fun JSONObject.optDoubleOrNull(key: String): Double? {
     return try { getDouble(key) } catch (_: Exception) { null }
 }
 
+private fun JSONObject.optProgressPercent(): Int? {
+    optIntOrNull("percent")?.let { return it.coerceIn(0, 100) }
+    val progress = optDoubleOrNull("progress") ?: return null
+    val value = if (progress <= 1.0) progress * 100.0 else progress
+    return value.roundToInt().coerceIn(0, 100)
+}
+
 private fun JSONObject.tokensPerSecondOrNull(): Double? {
     val direct = optDoubleOrNull("tokens_per_second")
         ?: optDoubleOrNull("predicted_per_second")
@@ -1709,7 +1725,22 @@ private fun visualBlocksMetadataJson(settings: AppSettings, conversationId: Stri
         )
 }
 
+private fun stripReasoningArtifacts(text: String): String {
+    if (text.isEmpty()) return ""
+    return text
+        .replace(Regex("<\\s*think\\s*>.*?<\\s*/\\s*think\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "")
+        .replace(Regex("<\\s*think\\s*>.*\\z", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "")
+        .replace(Regex("<\\s*/?\\s*think\\s*>", RegexOption.IGNORE_CASE), "")
+        .trimStart('\r', '\n')
+}
+
 private class ThinkExtractor {
+    private companion object {
+        const val MAX_THINK_TAG_FRAGMENT_CHARS = 24
+        val OPEN_THINK_TAG = Regex("<\\s*think\\s*>", RegexOption.IGNORE_CASE)
+        val CLOSE_THINK_TAG = Regex("<\\s*/\\s*think\\s*>", RegexOption.IGNORE_CASE)
+    }
+
     private val buffer = StringBuilder()
     private var inThink = false
 
@@ -1721,17 +1752,17 @@ private class ThinkExtractor {
 
         while (true) {
             if (!inThink) {
-                val start = text.indexOf("<think>")
-                if (start >= 0) {
-                    if (start > 0) {
-                        events.add(ChatStreamEvent.TextDelta(text.substring(0, start)))
+                val start = OPEN_THINK_TAG.find(text)
+                if (start != null) {
+                    if (start.range.first > 0) {
+                        events.add(ChatStreamEvent.TextDelta(text.substring(0, start.range.first)))
                     }
-                    text = text.substring(start + 7)
+                    text = text.substring(start.range.last + 1)
                     buffer.clear()
                     buffer.append(text)
                     inThink = true
                 } else {
-                    val safeLen = maxOf(0, text.length - 6)
+                    val safeLen = maxOf(0, text.length - MAX_THINK_TAG_FRAGMENT_CHARS)
                     if (safeLen > 0) {
                         events.add(ChatStreamEvent.TextDelta(text.substring(0, safeLen)))
                         text = text.substring(safeLen)
@@ -1741,17 +1772,17 @@ private class ThinkExtractor {
                     break
                 }
             } else {
-                val end = text.indexOf("</think>")
-                if (end >= 0) {
-                    if (end > 0) {
-                        events.add(ChatStreamEvent.ThinkingDelta(text.substring(0, end)))
+                val end = CLOSE_THINK_TAG.find(text)
+                if (end != null) {
+                    if (end.range.first > 0) {
+                        events.add(ChatStreamEvent.ThinkingDelta(text.substring(0, end.range.first)))
                     }
-                    text = text.substring(end + 8)
+                    text = text.substring(end.range.last + 1)
                     buffer.clear()
                     buffer.append(text)
                     inThink = false
                 } else {
-                    val safeLen = maxOf(0, text.length - 7)
+                    val safeLen = maxOf(0, text.length - MAX_THINK_TAG_FRAGMENT_CHARS)
                     if (safeLen > 0) {
                         events.add(ChatStreamEvent.ThinkingDelta(text.substring(0, safeLen)))
                         text = text.substring(safeLen)

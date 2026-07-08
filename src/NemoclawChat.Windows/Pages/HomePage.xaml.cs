@@ -709,6 +709,9 @@ public sealed partial class HomePage : Page
                             AddRawEventIfEnabled("status", rawStatus);
                         }
                         break;
+                    case StreamPromptProgress progress:
+                        bubble.SetPromptProgress(progress.Percent, progress.Label, progress.Estimated);
+                        break;
                     case StreamRawHermesEvent raw:
                         AddRawEventIfEnabled(raw.Name, raw.Json);
                         break;

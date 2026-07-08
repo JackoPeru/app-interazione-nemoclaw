@@ -1,7 +1,6 @@
-Release 0.6.146:
-- Windows/Android: card `media_file` compatibili con `download_url`, `downloadUrl`, `url`, `file_url` e `fileUrl`, oltre a `media_url`, per download Canva/tool esterni.
-- Windows/Android: asset HTTPS esterni scaricabili dalle card file; token Hermes inviato solo ai proxy `/v1/media/...`.
-- Windows/Android: retry host Tailscale/MagicDNS per download media Hermes e normalizzazione `media_kind=file/attachment/download/binary` a `document`.
-- Windows: sync archivio conserva `visualBlocks`, evitando perdita card file/download dopo sync multi-device.
-- Windows/Android: upload archivio non perso se coincide con pull/eventi gia' in corso.
-- Asset inclusi: Android APK, Windows MSIX. Linux Gateway non incluso perche' invariato.
+Release 0.6.147:
+- Windows/Android: la chat separa le fasi `elaborazione prompt`, `ragionamento` e `generazione risposta`; `Sto pensando` appare solo quando arrivano token di reasoning veri.
+- Windows/Android: parser `<think>` piu' robusto e pulizia finale prima del salvataggio, cosi' il ragionamento non finisce nella risposta archiviata.
+- Windows/Android: supporto a eventi gateway `prompt.progress`/`processing.progress`, con indicatore percentuale e marker `~` quando il gateway dichiara progresso stimato.
+- Gateway Linux: il patcher emette eventi SSE `hermes.processing.progress` / `processing.progress` durante l'avvio stream e l'attesa Hermes, compatibili con Windows e Android.
+- Asset inclusi: Android APK, Windows MSIX, Linux Gateway.

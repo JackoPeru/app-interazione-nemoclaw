@@ -33,10 +33,21 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.146 Release Hermes Hub 0.6.146 Canva downloads and archive sync hardening
+v0.6.147 Release Hermes Hub 0.6.147 processing progress and reasoning separation
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.147 (Processing progress and reasoning separation):
+
+Release 0.6.147:
+- Windows/Android: la chat distingue `elaborazione prompt`, `ragionamento` e `generazione risposta`. La tendina `Sto pensando` non appare piu' durante la sola preparazione/prefill del prompt, ma solo quando arrivano token di reasoning reali.
+- Windows/Android: aggiunto supporto agli eventi SSE `prompt.progress`/`processing.progress`; se il gateway dichiara `estimated=true`, la UI mostra la percentuale con `~` per non confonderla con un dato esatto di llama.cpp.
+- Windows/Android: parser `<think>` reso case-insensitive e tollerante agli spazi, con pulizia finale prima del salvataggio. Riduce il rischio che il ragionamento finisca nella risposta finale o nell'archivio.
+- Gateway Linux: il patcher emette eventi `hermes.processing.progress` durante avvio stream e attesa Hermes, compatibili con Windows e Android. In assenza di log/progresso live llama.cpp accessibile al gateway, questi eventi sono marcati stimati.
+- Verifiche pre-release: `python -m py_compile scripts\patch-hermes-gateway-native.py`, Windows build Debug 0 errori, Android `assembleDebug` OK, test SSE live gateway Chat Completions HTTP 200.
+- Asset release attesi: Android APK `HermesHub-0.6.147-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.147.0_x64.msix`, Linux Gateway `HermesHub-0.6.147-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.147`, Android `versionName 0.6.147`, `versionCode 151`.
 
 Hermes Hub 0.6.146 (Canva downloads and archive sync hardening):
 

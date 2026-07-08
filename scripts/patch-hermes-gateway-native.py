@@ -3409,6 +3409,81 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("responses stream emit cli context usage")
 
+    if "def _emit_responses_prompt_progress" not in text:
+        text, _ = _replace_once(
+            text,
+            "\n\n            async def _dispatch(it) -> None:",
+            "\n\n"
+            "            async def _emit_responses_prompt_progress(percent: int, label: str) -> None:\n"
+            "                payload = {\n"
+            '                    "type": "hermes.processing.progress",\n'
+            '                    "event": "processing.progress",\n'
+            '                    "phase": "processing",\n'
+            '                    "label": label,\n'
+            '                    "percent": max(0, min(100, int(percent))),\n'
+            '                    "progress": max(0.0, min(1.0, float(percent) / 100.0)),\n'
+            '                    "estimated": True,\n'
+            '                    "source": "hermes-gateway",\n'
+            "                }\n"
+            "                await _emit_raw_hermes_event(payload)\n"
+            "\n"
+            "            async def _dispatch(it) -> None:",
+            "responses stream prompt progress helper",
+        )
+        changes.append("responses stream prompt progress helper")
+
+    if "Gateway: stream Responses pronto" not in text:
+        text, _ = _replace_once(
+            text,
+            '            await _write_event("hermes.native.protocol", {\n'
+            '                "type": "hermes.native.protocol",\n'
+            '                "protocol": "hermes-native",\n'
+            '                "transport": "responses",\n'
+            '                "endpoint": "/v1/responses",\n'
+            '                "native_endpoint": "/v1/hermes/native",\n'
+            '                "context_owner": "hermes-agent",\n'
+            '                "raw_event_passthrough": True,\n'
+            '                "strict_native_compatible": True,\n'
+            '                "session_id": session_id,\n'
+            '            })\n'
+            '            _persist_response_snapshot(created_env)',
+            '            await _write_event("hermes.native.protocol", {\n'
+            '                "type": "hermes.native.protocol",\n'
+            '                "protocol": "hermes-native",\n'
+            '                "transport": "responses",\n'
+            '                "endpoint": "/v1/responses",\n'
+            '                "native_endpoint": "/v1/hermes/native",\n'
+            '                "context_owner": "hermes-agent",\n'
+            '                "raw_event_passthrough": True,\n'
+            '                "strict_native_compatible": True,\n'
+            '                "session_id": session_id,\n'
+            '            })\n'
+            '            await _write_event("hermes.processing.progress", {\n'
+            '                "type": "hermes.processing.progress",\n'
+            '                "event": "processing.progress",\n'
+            '                "phase": "processing",\n'
+            '                "label": "Gateway: stream Responses pronto",\n'
+            '                "percent": 2,\n'
+            '                "progress": 0.02,\n'
+            '                "estimated": True,\n'
+            '                "source": "hermes-gateway",\n'
+            '            })\n'
+            '            _persist_response_snapshot(created_env)',
+            "responses stream prompt progress start",
+        )
+        changes.append("responses stream prompt progress start")
+
+    if "Gateway: attesa risposta Hermes" not in text:
+        text = text.replace(
+            "                result, agent_usage = await agent_task\n"
+            "                usage = agent_usage or usage\n",
+            '                await _emit_responses_prompt_progress(95, "Gateway: attesa risposta Hermes")\n'
+            "                result, agent_usage = await agent_task\n"
+            "                usage = agent_usage or usage\n",
+            1,
+        )
+        changes.append("responses stream prompt progress await")
+
     if "chat completions final_response fallback" not in text:
         text, _ = _replace_once(
             text,
@@ -3458,6 +3533,39 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "chat completions final_response fallback",
         )
         changes.append("chat completions final_response fallback")
+
+    if "def _emit_chat_prompt_progress" not in text:
+        text, _ = _replace_once(
+            text,
+            "            emitted_text = False\n"
+            "            # Hermes Hub patch: Chat Completions may receive only a final_response.\n"
+            "            # In that case emit it as one delta instead of returning an empty stream.\n"
+            "\n"
+            "            async def _emit(item):",
+            "            emitted_text = False\n"
+            "            # Hermes Hub patch: Chat Completions may receive only a final_response.\n"
+            "            # In that case emit it as one delta instead of returning an empty stream.\n"
+            "\n"
+            "            async def _emit_chat_prompt_progress(percent: int, label: str) -> None:\n"
+            "                payload = {\n"
+            '                    "type": "hermes.processing.progress",\n'
+            '                    "event": "processing.progress",\n'
+            '                    "phase": "processing",\n'
+            '                    "label": label,\n'
+            '                    "percent": max(0, min(100, int(percent))),\n'
+            '                    "progress": max(0.0, min(1.0, float(percent) / 100.0)),\n'
+            '                    "estimated": True,\n'
+            '                    "source": "hermes-gateway",\n'
+            "                }\n"
+            '                await response.write(f"event: hermes.processing.progress\\ndata: {json.dumps(payload)}\\n\\n".encode())\n'
+            "\n"
+            '            await _emit_chat_prompt_progress(2, "Gateway: stream chat pronto")\n'
+            '            await _emit_chat_prompt_progress(12, "Gateway: richiesta inviata a Hermes")\n'
+            "\n"
+            "            async def _emit(item):",
+            "chat completions prompt progress helper",
+        )
+        changes.append("chat completions prompt progress helper")
 
     if 'tag == "__hermes_raw_event__"' not in text:
         text, _ = _replace_once(

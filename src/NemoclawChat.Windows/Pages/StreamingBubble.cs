@@ -28,6 +28,7 @@ internal sealed class StreamingBubble
     private readonly ContentControl _assistantContainer;
     private readonly TextBlock _assistantTextPreview;
     private readonly TextBlock _statusText;
+    private readonly ProgressBar _promptProgressBar;
     private readonly TextBlock _statsText;
     private readonly Grid _footerGrid;
     private readonly Button _copyButton;
@@ -40,6 +41,7 @@ internal sealed class StreamingBubble
     private readonly Dictionary<string, ToolCallView> _toolViews = new();
     private readonly StringBuilder _thinkingBuilder = new();
     private readonly StringBuilder _textBuilder = new();
+    private string _phaseStatusBase = "Invio prompt a Hermes...";
     private bool _hasThinking;
     private bool _hasText;
     private bool _renderPending;
@@ -81,7 +83,7 @@ internal sealed class StreamingBubble
 
         _thinkingLabel = new TextBlock
         {
-            Text = "Sto pensando",
+            Text = "Ragionamento",
             FontSize = 14,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = _shimmerBrush
@@ -107,7 +109,7 @@ internal sealed class StreamingBubble
             Background = new SolidColorBrush(Colors.Transparent),
             BorderThickness = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Visibility = Visibility.Visible
+            Visibility = Visibility.Collapsed
         };
 
         _content.Children.Add(_thinkingExpander);
@@ -127,6 +129,16 @@ internal sealed class StreamingBubble
             Visibility = Visibility.Visible
         };
         _content.Children.Add(_statusText);
+
+        _promptProgressBar = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            Height = 3,
+            Visibility = Visibility.Collapsed
+        };
+        _content.Children.Add(_promptProgressBar);
 
         _assistantContainer = new ContentControl
         {
@@ -210,6 +222,11 @@ internal sealed class StreamingBubble
         }
         _shimmerBrush.StartPoint = new Point(_shimmerPhase - 0.5, 0.5);
         _shimmerBrush.EndPoint = new Point(_shimmerPhase + 0.5, 0.5);
+        if (!_hasText && !_hasThinking && _statusText.Visibility == Visibility.Visible)
+        {
+            var elapsed = (DateTime.UtcNow - _started).TotalSeconds;
+            _statusText.Text = $"{_phaseStatusBase} ({elapsed:0.0}s)";
+        }
     }
 
     public void AppendText(string delta)
@@ -225,6 +242,7 @@ internal sealed class StreamingBubble
             _hasText = true;
             _assistantContainer.Visibility = Visibility.Visible;
             SetStatus("Generazione risposta...");
+            _promptProgressBar.Visibility = Visibility.Collapsed;
             if (_hasThinking)
             {
                 FreezeThinkingLabel();
@@ -245,11 +263,21 @@ internal sealed class StreamingBubble
             return;
         }
 
-        _statusText.Text = status.Trim();
+        _phaseStatusBase = status.Trim();
+        _statusText.Text = _phaseStatusBase;
         _statusText.Foreground = _hasText
             ? (Brush)Application.Current.Resources["MutedTextBrush"]
             : _shimmerBrush;
         _statusText.Visibility = Visibility.Visible;
+    }
+
+    public void SetPromptProgress(int percent, string? label, bool estimated = false)
+    {
+        var clamped = Math.Clamp(percent, 0, 100);
+        var status = string.IsNullOrWhiteSpace(label) ? "llama.cpp: prefill prompt" : label.Trim();
+        SetStatus($"{status}: {(estimated ? "~" : string.Empty)}{clamped}%");
+        _promptProgressBar.Value = clamped;
+        _promptProgressBar.Visibility = Visibility.Visible;
     }
 
     public void AppendThinking(string delta)
@@ -261,6 +289,7 @@ internal sealed class StreamingBubble
         AppendDeduped(_thinkingBuilder, delta);
         _thinkingText.Text = _thinkingBuilder.ToString();
         _hasThinking = true;
+        _promptProgressBar.Visibility = Visibility.Collapsed;
         SetStatus("Ragionamento in corso...");
         _thinkingExpander.Visibility = Visibility.Visible;
         ScheduleScroll();
@@ -523,6 +552,7 @@ internal sealed class StreamingBubble
         FlushTextPreview();
         _renderTimer.Stop();
         _statusText.Visibility = Visibility.Collapsed;
+        _promptProgressBar.Visibility = Visibility.Collapsed;
         if (!_showAdvanced && !_hasThinking)
         {
             _thinkingExpander.Visibility = Visibility.Collapsed;

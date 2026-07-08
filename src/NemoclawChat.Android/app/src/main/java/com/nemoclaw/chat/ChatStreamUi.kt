@@ -171,7 +171,16 @@ internal fun HermesActivityExpander(state: StreamingState, showToolCalls: Boolea
     var thinkingExpanded by rememberSaveable(state.startedAtNs) { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if ((active && state.text.isBlank()) || state.hasThinking || state.thinking.isNotBlank()) {
+        if (active && state.text.isBlank()) {
+            FlagRow(
+                title = preGenerationStatusLabel(state.status, state.promptProgressPercent, elapsedSec),
+                value = state.promptProgressPercent?.let { "${if (state.promptProgressEstimated) "~" else ""}${it.coerceIn(0, 100)}%" }
+                    ?: "${String.format(java.util.Locale.US, "%.1f", elapsedSec)}s",
+                shimmer = true
+            )
+        }
+
+        if (state.hasThinking || state.thinking.isNotBlank()) {
             ThinkingExpander(
                 thinking = state.thinking,
                 active = active && state.hasThinking && !state.thinkingFrozen,
@@ -279,6 +288,7 @@ private fun FlagRow(title: String, value: String, shimmer: Boolean) {
 internal fun activityIndicator(state: StreamingState): String {
     if (state.isDone) return "Completato"
     val pendingTool = state.toolCalls.any { inferToolOutcome(it) == ToolOutcome.Pending }
+    state.promptProgressPercent?.let { return "${if (state.promptProgressEstimated) "~" else ""}${it.coerceIn(0, 100)}%" }
     if (pendingTool) return "tool…"
     if (state.text.isNotEmpty()) {
         val toks = state.text.length / 4

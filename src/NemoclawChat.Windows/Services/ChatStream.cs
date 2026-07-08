@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace NemoclawChat_Windows.Services;
 
@@ -33,10 +34,14 @@ public sealed record StreamRawHermesEvent(string Name, string Json) : ChatStream
 public sealed record StreamDone(ChatStreamStats Stats, string AccumulatedText, string AccumulatedThinking) : ChatStreamEvent;
 public sealed record StreamError(string Message) : ChatStreamEvent;
 public sealed record StreamStatus(string Message) : ChatStreamEvent;
+public sealed record StreamPromptProgress(int Percent, string Label = "llama.cpp: prefill prompt", bool Estimated = false) : ChatStreamEvent;
 
 public static class ChatStreamClient
 {
     private const int StreamAccumMaxChars = 2_000_000;
+    private static readonly Regex CompleteThinkBlockRegex = new(@"<\s*think\s*>.*?<\s*/\s*think\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex OpenThinkToEndRegex = new(@"<\s*think\s*>.*\z", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex ThinkTagRegex = new(@"<\s*/?\s*think\s*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly HttpClient StreamClient = new()
     {
@@ -389,7 +394,7 @@ public static class ChatStreamClient
 
         yield return new StreamDone(
             new ChatStreamStats(ttft, totalMs, tokensOut, tps, promptTokens, contextTokens, contextLength, contextPercent),
-            accumulatedText.ToString(),
+            StripReasoningArtifacts(accumulatedText.ToString()),
             accumulatedThinking.ToString());
     }
 
@@ -992,6 +997,21 @@ public static class ChatStreamClient
                 yield break;
             }
 
+            if (t.Contains("prompt.progress") || t.Contains("processing.progress"))
+            {
+                var percent = GetProgressPercent(element);
+                if (percent is >= 0 and <= 100)
+                {
+                    var rawLabel = GetString(element, "label") ?? string.Empty;
+                    var label = string.IsNullOrWhiteSpace(rawLabel) ||
+                                rawLabel.Contains("processing prompt", StringComparison.OrdinalIgnoreCase)
+                        ? "llama.cpp: prefill prompt"
+                        : rawLabel;
+                    yield return new StreamPromptProgress(percent.Value, label, GetBool(element, "estimated") ?? false);
+                }
+                yield break;
+            }
+
             if (t.Contains("hermes.visual_blocks") || t.Contains("visual_blocks"))
             {
                 var blocks = ExtractVisualBlocksFromElement(element);
@@ -1335,6 +1355,41 @@ public static class ChatStreamClient
         return null;
     }
 
+    private static int? GetProgressPercent(JsonElement element)
+    {
+        var percent = GetInt(element, "percent");
+        if (percent is not null)
+        {
+            return percent.Value;
+        }
+
+        var progress = GetDouble(element, "progress");
+        if (progress is null)
+        {
+            return null;
+        }
+
+        var value = progress.Value <= 1.0 ? progress.Value * 100.0 : progress.Value;
+        return (int)Math.Round(Math.Clamp(value, 0.0, 100.0));
+    }
+
+    private static bool? GetBool(JsonElement element, string key)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(key, out var prop))
+        {
+            return null;
+        }
+        if (prop.ValueKind == JsonValueKind.True || prop.ValueKind == JsonValueKind.False)
+        {
+            return prop.GetBoolean();
+        }
+        if (prop.ValueKind == JsonValueKind.String && bool.TryParse(prop.GetString(), out var parsed))
+        {
+            return parsed;
+        }
+        return null;
+    }
+
     private static StreamUsage ExtractUsage(JsonElement usage, JsonElement? envelope = null)
     {
         int? prompt = null, completion = null;
@@ -1595,6 +1650,19 @@ public static class ChatStreamClient
         var t = body.Trim();
         return t.Length > 240 ? t[..240] + "…" : t;
     }
+
+    private static string StripReasoningArtifacts(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        var cleaned = CompleteThinkBlockRegex.Replace(text, string.Empty);
+        cleaned = OpenThinkToEndRegex.Replace(cleaned, string.Empty);
+        cleaned = ThinkTagRegex.Replace(cleaned, string.Empty);
+        return cleaned.TrimStart('\r', '\n');
+    }
 }
 
 internal sealed record StreamUsage(int? PromptTokens, int? CompletionTokens, double? TokensPerSecond = null) : ChatStreamEvent;
@@ -1602,6 +1670,10 @@ internal sealed record StreamContextUsage(int? ContextTokens, int? ContextLength
 
 internal sealed class ThinkExtractor
 {
+    private const int MaxThinkTagFragmentChars = 24;
+    private static readonly Regex OpenThinkTagRegex = new(@"<\s*think\s*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex CloseThinkTagRegex = new(@"<\s*/\s*think\s*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private readonly StringBuilder _buffer = new();
     private bool _inThink;
 
@@ -1615,25 +1687,25 @@ internal sealed class ThinkExtractor
         {
             if (!_inThink)
             {
-                int start = text.IndexOf("<think>", StringComparison.Ordinal);
-                if (start >= 0)
+                var start = OpenThinkTagRegex.Match(text);
+                if (start.Success)
                 {
-                    if (start > 0)
+                    if (start.Index > 0)
                     {
-                        yield return new StreamTextDelta(text.Substring(0, start));
+                        yield return new StreamTextDelta(text[..start.Index]);
                     }
-                    text = text.Substring(start + 7);
+                    text = text[(start.Index + start.Length)..];
                     _buffer.Clear();
                     _buffer.Append(text);
                     _inThink = true;
                 }
                 else
                 {
-                    int safeLen = Math.Max(0, text.Length - 6);
+                    int safeLen = Math.Max(0, text.Length - MaxThinkTagFragmentChars);
                     if (safeLen > 0)
                     {
-                        yield return new StreamTextDelta(text.Substring(0, safeLen));
-                        text = text.Substring(safeLen);
+                        yield return new StreamTextDelta(text[..safeLen]);
+                        text = text[safeLen..];
                         _buffer.Clear();
                         _buffer.Append(text);
                     }
@@ -1642,25 +1714,25 @@ internal sealed class ThinkExtractor
             }
             else
             {
-                int end = text.IndexOf("</think>", StringComparison.Ordinal);
-                if (end >= 0)
+                var end = CloseThinkTagRegex.Match(text);
+                if (end.Success)
                 {
-                    if (end > 0)
+                    if (end.Index > 0)
                     {
-                        yield return new StreamThinkingDelta(text.Substring(0, end));
+                        yield return new StreamThinkingDelta(text[..end.Index]);
                     }
-                    text = text.Substring(end + 8);
+                    text = text[(end.Index + end.Length)..];
                     _buffer.Clear();
                     _buffer.Append(text);
                     _inThink = false;
                 }
                 else
                 {
-                    int safeLen = Math.Max(0, text.Length - 7);
+                    int safeLen = Math.Max(0, text.Length - MaxThinkTagFragmentChars);
                     if (safeLen > 0)
                     {
-                        yield return new StreamThinkingDelta(text.Substring(0, safeLen));
-                        text = text.Substring(safeLen);
+                        yield return new StreamThinkingDelta(text[..safeLen]);
+                        text = text[safeLen..];
                         _buffer.Clear();
                         _buffer.Append(text);
                     }
