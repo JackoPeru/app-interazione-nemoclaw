@@ -1,8 +1,10 @@
-Hermes Hub 0.6.148 (Kokoro TTS test controls)
+Hermes Hub 0.6.149 (Gateway Kokoro TTS hardening)
 
-- Windows/Android: ogni messaggio in chat ora ha un pulsante `Leggi messaggio` accanto a `Copia`. Il pulsante invia il testo al servizio Kokoro TTS e riproduce il WAV restituito, cosi si puo' testare il modello direttamente dalla chat.
-- Windows/Android: il TTS usa il backend personale via Tailnet su porta `8020`, derivando host/scheme dal gateway configurato e usando la stessa API key Hermes (`hermes-hub` come fallback compatibile).
-- Server live: installato Kokoro TTS CPU come servizio separato `hermes-kokoro-tts.service` in `/home/matteo/.hermes/kokoro-tts`, con `kokoro-onnx`, modello ONNX quantizzato, voci italiane `if_sara`/`im_nicola`, endpoint `POST /v1/audio/speech` e health `GET /health`.
-- Verifiche pre-release: servizio Tailnet `http://100.94.223.14:8020/health` HTTP 200, POST TTS genera WAV mono 24 kHz, Windows build Debug 0 errori, Android `assembleDebug` OK.
-- Asset release attesi: Android APK `HermesHub-0.6.148-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.148.0_x64.msix`. Linux Gateway non incluso perche' il gateway e' in modifica da un altro agente e questa integrazione usa un servizio TTS separato.
-- Release bump: Windows/AdminBridge `0.6.148`, Android `versionName 0.6.148`, `versionCode 152`.
+- Windows/Android/Gateway: Kokoro TTS ora passa dal gateway Hermes esistente su `POST /v1/audio/speech` (`8642`), non piu' dal servizio parallelo `8020`. Il servizio separato live `hermes-kokoro-tts.service` e' stato disabilitato.
+- Gateway Linux: aggiunto handler TTS Kokoro lazy CPU con output WAV, capability `audio_speech`, esecuzione in executor per non bloccare l'event loop, errori JSON puliti e limite testo configurabile con `HERMES_KOKORO_TTS_MAX_CHARS`.
+- Gateway Linux: fix robustezza STT. Multipart audio malformati ora restituiscono HTTP 400 invece di generare traceback aiohttp; mantenute le patch dell'altro agente per progressi reali llama.cpp e rimozione degli eventi stimati obsoleti.
+- Windows/Android: il pulsante `Leggi messaggio` usa l'URL gateway configurato e fallback Tailnet `100.94.223.14:8642`; Android non prova piu' host generici come `server`, e la riproduzione prepara il player in modo asincrono.
+- Server live: ripristinato `hermes-hub.service` user service dopo il blocco su `100.94.223.14:8642`; verificati `capabilities` HTTP 200, due TTS consecutivi WAV mono 24 kHz, chat completions stream con risposta `OK`, porta `8020` chiusa.
+- Verifiche pre-release: `python -m py_compile scripts\patch-hermes-gateway-native.py`, Windows build Debug 0 errori, AdminBridge build Debug 0 errori, Android `assembleDebug` OK, Android `assembleRelease` OK, MSIX firmato OK, Linux gateway tar OK, test Tailnet Windows `POST /v1/audio/speech` su `100.94.223.14:8642` con WAV valido.
+- Asset release attesi: Android APK `HermesHub-0.6.149-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.149.0_x64.msix`, Linux Gateway `HermesHub-0.6.149-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.149`, Android `versionName 0.6.149`, `versionCode 153`.

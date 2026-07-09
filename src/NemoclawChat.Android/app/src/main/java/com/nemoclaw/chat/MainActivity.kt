@@ -7248,12 +7248,15 @@ private suspend fun speakChatMessage(context: Context, settings: AppSettings, te
         .put("speed", 1.0)
         .put("response_format", "wav")
     var lastError = "nessuna risposta"
+    var lastHttpError: String? = null
     for (candidateUrl in ttsUrlCandidates(resolveTtsSpeechUrl(settings))) {
         for (token in hermesAuthCandidates(apiKey)) {
             val response = try {
                 executeTtsRequest(candidateUrl, payload, token)
             } catch (ex: Exception) {
-                lastError = ex.message ?: ex.javaClass.simpleName
+                if (lastHttpError == null) {
+                    lastError = ex.message ?: ex.javaClass.simpleName
+                }
                 continue
             }
             if (response.first in 200..299 && response.second.isNotEmpty()) {
@@ -7273,13 +7276,14 @@ private suspend fun speakChatMessage(context: Context, settings: AppSettings, te
                         if (activeTtsMediaPlayer === mp) activeTtsMediaPlayer = null
                         true
                     }
+                    player.setOnPreparedListener { it.start() }
                     player.setDataSource(file.absolutePath)
-                    player.prepare()
-                    player.start()
+                    player.prepareAsync()
                 }
                 return@withContext
             }
-            lastError = "HTTP ${response.first}"
+            lastHttpError = "HTTP ${response.first}"
+            lastError = lastHttpError
             if (response.first != 401) break
         }
     }
@@ -7305,9 +7309,10 @@ private fun resolveTtsSpeechUrl(settings: AppSettings): String {
         val uri = URI(settings.gatewayUrl.trim())
         val scheme = uri.scheme ?: "http"
         val host = uri.host?.takeIf { it.isNotBlank() } ?: "100.94.223.14"
-        URI(scheme, null, host, 8020, "/v1/audio/speech", null, null).toString()
+        val port = if (uri.port > 0) uri.port else 8642
+        URI(scheme, null, host, port, "/v1/audio/speech", null, null).toString()
     } catch (_: Exception) {
-        "http://100.94.223.14:8020/v1/audio/speech"
+        "http://100.94.223.14:8642/v1/audio/speech"
     }
 }
 
@@ -7318,16 +7323,13 @@ private fun ttsUrlCandidates(url: String): List<String> {
             append(uri.rawPath.orEmpty())
             if (!uri.rawQuery.isNullOrBlank()) append("?").append(uri.rawQuery)
         }
-        val currentRoot = "${uri.scheme}://${uri.host}:8020"
+        val port = if (uri.port > 0) uri.port else 8642
+        val currentRoot = "${uri.scheme}://${uri.host}:$port"
         val roots = listOf(
             currentRoot,
-            "http://hermes:8020",
-            "http://100.94.223.14:8020",
-            "http://hermes.local:8020",
-            "http://hermes-hub:8020",
-            "http://hermeshub:8020",
-            "http://home-server:8020",
-            "http://server:8020"
+            "http://100.94.223.14:8642",
+            "http://hermes:8642",
+            "http://hermes.local:8642"
         )
         roots.distinctBy { it.lowercase() }.map { it.trimEnd('/') + suffix }
     } catch (_: Exception) {

@@ -84,6 +84,27 @@ def _find_target(explicit: str | None) -> Path:
     )
 
 
+def _find_agent_chat_completion_helpers(api_server_path: Path) -> Path | None:
+    """Find Hermes Agent chat_completion_helpers.py next to gateway sources."""
+    candidates: list[Path] = []
+    resolved = api_server_path.expanduser().resolve()
+    for parent in [resolved.parent, *resolved.parents]:
+        candidates.append(parent / "agent" / "chat_completion_helpers.py")
+    candidates.extend([
+        Path.home() / ".hermes" / "hermes-agent" / "agent" / "chat_completion_helpers.py",
+        Path.cwd() / "agent" / "chat_completion_helpers.py",
+    ])
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file():
+            return path
+    return None
+
+
 def _replace_once(text: str, old: str, new: str, label: str) -> tuple[str, bool]:
     if old not in text:
         raise RuntimeError(f"Patch anchor not found: {label}")
@@ -99,6 +120,44 @@ def _replace_regex_once(text: str, pattern: str, repl: str, label: str) -> tuple
 
 def _patch_text(text: str) -> tuple[str, list[str]]:
     changes: list[str] = []
+
+    cleanup_patterns = [
+        (
+            r'\n\n            async def _emit_responses_prompt_progress\(percent: int, label: str\) -> None:\n[\s\S]*?                await _emit_raw_hermes_event\(payload\)\n',
+            "remove estimated responses prompt progress helper",
+        ),
+        (
+            r'^\s+await _emit_responses_prompt_progress\([^\n]+\)\n',
+            "remove estimated responses prompt progress call",
+        ),
+        (
+            r'^\s+await _write_event\("hermes\.processing\.progress", \{\n(?:^\s{16}.+\n)*?^\s{12}\}\)\n',
+            "remove estimated responses prompt progress event",
+        ),
+        (
+            r'\n            async def _emit_chat_prompt_progress\(percent: int, label: str\) -> None:\n[\s\S]*?                await response\.write\(f"event: hermes\.processing\.progress\\ndata: \{json\.dumps\(payload\)\}\\n\\n"\.encode\(\)\)\n',
+            "remove estimated chat prompt progress helper",
+        ),
+        (
+            r'^\s+await _emit_chat_prompt_progress\([^\n]+\)\n',
+            "remove estimated chat prompt progress call",
+        ),
+    ]
+    for pattern, label in cleanup_patterns:
+        text, count = re.subn(pattern, "\n" if pattern.startswith(r"\n") else "", text, flags=re.MULTILINE)
+        if count:
+            changes.append(label)
+
+    if 'body.setdefault("return_progress", True)' not in text:
+        text, count = re.subn(
+            r'(^\s+async def _handle_(?:chat_completions|responses)\(self, request:[\s\S]*?^\s+body = await request\.json\(\)\n)',
+            r'\1            body.setdefault("return_progress", True)\n            body.setdefault("timings_per_token", True)\n',
+            text,
+            flags=re.MULTILINE,
+        )
+        if count == 0:
+            raise RuntimeError("Patch anchor not found: force llama prompt progress and timings")
+        changes.append("force llama prompt progress and timings")
 
     if "import asyncio" not in text:
         if "import json\n" in text:
@@ -2482,6 +2541,16 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             )
             changes.append("capabilities hub notifications")
 
+    if '"audio_speech": True,' not in text:
+        text, _ = _replace_regex_once(
+            text,
+            r'(^\s+"features": \{\n)',
+            r'\1'
+            r'                "audio_speech": True,' "\n",
+            "capabilities audio speech",
+        )
+        changes.append("capabilities audio speech")
+
     if '"max_upload_mb": int(os.environ.get("HERMES_HUB_MAX_UPLOAD_MB", "0")),' not in text:
         text, _ = _replace_regex_once(
             text,
@@ -2545,6 +2614,7 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             r'                "hub_state": {"method": "GET/POST", "path": "/v1/hub/state"},' "\n"
             r'                "hub_conversations": {"method": "GET/PUT/POST/DELETE", "path": "/v1/hub/conversations"},' "\n"
             r'                "hub_notifications": {"method": "GET/POST/PATCH", "path": "/v1/hub/notifications"},' "\n"
+            r'                "audio_speech": {"method": "POST", "path": "/v1/audio/speech"},' "\n"
             r'                "audio_transcriptions": {"method": "POST", "path": "/v1/audio/transcriptions"},' "\n",
             "capabilities hub support endpoints",
         )
@@ -2600,6 +2670,16 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             )
             changes.append("capabilities audio transcriptions endpoint")
 
+        if '"audio_speech": {"method": "POST", "path": "/v1/audio/speech"}' not in text:
+            text, _ = _replace_regex_once(
+                text,
+                r'(^\s+"hub_notifications": \{"method": "GET/POST/PATCH", "path": "/v1/hub/notifications"\},\n)',
+                r'\1'
+                r'                "audio_speech": {"method": "POST", "path": "/v1/audio/speech"},' "\n",
+                "capabilities audio speech endpoint",
+            )
+            changes.append("capabilities audio speech endpoint")
+
     if "async def _handle_audio_transcriptions" not in text:
         text, _ = _replace_once(
             text,
@@ -2641,6 +2721,69 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "audio transcriptions endpoint handler",
         )
         changes.append("audio transcriptions endpoint handler")
+
+    if "Invalid multipart audio upload" not in text:
+        text, count = re.subn(
+            r'        reader = await request\.multipart\(\)\n'
+            r'        field = await reader\.next\(\)\n'
+            r'        audio_data = None\n'
+            r'        while field is not None:\n'
+            r'            if field\.name == "file":\n'
+            r'                audio_data = await field\.read\(\)\n'
+            r'            field = await reader\.next\(\)\n',
+            '        try:\n'
+            '            reader = await request.multipart()\n'
+            '            field = await reader.next()\n'
+            '            audio_data = None\n'
+            '            while field is not None:\n'
+            '                if field.name == "file":\n'
+            '                    audio_data = await field.read()\n'
+            '                field = await reader.next()\n'
+            '        except Exception as e:\n'
+            '            return web.json_response({"error": "Invalid multipart audio upload", "detail": str(e)}, status=400)\n',
+            text,
+            count=1,
+        )
+        if count:
+            changes.append("audio transcriptions multipart guard")
+
+    if "async def _handle_audio_speech" not in text:
+        text, _ = _replace_once(
+            text,
+            "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
+            "    async def _handle_audio_speech(self, request: \"web.Request\") -> \"web.Response\":\n"
+            "        auth_error = self._check_auth(request)\n"
+            "        if auth_error is not None:\n"
+            "            return auth_error\n"
+            "        try:\n"
+            "            body = await request.json()\n"
+            "        except Exception as e:\n"
+            "            return web.json_response({\"error\": \"Invalid JSON body\", \"detail\": str(e)}, status=400)\n"
+            "        if not isinstance(body, dict):\n"
+            "            return web.json_response({\"error\": \"Invalid JSON body\"}, status=400)\n"
+            "        text = str(body.get(\"input\") or body.get(\"text\") or \"\").strip()\n"
+            "        if not text:\n"
+            "            return web.json_response({\"error\": \"No text provided\"}, status=400)\n"
+            "        max_chars = int(os.environ.get(\"HERMES_KOKORO_TTS_MAX_CHARS\", \"6000\"))\n"
+            "        if len(text) > max_chars:\n"
+            "            return web.json_response({\"error\": f\"Text too long; max {max_chars} characters\"}, status=413)\n"
+            "        voice = str(body.get(\"voice\") or os.environ.get(\"HERMES_KOKORO_TTS_VOICE\", \"if_sara\"))\n"
+            "        lang = str(body.get(\"lang\") or body.get(\"language\") or \"it\")\n"
+            "        try:\n"
+            "            speed = float(body.get(\"speed\") or 1.0)\n"
+            "        except Exception:\n"
+            "            speed = 1.0\n"
+            "        try:\n"
+            "            loop = asyncio.get_running_loop()\n"
+            "            audio = await loop.run_in_executor(None, _hermes_hub_kokoro_speech_bytes, text, voice, lang, speed)\n"
+            "            return web.Response(body=audio, content_type=\"audio/wav\")\n"
+            "        except Exception as e:\n"
+            "            return web.json_response({\"error\": \"Kokoro TTS unavailable\", \"detail\": str(e)}, status=500)\n"
+            "\n"
+            "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
+            "audio speech endpoint handler",
+        )
+        changes.append("audio speech endpoint handler")
 
     if "async def _handle_hub_hardware" not in text:
         text, _ = _replace_once(
@@ -3409,81 +3552,6 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("responses stream emit cli context usage")
 
-    if "def _emit_responses_prompt_progress" not in text:
-        text, _ = _replace_once(
-            text,
-            "\n\n            async def _dispatch(it) -> None:",
-            "\n\n"
-            "            async def _emit_responses_prompt_progress(percent: int, label: str) -> None:\n"
-            "                payload = {\n"
-            '                    "type": "hermes.processing.progress",\n'
-            '                    "event": "processing.progress",\n'
-            '                    "phase": "processing",\n'
-            '                    "label": label,\n'
-            '                    "percent": max(0, min(100, int(percent))),\n'
-            '                    "progress": max(0.0, min(1.0, float(percent) / 100.0)),\n'
-            '                    "estimated": True,\n'
-            '                    "source": "hermes-gateway",\n'
-            "                }\n"
-            "                await _emit_raw_hermes_event(payload)\n"
-            "\n"
-            "            async def _dispatch(it) -> None:",
-            "responses stream prompt progress helper",
-        )
-        changes.append("responses stream prompt progress helper")
-
-    if "Gateway: stream Responses pronto" not in text:
-        text, _ = _replace_once(
-            text,
-            '            await _write_event("hermes.native.protocol", {\n'
-            '                "type": "hermes.native.protocol",\n'
-            '                "protocol": "hermes-native",\n'
-            '                "transport": "responses",\n'
-            '                "endpoint": "/v1/responses",\n'
-            '                "native_endpoint": "/v1/hermes/native",\n'
-            '                "context_owner": "hermes-agent",\n'
-            '                "raw_event_passthrough": True,\n'
-            '                "strict_native_compatible": True,\n'
-            '                "session_id": session_id,\n'
-            '            })\n'
-            '            _persist_response_snapshot(created_env)',
-            '            await _write_event("hermes.native.protocol", {\n'
-            '                "type": "hermes.native.protocol",\n'
-            '                "protocol": "hermes-native",\n'
-            '                "transport": "responses",\n'
-            '                "endpoint": "/v1/responses",\n'
-            '                "native_endpoint": "/v1/hermes/native",\n'
-            '                "context_owner": "hermes-agent",\n'
-            '                "raw_event_passthrough": True,\n'
-            '                "strict_native_compatible": True,\n'
-            '                "session_id": session_id,\n'
-            '            })\n'
-            '            await _write_event("hermes.processing.progress", {\n'
-            '                "type": "hermes.processing.progress",\n'
-            '                "event": "processing.progress",\n'
-            '                "phase": "processing",\n'
-            '                "label": "Gateway: stream Responses pronto",\n'
-            '                "percent": 2,\n'
-            '                "progress": 0.02,\n'
-            '                "estimated": True,\n'
-            '                "source": "hermes-gateway",\n'
-            '            })\n'
-            '            _persist_response_snapshot(created_env)',
-            "responses stream prompt progress start",
-        )
-        changes.append("responses stream prompt progress start")
-
-    if "Gateway: attesa risposta Hermes" not in text:
-        text = text.replace(
-            "                result, agent_usage = await agent_task\n"
-            "                usage = agent_usage or usage\n",
-            '                await _emit_responses_prompt_progress(95, "Gateway: attesa risposta Hermes")\n'
-            "                result, agent_usage = await agent_task\n"
-            "                usage = agent_usage or usage\n",
-            1,
-        )
-        changes.append("responses stream prompt progress await")
-
     if "chat completions final_response fallback" not in text:
         text, _ = _replace_once(
             text,
@@ -3534,39 +3602,6 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("chat completions final_response fallback")
 
-    if "def _emit_chat_prompt_progress" not in text:
-        text, _ = _replace_once(
-            text,
-            "            emitted_text = False\n"
-            "            # Hermes Hub patch: Chat Completions may receive only a final_response.\n"
-            "            # In that case emit it as one delta instead of returning an empty stream.\n"
-            "\n"
-            "            async def _emit(item):",
-            "            emitted_text = False\n"
-            "            # Hermes Hub patch: Chat Completions may receive only a final_response.\n"
-            "            # In that case emit it as one delta instead of returning an empty stream.\n"
-            "\n"
-            "            async def _emit_chat_prompt_progress(percent: int, label: str) -> None:\n"
-            "                payload = {\n"
-            '                    "type": "hermes.processing.progress",\n'
-            '                    "event": "processing.progress",\n'
-            '                    "phase": "processing",\n'
-            '                    "label": label,\n'
-            '                    "percent": max(0, min(100, int(percent))),\n'
-            '                    "progress": max(0.0, min(1.0, float(percent) / 100.0)),\n'
-            '                    "estimated": True,\n'
-            '                    "source": "hermes-gateway",\n'
-            "                }\n"
-            '                await response.write(f"event: hermes.processing.progress\\ndata: {json.dumps(payload)}\\n\\n".encode())\n'
-            "\n"
-            '            await _emit_chat_prompt_progress(2, "Gateway: stream chat pronto")\n'
-            '            await _emit_chat_prompt_progress(12, "Gateway: richiesta inviata a Hermes")\n'
-            "\n"
-            "            async def _emit(item):",
-            "chat completions prompt progress helper",
-        )
-        changes.append("chat completions prompt progress helper")
-
     if 'tag == "__hermes_raw_event__"' not in text:
         text, _ = _replace_once(
             text,
@@ -3579,6 +3614,66 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "responses stream raw hermes dispatch",
         )
         changes.append("responses stream raw hermes dispatch")
+
+    if 'item[0] == "__hermes_raw_event__"' not in text:
+        text, _ = _replace_once(
+            text,
+            '                if isinstance(item, tuple) and len(item) == 2 and item[0] == "__tool_progress__":\n'
+            '                    event_data = json.dumps(item[1])\n'
+            '                    await response.write(\n'
+            '                        f"event: hermes.tool.progress\\ndata: {event_data}\\n\\n".encode()\n'
+            '                    )\n'
+            '                else:',
+            '                if isinstance(item, tuple) and len(item) == 2 and item[0] == "__tool_progress__":\n'
+            '                    event_data = json.dumps(item[1])\n'
+            '                    await response.write(\n'
+            '                        f"event: hermes.tool.progress\\ndata: {event_data}\\n\\n".encode()\n'
+            '                    )\n'
+            '                elif isinstance(item, tuple) and len(item) == 2 and item[0] == "__hermes_raw_event__":\n'
+            '                    payload = item[1] if isinstance(item[1], dict) else {"type": "hermes.event", "payload": item[1]}\n'
+            '                    event_name = str(payload.get("event") or payload.get("type") or "hermes.event")\n'
+            '                    await response.write(\n'
+            '                        f"event: {event_name}\\ndata: {json.dumps(payload)}\\n\\n".encode()\n'
+            '                    )\n'
+            '                else:',
+            "chat completions raw hermes dispatch",
+        )
+        changes.append("chat completions raw hermes dispatch")
+
+    if 'def _on_tool_progress(event_type, name, preview, args, **kwargs):\n                """Forward real llama.cpp processing/timing events to Chat Completions SSE."""' not in text:
+        text, _ = _replace_once(
+            text,
+            '            # Start agent in background.  agent_ref is a mutable container\n',
+            '            def _on_tool_progress(event_type, name, preview, args, **kwargs):\n'
+            '                """Forward real llama.cpp processing/timing events to Chat Completions SSE."""\n'
+            '                if str(event_type or "") != "hermes.processing.progress":\n'
+            '                    return\n'
+            '                payload = {\n'
+            '                    "type": "hermes.processing.progress",\n'
+            '                    "event": "hermes.processing.progress",\n'
+            '                    "tool": name,\n'
+            '                    "label": preview,\n'
+            '                    "arguments": args or {},\n'
+            '                    "estimated": False,\n'
+            '                }\n'
+            '                payload.update(kwargs or {})\n'
+            '                _stream_q.put(("__hermes_raw_event__", payload))\n'
+            '\n'
+            '            # Start agent in background.  agent_ref is a mutable container\n',
+            "chat completions processing progress callback",
+        )
+        text, _ = _replace_once(
+            text,
+            '                tool_start_callback=_on_tool_start,\n'
+            '                tool_complete_callback=_on_tool_complete,\n'
+            '                agent_ref=agent_ref,\n',
+            '                tool_start_callback=_on_tool_start,\n'
+            '                tool_complete_callback=_on_tool_complete,\n'
+            '                tool_progress_callback=_on_tool_progress,\n'
+            '                agent_ref=agent_ref,\n',
+            "chat completions wire processing progress callback",
+        )
+        changes.append("chat completions processing progress callback")
 
     old_progress = (
         '            def _on_tool_progress(event_type, name, preview, args, **kwargs):\n'
@@ -3769,6 +3864,67 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("router audio transcriptions endpoints")
 
+    if 'add_post("/v1/audio/speech", self._handle_audio_speech)' not in text:
+        text, _ = _replace_regex_once(
+            text,
+            r'(^\s+self\._app\.router\.add_get\("/v1/hub/state", self\._handle_get_hub_state\)\n)',
+            r'\1'
+            r'            self._app.router.add_post("/v1/audio/speech", self._handle_audio_speech)' "\n",
+            "router audio speech endpoint",
+        )
+        changes.append("router audio speech endpoint")
+
+    if "def _hermes_hub_kokoro_speech_bytes(" not in text:
+        text += (
+            "\n\n"
+            "def _hermes_hub_kokoro_speech_bytes(text, voice='if_sara', lang='it', speed=1.0):\n"
+            "    import io\n"
+            "    import os\n"
+            "    import threading\n"
+            "    from pathlib import Path\n"
+            "\n"
+            "    import numpy as _np\n"
+            "    import soundfile as _sf\n"
+            "    from kokoro_onnx import Kokoro\n"
+            "\n"
+            "    global _hermes_hub_kokoro_model, _hermes_hub_kokoro_lock\n"
+            "    if '_hermes_hub_kokoro_lock' not in globals():\n"
+            "        _hermes_hub_kokoro_lock = threading.Lock()\n"
+            "    model_path = Path(os.environ.get('HERMES_KOKORO_MODEL_PATH', '~/.hermes/kokoro-tts/models/kokoro-v1.0.int8.onnx')).expanduser()\n"
+            "    voices_path = Path(os.environ.get('HERMES_KOKORO_VOICES_PATH', '~/.hermes/kokoro-tts/models/voices-v1.0.bin')).expanduser()\n"
+            "    if not model_path.is_file():\n"
+            "        raise RuntimeError(f'Kokoro model not found: {model_path}')\n"
+            "    if not voices_path.is_file():\n"
+            "        raise RuntimeError(f'Kokoro voices not found: {voices_path}')\n"
+            "    with _hermes_hub_kokoro_lock:\n"
+            "        if '_hermes_hub_kokoro_model' not in globals():\n"
+            "            _hermes_hub_kokoro_model = Kokoro(str(model_path), str(voices_path))\n"
+            "            _hermes_hub_patch_kokoro_speed_dtype(_hermes_hub_kokoro_model)\n"
+            "        audio, sample_rate = _hermes_hub_kokoro_model.create(text, voice=voice, lang=lang, speed=float(speed))\n"
+            "    audio = _np.asarray(audio, dtype=_np.float32).reshape(-1)\n"
+            "    out = io.BytesIO()\n"
+            "    _sf.write(out, audio, int(sample_rate), format='WAV')\n"
+            "    return out.getvalue()\n"
+            "\n"
+            "\n"
+            "def _hermes_hub_patch_kokoro_speed_dtype(model):\n"
+            "    try:\n"
+            "        import types\n"
+            "        import numpy as _np\n"
+            "\n"
+            "        def _create_audio_compat(self, phonemes, voice, speed):\n"
+            "            tokens = self.tokenizer.tokenize(phonemes[:510])\n"
+            "            style = _np.asarray(voice[len(tokens)], dtype=_np.float32).reshape(1, 256)\n"
+            "            input_ids = _np.array([[0, *tokens, 0]], dtype=_np.int64)\n"
+            "            outputs = self.sess.run(None, {'input_ids': input_ids, 'style': style, 'speed': _np.array([float(speed)], dtype=_np.float32)})\n"
+            "            return _np.asarray(outputs[0], dtype=_np.float32).reshape(-1), 24000\n"
+            "\n"
+            "        model._create_audio = types.MethodType(_create_audio_compat, model)\n"
+            "    except Exception:\n"
+            "        pass\n"
+        )
+        changes.append("kokoro tts runtime helpers")
+
     if "def _hermes_hub_preload_whisper():" not in text:
         text += (
             "\n\n"
@@ -3790,6 +3946,129 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
     return text, changes
 
 
+def _patch_agent_chat_completion_helpers(text: str) -> tuple[str, list[str]]:
+    changes: list[str] = []
+
+    if "def _hermes_hub_model_extra_dict(value):" not in text:
+        text, _ = _replace_once(
+            text,
+            "def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=None):\n",
+            "def _hermes_hub_model_extra_dict(value):\n"
+            "    try:\n"
+            "        if value is None:\n"
+            "            return {}\n"
+            "        if isinstance(value, dict):\n"
+            "            return value\n"
+            "        if hasattr(value, \"model_dump\"):\n"
+            "            dumped = value.model_dump()\n"
+            "            return dumped if isinstance(dumped, dict) else {}\n"
+            "        if hasattr(value, \"dict\"):\n"
+            "            dumped = value.dict()\n"
+            "            return dumped if isinstance(dumped, dict) else {}\n"
+            "    except Exception:\n"
+            "        return {}\n"
+            "    return {}\n"
+            "\n"
+            "\n"
+            "def _hermes_hub_chunk_field(chunk, field):\n"
+            "    try:\n"
+            "        direct = getattr(chunk, field, None)\n"
+            "        if direct is not None:\n"
+            "            return direct\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "    extra = _hermes_hub_model_extra_dict(getattr(chunk, \"model_extra\", None))\n"
+            "    return extra.get(field)\n"
+            "\n"
+            "\n"
+            "def _hermes_hub_plain(value):\n"
+            "    if value is None:\n"
+            "        return None\n"
+            "    if isinstance(value, (str, int, float, bool)):\n"
+            "        return value\n"
+            "    if isinstance(value, dict):\n"
+            "        return {str(k): _hermes_hub_plain(v) for k, v in value.items()}\n"
+            "    if isinstance(value, (list, tuple)):\n"
+            "        return [_hermes_hub_plain(v) for v in value]\n"
+            "    dumped = _hermes_hub_model_extra_dict(value)\n"
+            "    if dumped:\n"
+            "        return _hermes_hub_plain(dumped)\n"
+            "    return str(value)\n"
+            "\n"
+            "\n"
+            "def _hermes_hub_float(value):\n"
+            "    try:\n"
+            "        return float(value)\n"
+            "    except Exception:\n"
+            "        return None\n"
+            "\n"
+            "\n"
+            "def _hermes_hub_int(value):\n"
+            "    try:\n"
+            "        return int(value)\n"
+            "    except Exception:\n"
+            "        return None\n"
+            "\n"
+            "\n"
+            "def _hermes_hub_emit_llama_stream_metadata(agent, chunk):\n"
+            "    cb = getattr(agent, \"tool_progress_callback\", None)\n"
+            "    if cb is None:\n"
+            "        return\n"
+            "    prompt_progress = _hermes_hub_plain(_hermes_hub_chunk_field(chunk, \"prompt_progress\"))\n"
+            "    timings = _hermes_hub_plain(_hermes_hub_chunk_field(chunk, \"timings\"))\n"
+            "    if not prompt_progress and not timings:\n"
+            "        return\n"
+            "    payload = {\n"
+            "        \"type\": \"hermes.processing.progress\",\n"
+            "        \"event\": \"hermes.processing.progress\",\n"
+            "        \"phase\": \"processing\" if prompt_progress else \"generation\",\n"
+            "        \"source\": \"llama.cpp\",\n"
+            "        \"estimated\": False,\n"
+            "    }\n"
+            "    if isinstance(prompt_progress, dict):\n"
+            "        payload[\"prompt_progress\"] = prompt_progress\n"
+            "        total = _hermes_hub_int(prompt_progress.get(\"total\"))\n"
+            "        processed = _hermes_hub_int(prompt_progress.get(\"processed\"))\n"
+            "        if total and total > 0 and processed is not None:\n"
+            "            progress = max(0.0, min(1.0, processed / float(total)))\n"
+            "            payload[\"progress\"] = progress\n"
+            "            payload[\"percent\"] = round(progress * 100.0)\n"
+            "        payload[\"label\"] = \"llama.cpp: prefill prompt\"\n"
+            "    if isinstance(timings, dict):\n"
+            "        payload[\"timings\"] = timings\n"
+            "        tps = _hermes_hub_float(timings.get(\"predicted_per_second\") or timings.get(\"tokens_per_second\"))\n"
+            "        if tps is not None and tps > 0:\n"
+            "            payload[\"tokens_per_second\"] = tps\n"
+            "            payload.setdefault(\"phase\", \"generation\")\n"
+            "            payload.setdefault(\"label\", \"llama.cpp: generazione risposta\")\n"
+            "    try:\n"
+            "        cb(\"hermes.processing.progress\", \"llama.cpp\", payload.get(\"label\", \"llama.cpp\"), {}, **payload)\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "\n"
+            "\n"
+            "def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=None):\n",
+            "agent helpers llama stream metadata functions",
+        )
+        changes.append("agent helpers llama stream metadata functions")
+
+    if 'agent._touch_activity("receiving stream response")\n            _hermes_hub_emit_llama_stream_metadata(agent, chunk)' not in text:
+        text, _ = _replace_once(
+            text,
+            '            agent._touch_activity("receiving stream response")\n'
+            '\n'
+            '            # Update per-attempt diagnostic counters.',
+            '            agent._touch_activity("receiving stream response")\n'
+            '            _hermes_hub_emit_llama_stream_metadata(agent, chunk)\n'
+            '\n'
+            '            # Update per-attempt diagnostic counters.',
+            "agent emit real llama prompt progress and timings",
+        )
+        changes.append("agent emit real llama prompt progress and timings")
+
+    return text, changes
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", help="Path to gateway/platforms/api_server.py")
@@ -3799,27 +4078,69 @@ def main() -> int:
     target = _find_target(args.target)
     original = target.read_text(encoding="utf-8")
     patched, changes = _patch_text(original)
+    helper_target = _find_agent_chat_completion_helpers(target)
+    helper_original = None
+    helper_patched = None
+    helper_changes: list[str] = []
+    if helper_target is not None:
+        helper_original = helper_target.read_text(encoding="utf-8")
+        helper_patched, helper_changes = _patch_agent_chat_completion_helpers(helper_original)
+    else:
+        helper_changes = ["agent chat_completion_helpers.py not found; raw llama progress passthrough skipped"]
 
     if args.check:
-        state = "already patched" if not changes else "patchable"
+        actionable_helper_changes = [
+            change for change in helper_changes
+            if not change.endswith("not found; raw llama progress passthrough skipped")
+        ]
+        state = "already patched" if not changes and not actionable_helper_changes else "patchable"
         print(f"Hermes native gateway patch {state}: {target}")
         if changes:
             for change in changes:
                 print(f"- {change}")
+        if helper_target is not None:
+            print(f"Hermes Agent stream helper: {helper_target}")
+            for change in helper_changes:
+                print(f"- {change}")
+        else:
+            print("- agent chat_completion_helpers.py not found; raw llama progress passthrough skipped")
         return 0
 
-    if not changes:
+    actionable_helper_changes = [
+        change for change in helper_changes
+        if not change.endswith("not found; raw llama progress passthrough skipped")
+    ]
+
+    if not changes and not actionable_helper_changes:
         print(f"Hermes native gateway already patched: {target}")
+        if helper_target is not None:
+            print(f"Hermes Agent stream helper already patched: {helper_target}")
         return 0
 
-    backup = target.with_suffix(target.suffix + f".bak-hermes-native-{int(time.time())}")
-    shutil.copy2(target, backup)
-    target.write_text(patched, encoding="utf-8", newline="")
-    py_compile.compile(str(target), doraise=True)
-    print(f"Hermes native gateway patched: {target}")
-    print(f"Backup: {backup}")
+    if changes:
+        backup = target.with_suffix(target.suffix + f".bak-hermes-native-{int(time.time())}")
+        shutil.copy2(target, backup)
+        target.write_text(patched, encoding="utf-8", newline="")
+        py_compile.compile(str(target), doraise=True)
+        print(f"Hermes native gateway patched: {target}")
+        print(f"Backup: {backup}")
+    else:
+        print(f"Hermes native gateway already patched: {target}")
     for change in changes:
         print(f"- {change}")
+    if helper_target is not None and actionable_helper_changes:
+        helper_backup = helper_target.with_suffix(helper_target.suffix + f".bak-hermes-native-{int(time.time())}")
+        shutil.copy2(helper_target, helper_backup)
+        helper_target.write_text(helper_patched, encoding="utf-8", newline="")
+        py_compile.compile(str(helper_target), doraise=True)
+        print(f"Hermes Agent stream helper patched: {helper_target}")
+        print(f"Backup: {helper_backup}")
+        for change in helper_changes:
+            print(f"- {change}")
+    elif helper_target is not None:
+        print(f"Hermes Agent stream helper already patched: {helper_target}")
+    else:
+        print("- agent chat_completion_helpers.py not found; raw llama progress passthrough skipped")
     return 0
 
 

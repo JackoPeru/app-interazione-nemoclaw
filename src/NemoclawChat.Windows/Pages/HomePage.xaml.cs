@@ -1531,7 +1531,7 @@ public sealed partial class HomePage : Page
                     request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
                 }
                 request.Content = new System.Net.Http.StringContent(payload, Encoding.UTF8, "application/json");
-                using var response = await httpClient.SendAsync(request);
+                using var response = await httpClient.SendAsync(request, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
                 if (response.IsSuccessStatusCode)
                 {
                     audioBytes = await response.Content.ReadAsByteArrayAsync();
@@ -1595,11 +1595,11 @@ public sealed partial class HomePage : Page
     {
         if (Uri.TryCreate(gatewayUrl, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
         {
-            var builder = new UriBuilder(uri.Scheme, uri.Host, 8020, "/v1/audio/speech");
+            var builder = new UriBuilder(uri.Scheme, uri.Host, uri.IsDefaultPort ? 8642 : uri.Port, "/v1/audio/speech");
             return builder.Uri.ToString();
         }
 
-        return "http://100.94.223.14:8020/v1/audio/speech";
+        return "http://100.94.223.14:8642/v1/audio/speech";
     }
 
     private static UIElement RenderRawHermesEvent(HermesRawEventRecord raw)
