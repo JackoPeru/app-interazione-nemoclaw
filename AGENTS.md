@@ -33,10 +33,23 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.150 Release Hermes Hub 0.6.150 voice call mode and Windows TTS hardening
+v0.6.151 Release Hermes Hub 0.6.151 natural voice call and Android particles
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.151 (Natural voice call and Android particles):
+
+Release 0.6.151:
+- Windows: la sezione `Voce` ora funziona come chiamata continua: un solo tap avvia/chiude la sessione, poi Hermes ascolta a cicli, trascrive solo quando riceve testo utile e riprende ad ascoltare dopo la risposta.
+- Windows: fix freeze su invio vocale. STT, stream chat e TTS vengono eseguiti fuori dal thread UI; il recorder resta sul dispatcher WinUI e aggiorna solo stato leggero.
+- Windows/Android: il TTS parte prima durante lo stream: i segmenti vocali vengono tagliati gia' su frasi brevi o breakpoint morbidi, invece di aspettare risposta completa o blocchi lunghi.
+- Android: la scena particelle non dipende piu' da WebGL/Three.js. Usa canvas 2D con proiezione pseudo-3D, particelle arancioni luminose sempre visibili, idle random e sfera rotante/pulsante quando Hermes parla.
+- Android: la sezione `Voce` usa loop continuo con VAD leggero basato su ampiezza microfono; il bottone serve solo per avviare o chiudere la chiamata, non per ogni messaggio.
+- Gateway: nessun cambio richiesto; la release usa gli endpoint gia' pubblicati (`/v1/audio/transcriptions`, `/v1/audio/speech`, stream chat).
+- Verifiche pre-release: Windows build Debug 0 errori, Android `assembleDebug` OK, Android `assembleRelease` OK, MSIX firmato OK.
+- Asset release attesi: Android APK `HermesHub-0.6.151-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.151.0_x64.msix`. Linux Gateway non incluso perche' invariato.
+- Release bump: Windows/AdminBridge `0.6.151`, Android `versionName 0.6.151`, `versionCode 155`.
 
 Hermes Hub 0.6.150 (Voice call mode and Windows TTS hardening):
 

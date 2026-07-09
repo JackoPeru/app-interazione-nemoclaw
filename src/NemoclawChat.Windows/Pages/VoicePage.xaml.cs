@@ -22,20 +22,23 @@ public sealed partial class VoicePage : Page
     private readonly List<VoiceStar> _stars = BuildStars();
     private readonly List<Ellipse> _dots = [];
     private readonly List<ChatMessageRecord> _history = [];
-    private readonly SolidColorBrush _starBrush = new(Microsoft.UI.ColorHelper.FromArgb(235, 255, 255, 255));
-    private readonly SolidColorBrush _warmBrush = new(Microsoft.UI.ColorHelper.FromArgb(235, 255, 154, 42));
-    private readonly SolidColorBrush _glowBrush = new(Microsoft.UI.ColorHelper.FromArgb(70, 255, 132, 24));
+    private readonly SolidColorBrush _starBrush = new(Microsoft.UI.ColorHelper.FromArgb(245, 255, 146, 32));
+    private readonly SolidColorBrush _warmBrush = new(Microsoft.UI.ColorHelper.FromArgb(255, 255, 206, 82));
+    private readonly SolidColorBrush _glowBrush = new(Microsoft.UI.ColorHelper.FromArgb(95, 255, 112, 18));
     private MediaCapture? _mediaCapture;
     private StorageFile? _recordingFile;
     private MediaPlayer? _voicePlayer;
-    private CancellationTokenSource? _turnCts;
+    private CancellationTokenSource? _callCts;
     private DateTimeOffset _lastFrame = DateTimeOffset.Now;
     private Task _playbackChain = Task.CompletedTask;
     private double _time;
     private double _assembly;
-    private bool _isRecording;
+    private bool _callActive;
+    private bool _isRecordingChunk;
     private bool _isBusy;
     private bool _isSpeaking;
+    private string _lastTranscript = string.Empty;
+    private DateTimeOffset _lastTranscriptAt = DateTimeOffset.MinValue;
 
     public VoicePage()
     {
@@ -55,25 +58,20 @@ public sealed partial class VoicePage : Page
     private void Page_Unloaded(object sender, RoutedEventArgs e)
     {
         _timer.Stop();
-        _turnCts?.Cancel();
+        _callCts?.Cancel();
         _mediaCapture?.Dispose();
         _voicePlayer?.Dispose();
     }
 
     private async void CallButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isBusy)
+        if (_callActive)
         {
-            return;
-        }
-
-        if (_isRecording)
-        {
-            await StopRecordingAndSendAsync();
+            await StopCallSessionAsync();
         }
         else
         {
-            await StartRecordingAsync();
+            await StartCallSessionAsync();
         }
     }
 
@@ -98,87 +96,148 @@ public sealed partial class VoicePage : Page
         }
     }
 
-    private async Task StartRecordingAsync()
+    private async Task StartCallSessionAsync()
     {
-        try
+        _callCts?.Cancel();
+        _callCts = new CancellationTokenSource();
+        _callActive = true;
+        _isBusy = false;
+        _isSpeaking = false;
+        _lastTranscript = string.Empty;
+        SetCallVisual(true);
+        SetStatus("Chiamata attiva. Parla quando vuoi.");
+        _ = ListenLoopAsync(_callCts.Token);
+        await Task.CompletedTask;
+    }
+
+    private async Task StopCallSessionAsync()
+    {
+        _callActive = false;
+        _callCts?.Cancel();
+        await StopActiveRecordingAsync();
+        CleanupRecorder();
+        _isBusy = false;
+        _isSpeaking = false;
+        SetCallVisual(false);
+        SetStatus("Chiamata chiusa.");
+    }
+
+    private async Task ListenLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
         {
-            _turnCts?.Cancel();
-            _turnCts = new CancellationTokenSource();
-            _mediaCapture = new MediaCapture();
-            await _mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings
+            try
             {
-                StreamingCaptureMode = StreamingCaptureMode.Audio
-            });
+                if (_isBusy || _isSpeaking)
+                {
+                    await Task.Delay(180, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
 
-            _recordingFile = await ApplicationData.Current.TemporaryFolder.CreateFileAsync(
-                $"voice-call-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.m4a",
-                CreationCollisionOption.GenerateUniqueName);
-            await _mediaCapture.StartRecordToStorageFileAsync(
-                MediaEncodingProfile.CreateM4a(AudioEncodingQuality.Medium),
-                _recordingFile);
+                SetStatus("Ascolto...");
+                var path = await RecordVoiceChunkAsync(cancellationToken).ConfigureAwait(true);
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
 
-            _isRecording = true;
-            _isSpeaking = false;
-            StatusText.Text = "Ti ascolto...";
-            CallIcon.Glyph = "\uE71A";
-            CallButton.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Red);
-        }
-        catch (Exception ex)
-        {
-            CleanupRecorder();
-            StatusText.Text = $"Microfono non disponibile: {ex.Message}";
+                _isBusy = true;
+                await Task.Run(() => ProcessVoiceFileAsync(path, cancellationToken), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Errore voce: {ex.Message}");
+                await Task.Delay(900, CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _isBusy = false;
+            }
         }
     }
 
-    private async Task StopRecordingAndSendAsync()
+    private async Task<string?> RecordVoiceChunkAsync(CancellationToken cancellationToken)
     {
-        _isBusy = true;
-        _isRecording = false;
-        CallIcon.Glyph = "\uE720";
-        CallButton.BorderBrush = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(85, 255, 255, 255));
-        StatusText.Text = "Trascrivo...";
+        try
+        {
+            await RunOnUiAsync(async () =>
+            {
+                CleanupRecorder();
+                _mediaCapture = new MediaCapture();
+                await _mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings
+                {
+                    StreamingCaptureMode = StreamingCaptureMode.Audio
+                });
+                _recordingFile = await ApplicationData.Current.TemporaryFolder.CreateFileAsync(
+                    $"voice-call-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.m4a",
+                    CreationCollisionOption.GenerateUniqueName);
+                await _mediaCapture.StartRecordToStorageFileAsync(
+                    MediaEncodingProfile.CreateM4a(AudioEncodingQuality.Medium),
+                    _recordingFile);
+                _isRecordingChunk = true;
+            });
+
+            await Task.Delay(2600, cancellationToken).ConfigureAwait(false);
+            var path = _recordingFile?.Path;
+            await StopActiveRecordingAsync().ConfigureAwait(true);
+            return path;
+        }
+        catch
+        {
+            await StopActiveRecordingAsync().ConfigureAwait(true);
+            CleanupRecorder();
+            throw;
+        }
+    }
+
+    private async Task StopActiveRecordingAsync()
+    {
+        if (!_isRecordingChunk)
+        {
+            return;
+        }
 
         try
         {
             if (_mediaCapture is not null)
             {
-                await _mediaCapture.StopRecordAsync();
+                await RunOnUiAsync(async () => await _mediaCapture.StopRecordAsync());
             }
-            var path = _recordingFile?.Path;
-            CleanupRecorder();
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                StatusText.Text = "Audio vuoto.";
-                return;
-            }
-
-            var settings = AppSettingsStore.Load();
-            var text = await SpeechGatewayService.TranscribeFileAsync(settings, path, _turnCts?.Token ?? CancellationToken.None);
-            TryDelete(path);
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                StatusText.Text = "Non ho sentito parole utili.";
-                return;
-            }
-
-            StatusText.Text = $"Tu: {TrimForStatus(text)}";
-            await SendVoiceTurnAsync(settings, text, _turnCts?.Token ?? CancellationToken.None);
         }
-        catch (OperationCanceledException)
+        catch
         {
-            StatusText.Text = "Voce annullata.";
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = $"Errore voce: {ex.Message}";
         }
         finally
         {
-            _isBusy = false;
-            if (!_isRecording)
+            _isRecordingChunk = false;
+            CleanupRecorder();
+        }
+    }
+
+    private async Task ProcessVoiceFileAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            SetStatus("Trascrivo...");
+            var settings = AppSettingsStore.Load();
+            var text = await SpeechGatewayService.TranscribeFileAsync(settings, path, cancellationToken).ConfigureAwait(false);
+            TryDelete(path);
+            if (!ShouldSendTranscript(text))
             {
-                CallIcon.Glyph = "\uE720";
+                SetStatus(_callActive ? "Ascolto..." : "Chiamata chiusa.");
+                return;
             }
+
+            SetStatus($"Tu: {TrimForStatus(text)}");
+            await SendVoiceTurnAsync(settings, text, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            TryDelete(path);
         }
     }
 
@@ -187,7 +246,7 @@ public sealed partial class VoicePage : Page
         _history.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
         var answer = new StringBuilder();
         var speechBuffer = new StringBuilder();
-        StatusText.Text = "Hermes sta rispondendo...";
+        SetStatus("Hermes sta rispondendo...");
 
         await foreach (var ev in ChatStreamClient.StreamChatAsync(
                            settings,
@@ -204,7 +263,7 @@ public sealed partial class VoicePage : Page
                 case StreamTextDelta delta:
                     answer.Append(delta.Delta);
                     speechBuffer.Append(delta.Delta);
-                    StatusText.Text = $"Hermes: {TrimForStatus(answer.ToString())}";
+                    SetStatus($"Hermes: {TrimForStatus(answer.ToString())}");
                     QueueCompleteSpeechSegments(settings, speechBuffer, false, cancellationToken);
                     break;
                 case StreamDone done:
@@ -215,7 +274,7 @@ public sealed partial class VoicePage : Page
                     }
                     break;
                 case StreamError error:
-                    StatusText.Text = $"Hermes: {error.Message}";
+                    SetStatus($"Hermes: {error.Message}");
                     break;
             }
         }
@@ -228,7 +287,7 @@ public sealed partial class VoicePage : Page
             _history.Add(new ChatMessageRecord("Hermes", finalText, DateTimeOffset.Now));
         }
         _isSpeaking = false;
-        StatusText.Text = "Premi il microfono e parla.";
+        SetStatus(_callActive ? "Ascolto..." : "Premi per avviare la chiamata.");
     }
 
     private void QueueCompleteSpeechSegments(AppSettings settings, StringBuilder buffer, bool flush, CancellationToken cancellationToken)
@@ -258,7 +317,7 @@ public sealed partial class VoicePage : Page
     private async Task SpeakSegmentAsync(AppSettings settings, string text, CancellationToken cancellationToken)
     {
         _isSpeaking = true;
-        DispatcherQueue.TryEnqueue(() => StatusText.Text = $"Hermes parla: {TrimForStatus(text)}");
+        SetStatus($"Hermes parla: {TrimForStatus(text)}");
         var file = await SpeechGatewayService.SynthesizeToFileAsync(settings, text, cancellationToken).ConfigureAwait(false);
         try
         {
@@ -382,22 +441,80 @@ public sealed partial class VoicePage : Page
             return -1;
         }
 
-        var searchLimit = Math.Min(text.Length, 420);
+        var searchLimit = Math.Min(text.Length, 160);
         for (var i = searchLimit - 1; i >= 0; i--)
         {
-            if ((text[i] == '.' || text[i] == '!' || text[i] == '?' || text[i] == '\n') && i >= 36)
+            if ((text[i] == '.' || text[i] == '!' || text[i] == '?' || text[i] == '\n') && i >= 14)
             {
                 return i + 1;
             }
         }
 
-        if (text.Length > 520)
+        if (text.Length > 120)
         {
-            var comma = text.LastIndexOfAny(new[] { ',', ';', ':' }, Math.Min(text.Length - 1, 420));
-            return comma > 80 ? comma + 1 : 420;
+            var soft = text.LastIndexOfAny(new[] { ',', ';', ':', ' ' }, Math.Min(text.Length - 1, 120));
+            return soft > 55 ? soft + 1 : 120;
         }
 
         return flush ? text.Length : -1;
+    }
+
+    private bool ShouldSendTranscript(string text)
+    {
+        var clean = text.Trim();
+        if (clean.Length < 2)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.Now;
+        if (string.Equals(clean, _lastTranscript, StringComparison.OrdinalIgnoreCase) &&
+            (now - _lastTranscriptAt).TotalSeconds < 8)
+        {
+            return false;
+        }
+
+        _lastTranscript = clean;
+        _lastTranscriptAt = now;
+        return true;
+    }
+
+    private void SetStatus(string text)
+    {
+        DispatcherQueue.TryEnqueue(() => StatusText.Text = text);
+    }
+
+    private void SetCallVisual(bool active)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            CallIcon.Glyph = active ? "\uE71A" : "\uE720";
+            CallButton.BorderBrush = new SolidColorBrush(active
+                ? Microsoft.UI.Colors.OrangeRed
+                : Microsoft.UI.ColorHelper.FromArgb(85, 255, 255, 255));
+        });
+    }
+
+    private Task RunOnUiAsync(Func<Task> action)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!DispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                await action();
+                completion.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                completion.TrySetException(ex);
+            }
+        }))
+        {
+            completion.TrySetException(new InvalidOperationException("Dispatcher UI non disponibile."));
+        }
+
+        return completion.Task;
     }
 
     private static List<VoiceStar> BuildStars()

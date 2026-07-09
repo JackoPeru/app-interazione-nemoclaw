@@ -61,10 +61,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -76,6 +78,7 @@ import org.json.JSONObject
 import java.io.File
 import java.net.URI
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 
 private const val VoiceSceneUrl = "file:///android_asset/hermes_scene/orange_particles_3d.html"
 
@@ -96,13 +99,11 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
     val scope = rememberCoroutineScope()
     val history = remember { mutableStateListOf<ChatMessage>() }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
-    var recordingFile by remember { mutableStateOf<File?>(null) }
-    var isRecording by remember { mutableStateOf(false) }
+    var callActive by remember { mutableStateOf(false) }
     var isBusy by remember { mutableStateOf(false) }
     var isSpeaking by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Premi il microfono e parla.") }
-    var turnJob by remember { mutableStateOf<Job?>(null) }
+    var status by remember { mutableStateOf("Premi per avviare la chiamata.") }
+    var callJob by remember { mutableStateOf<Job?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (!granted) Toast.makeText(context, "Permesso microfono negato.", Toast.LENGTH_SHORT).show()
@@ -120,8 +121,7 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
 
     DisposableEffect(Unit) {
         onDispose {
-            turnJob?.cancel()
-            recorder?.runCatchingStopAndRelease()
+            callJob?.cancel()
             webViewRef?.stopLoading()
             webViewRef?.destroy()
             webViewRef = null
@@ -199,58 +199,41 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Button(
-                enabled = !isBusy,
                 onClick = {
-                    if (!isRecording) {
+                    if (!callActive) {
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             return@Button
                         }
-                        val file = File(context.cacheDir, "voice-call-${System.currentTimeMillis()}.m4a")
-                        val nextRecorder = createVoiceRecorder(context, file)
-                        try {
-                            nextRecorder.prepare()
-                            nextRecorder.start()
-                            recorder = nextRecorder
-                            recordingFile = file
-                            isRecording = true
-                            isSpeaking = false
-                            status = "Ti ascolto..."
-                        } catch (ex: Exception) {
-                            nextRecorder.runCatchingStopAndRelease()
-                            status = "Microfono non disponibile: ${ex.message}"
+                        callActive = true
+                        isSpeaking = false
+                        status = "Chiamata attiva. Parla quando vuoi."
+                        callJob = scope.launch {
+                            runVoiceCallLoop(
+                                context = context,
+                                settings = settings,
+                                apiKey = apiKey,
+                                history = history,
+                                scope = scope,
+                                isCallActive = { callActive },
+                                isBusy = { isBusy || isSpeaking },
+                                setBusy = { isBusy = it },
+                                setStatus = { status = it },
+                                setSpeaking = { isSpeaking = it }
+                            )
                         }
                     } else {
-                        val file = recordingFile
-                        recorder?.runCatchingStopAndRelease()
-                        recorder = null
-                        recordingFile = null
-                        isRecording = false
-                        if (file == null) return@Button
-                        isBusy = true
-                        status = "Trascrivo..."
-                        turnJob = scope.launch {
-                            try {
-                                val text = transcribeVoiceFile(settings, apiKey, file)
-                                file.delete()
-                                if (text.isBlank()) {
-                                    status = "Non ho sentito parole utili."
-                                    return@launch
-                                }
-                                status = "Tu: ${text.trimForStatus()}"
-                                runVoiceTurn(context, settings, apiKey, history, text, scope, { status = it }, { isSpeaking = it })
-                                status = "Premi il microfono e parla."
-                            } catch (ex: Exception) {
-                                status = "Errore voce: ${ex.message}"
-                            } finally {
-                                isBusy = false
-                            }
-                        }
+                        callActive = false
+                        callJob?.cancel()
+                        callJob = null
+                        isBusy = false
+                        isSpeaking = false
+                        status = "Chiamata chiusa."
                     }
                 },
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isRecording) Color(0xFF922323) else Color(0x33222222),
+                    containerColor = if (callActive) Color(0xFF922323) else Color(0x33222222),
                     disabledContainerColor = Color(0x22333333)
                 ),
                 modifier = Modifier
@@ -258,7 +241,7 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
                     .clip(CircleShape)
                     .border(1.dp, Color(0x66FFFFFF), CircleShape)
             ) {
-                Icon(if (isRecording) Icons.Rounded.Stop else Icons.Rounded.Mic, contentDescription = "Voce", tint = Color.White)
+                Icon(if (callActive) Icons.Rounded.Stop else Icons.Rounded.Mic, contentDescription = "Voce", tint = Color.White)
             }
             Text(
                 text = status,
@@ -268,6 +251,87 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+private suspend fun runVoiceCallLoop(
+    context: Context,
+    settings: AppSettings,
+    apiKey: String?,
+    history: MutableList<ChatMessage>,
+    scope: CoroutineScope,
+    isCallActive: () -> Boolean,
+    isBusy: () -> Boolean,
+    setBusy: (Boolean) -> Unit,
+    setStatus: (String) -> Unit,
+    setSpeaking: (Boolean) -> Unit
+) {
+    var lastTranscript = ""
+    var lastTranscriptAt = 0L
+    while (coroutineContext.isActive && isCallActive()) {
+        try {
+            if (isBusy()) {
+                delay(180)
+                continue
+            }
+            setStatus("Ascolto...")
+            val file = captureVoiceChunk(context)
+            if (file == null) {
+                delay(120)
+                continue
+            }
+            setBusy(true)
+            setStatus("Trascrivo...")
+            val text = transcribeVoiceFile(settings, apiKey, file).trim()
+            file.delete()
+            val now = System.currentTimeMillis()
+            if (text.length >= 2 && !(text.equals(lastTranscript, ignoreCase = true) && now - lastTranscriptAt < 8_000)) {
+                lastTranscript = text
+                lastTranscriptAt = now
+                setStatus("Tu: ${text.trimForStatus()}")
+                runVoiceTurn(context, settings, apiKey, history, text, scope, setStatus, setSpeaking)
+            } else {
+                setStatus("Ascolto...")
+            }
+        } catch (_: CancellationException) {
+            break
+        } catch (ex: Exception) {
+            setStatus("Errore voce: ${ex.message}")
+            delay(900)
+        } finally {
+            setBusy(false)
+        }
+    }
+}
+
+private suspend fun captureVoiceChunk(
+    context: Context
+): File? = withContext(Dispatchers.IO) {
+    val file = File(context.cacheDir, "voice-call-${System.currentTimeMillis()}.m4a")
+    val recorder = createVoiceRecorder(context, file)
+    var heardVoice = false
+    var lastVoiceAt = 0L
+    val startedAt = System.currentTimeMillis()
+    try {
+        recorder.prepare()
+        recorder.start()
+        while (coroutineContext.isActive) {
+            delay(120)
+            val now = System.currentTimeMillis()
+            val amplitude = runCatching { recorder.maxAmplitude }.getOrDefault(0)
+            if (amplitude > 1_400) {
+                heardVoice = true
+                lastVoiceAt = now
+            }
+            if (heardVoice && now - lastVoiceAt > 760 && now - startedAt > 900) break
+            if (now - startedAt > 3_600) break
+        }
+    } finally {
+        recorder.runCatchingStopAndRelease()
+    }
+    if (heardVoice && file.length() > 900) file else {
+        file.delete()
+        null
     }
 }
 
@@ -312,6 +376,7 @@ private suspend fun runVoiceTurn(
     val finalText = answer.toString().trim()
     if (finalText.isNotBlank()) history += ChatMessage("Hermes", finalText, fromUser = false)
     setSpeaking(false)
+    setStatus("Ascolto...")
 }
 
 private fun queueVoiceSpeech(
@@ -415,13 +480,13 @@ private fun voiceGatewayRoots(settings: AppSettings): List<String> {
 
 private fun findSpeechCut(text: String, flush: Boolean): Int {
     if (text.isBlank()) return -1
-    val limit = minOf(text.length, 420)
+    val limit = minOf(text.length, 160)
     for (i in limit - 1 downTo 0) {
-        if ((text[i] == '.' || text[i] == '!' || text[i] == '?' || text[i] == '\n') && i >= 36) return i + 1
+        if ((text[i] == '.' || text[i] == '!' || text[i] == '?' || text[i] == '\n') && i >= 14) return i + 1
     }
-    if (text.length > 520) {
-        val comma = text.lastIndexOfAny(charArrayOf(',', ';', ':'), startIndex = minOf(text.length - 1, 420))
-        return if (comma > 80) comma + 1 else 420
+    if (text.length > 120) {
+        val comma = text.lastIndexOfAny(charArrayOf(',', ';', ':', ' '), startIndex = minOf(text.length - 1, 120))
+        return if (comma > 55) comma + 1 else 120
     }
     return if (flush) text.length else -1
 }
