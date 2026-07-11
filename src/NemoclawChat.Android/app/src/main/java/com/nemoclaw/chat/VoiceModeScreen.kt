@@ -4,20 +4,21 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Color as AndroidColor
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaPlayer
 import android.media.MediaRecorder
-import android.os.Build
-import android.util.Log
-import android.view.View
-import android.webkit.ConsoleMessage
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -28,8 +29,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -43,44 +44,67 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.net.URI
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.ArrayDeque
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.math.PI
+import kotlin.math.acos
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.random.Random
 
-private const val VoiceSceneUrl = "file:///android_asset/hermes_scene/orange_particles_3d.html"
+private const val VoiceSampleRate = 16_000
+private const val VoiceFrameMillis = 20
+private const val VoiceFrameBytes = VoiceSampleRate * VoiceFrameMillis / 1000 * 2
+private const val VoicePreRollFrames = 15
+private const val VoiceEndSilenceMillis = 680L
+private const val VoiceMaxUtteranceMillis = 18_000L
 
 private val voiceHttpClient: OkHttpClient by lazy {
     OkHttpClient.Builder()
@@ -92,21 +116,66 @@ private val voiceHttpClient: OkHttpClient by lazy {
         .build()
 }
 
+private enum class VoiceCallPhase {
+    Idle,
+    Connecting,
+    Listening,
+    Thinking,
+    Speaking,
+    Error
+}
+
 @Composable
 internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     val history = remember { mutableStateListOf<ChatMessage>() }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var callActive by remember { mutableStateOf(false) }
-    var isBusy by remember { mutableStateOf(false) }
-    var isSpeaking by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Premi per avviare la chiamata.") }
+    var phase by remember { mutableStateOf(VoiceCallPhase.Idle) }
+    var status by remember { mutableStateOf("Hermes voce pronto.") }
     var callJob by remember { mutableStateOf<Job?>(null) }
+    var startRequested by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) Toast.makeText(context, "Permesso microfono negato.", Toast.LENGTH_SHORT).show()
+        if (granted) {
+            startRequested = true
+        } else {
+            Toast.makeText(context, "Permesso microfono negato.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(startRequested) {
+        if (!startRequested || callActive) return@LaunchedEffect
+        startRequested = false
+        callJob?.cancel()
+        callActive = true
+        phase = VoiceCallPhase.Connecting
+        status = "Connessione a Hermes..."
+        callJob = scope.launch {
+            try {
+                verifyVoiceGateway(settings, apiKey)
+                if (!callActive) return@launch
+                phase = VoiceCallPhase.Listening
+                status = "Ti ascolto."
+                runVoiceCallLoop(
+                    context = context,
+                    settings = settings,
+                    apiKey = apiKey,
+                    history = history,
+                    isCallActive = { callActive },
+                    setPhase = { phase = it },
+                    setStatus = { status = it }
+                )
+            } catch (_: CancellationException) {
+            } catch (ex: Exception) {
+                if (callActive) {
+                    phase = VoiceCallPhase.Error
+                    status = "Voce non disponibile: ${ex.message ?: "errore sconosciuto"}"
+                    callActive = false
+                }
+            }
+        }
     }
 
     DisposableEffect(view) {
@@ -114,81 +183,24 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
         val controller = activity?.let { WindowInsetsControllerCompat(it.window, view) }
         controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller?.hide(WindowInsetsCompat.Type.systemBars())
-        onDispose {
-            controller?.show(WindowInsetsCompat.Type.systemBars())
-        }
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
     DisposableEffect(Unit) {
         onDispose {
+            callActive = false
             callJob?.cancel()
-            webViewRef?.stopLoading()
-            webViewRef?.destroy()
-            webViewRef = null
         }
     }
 
-    LaunchedEffect(isSpeaking) {
-        webViewRef?.evaluateJavascript("window.setHermesSpeaking(${if (isSpeaking) "true" else "false"})", null)
-    }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                webViewRef?.onPause()
-            } else if (event == Lifecycle.Event.ON_RESUME) {
-                webViewRef?.onResume()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
+    val assembled = callActive && phase != VoiceCallPhase.Connecting && phase != VoiceCallPhase.Error
+    val speaking = phase == VoiceCallPhase.Speaking
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    webViewRef = this
-                    setBackgroundColor(AndroidColor.BLACK)
-                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                    isVerticalScrollBarEnabled = false
-                    isHorizontalScrollBarEnabled = false
-                    overScrollMode = View.OVER_SCROLL_NEVER
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                            return request.url.toString() != VoiceSceneUrl
-                        }
-                    }
-                    webChromeClient = object : WebChromeClient() {
-                        override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
-                            if (BuildConfig.DEBUG) {
-                                Log.d("HermesVoiceWebView", "${consoleMessage.messageLevel()}: ${consoleMessage.message()}")
-                            }
-                            return true
-                        }
-                    }
-                    this.settings.javaScriptEnabled = true
-                    this.settings.domStorageEnabled = true
-                    @Suppress("DEPRECATION")
-                    this.settings.databaseEnabled = true
-                    this.settings.cacheMode = WebSettings.LOAD_NO_CACHE
-                    this.settings.allowFileAccess = true
-                    this.settings.allowContentAccess = false
-                    @Suppress("DEPRECATION")
-                    this.settings.allowFileAccessFromFileURLs = true
-                    @Suppress("DEPRECATION")
-                    this.settings.allowUniversalAccessFromFileURLs = false
-                    this.settings.mediaPlaybackRequiresUserGesture = false
-                    loadUrl(VoiceSceneUrl)
-                }
-            },
-            update = { webView ->
-                if (webView.url == null) webView.loadUrl(VoiceSceneUrl)
-            }
+        VoiceParticleField(
+            assembled = assembled,
+            speaking = speaking,
+            modifier = Modifier.fillMaxSize()
         )
 
         Column(
@@ -200,48 +212,32 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
         ) {
             Button(
                 onClick = {
-                    if (!callActive) {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            return@Button
-                        }
-                        callActive = true
-                        isSpeaking = false
-                        status = "Chiamata attiva. Parla quando vuoi."
-                        callJob = scope.launch {
-                            runVoiceCallLoop(
-                                context = context,
-                                settings = settings,
-                                apiKey = apiKey,
-                                history = history,
-                                scope = scope,
-                                isCallActive = { callActive },
-                                isBusy = { isBusy || isSpeaking },
-                                setBusy = { isBusy = it },
-                                setStatus = { status = it },
-                                setSpeaking = { isSpeaking = it }
-                            )
-                        }
-                    } else {
+                    if (callActive) {
                         callActive = false
                         callJob?.cancel()
                         callJob = null
-                        isBusy = false
-                        isSpeaking = false
+                        phase = VoiceCallPhase.Idle
                         status = "Chiamata chiusa."
+                    } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        startRequested = true
+                    } else {
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (callActive) Color(0xFF922323) else Color(0x33222222),
-                    disabledContainerColor = Color(0x22333333)
+                    containerColor = if (callActive) Color(0xFF9E2424) else Color(0x33222222)
                 ),
                 modifier = Modifier
                     .size(78.dp)
                     .clip(CircleShape)
-                    .border(1.dp, Color(0x66FFFFFF), CircleShape)
+                    .border(1.dp, if (callActive) Color(0xCCFF6F24) else Color(0x66FFFFFF), CircleShape)
             ) {
-                Icon(if (callActive) Icons.Rounded.Stop else Icons.Rounded.Mic, contentDescription = "Voce", tint = Color.White)
+                Icon(
+                    imageVector = if (callActive) Icons.Rounded.CallEnd else Icons.Rounded.Call,
+                    contentDescription = if (callActive) "Chiudi chiamata" else "Avvia chiamata",
+                    tint = Color.White
+                )
             }
             Text(
                 text = status,
@@ -254,85 +250,193 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
     }
 }
 
+@Composable
+private fun VoiceParticleField(
+    assembled: Boolean,
+    speaking: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val particles = remember { buildVoiceParticles() }
+    val assembly by animateFloatAsState(
+        targetValue = if (assembled) 1f else 0f,
+        animationSpec = tween(durationMillis = if (assembled) 900 else 720),
+        label = "voice-assembly"
+    )
+    var time by remember { mutableStateOf(0f) }
+    LaunchedEffect(Unit) {
+        val start = withFrameNanos { it }
+        while (true) time = (withFrameNanos { it } - start) / 1_000_000_000f
+    }
+
+    Canvas(modifier = modifier.background(Color.Black)) {
+        drawRect(Color.Black)
+        val eased = assembly * assembly * (3f - 2f * assembly)
+        val speechBeat = if (speaking) {
+            val primary = max(0f, sin(time * 10.8f))
+            val secondary = max(0f, sin(time * 17.1f + 0.8f))
+            primary * primary * 0.105f + secondary * secondary * 0.035f
+        } else 0f
+        val quietBreath = if (assembled) sin(time * 1.35f) * 0.012f else 0f
+        val scale = min(size.width, size.height) * (0.365f + quietBreath + speechBeat)
+        val camera = 4.1f
+        val spin = time * (0.17f + eased * 0.38f)
+        val tilt = sin(time * 0.31f) * 0.16f
+        val center = Offset(size.width * 0.5f, size.height * 0.46f)
+
+        for (particle in particles) {
+            val idleX = particle.idleX + sin(time * particle.speed + particle.phase) * 0.14f
+            val idleY = particle.idleY + cos(time * particle.speed * 0.73f + particle.phase) * 0.11f
+            val idleZ = particle.idleZ + sin(time * particle.speed * 0.41f + particle.phase) * 0.19f
+            val x = lerpFloat(idleX, particle.sphereX, eased)
+            val y = lerpFloat(idleY, particle.sphereY, eased)
+            val z = lerpFloat(idleZ, particle.sphereZ, eased)
+
+            val cosSpin = cos(spin)
+            val sinSpin = sin(spin)
+            val spunX = x * cosSpin - z * sinSpin
+            val spunZ = x * sinSpin + z * cosSpin
+            val cosTilt = cos(tilt)
+            val sinTilt = sin(tilt)
+            val rotatedY = y * cosTilt - spunZ * sinTilt
+            val rotatedZ = y * sinTilt + spunZ * cosTilt
+            val perspective = camera / max(0.65f, camera + rotatedZ)
+            val px = center.x + spunX * scale * perspective
+            val py = center.y + rotatedY * scale * perspective
+            val dot = max(1.5f, particle.size * (0.7f + perspective * 0.55f + eased * 0.35f))
+            val alpha = (0.36f + perspective * 0.2f + eased * 0.28f).coerceIn(0.34f, 1f)
+            val glow = if (particle.hot) Color(0xFFFFB13A) else Color(0xFFFF6F12)
+            val core = if (particle.hot) Color(0xFFFFF0A8) else Color(0xFFFF9B2E)
+
+            drawCircle(glow.copy(alpha = alpha * (0.1f + eased * 0.08f)), dot * (4.8f + speechBeat * 18f), Offset(px, py))
+            drawCircle(glow.copy(alpha = alpha * 0.42f), dot * 2.05f, Offset(px, py))
+            drawCircle(core.copy(alpha = alpha), dot, Offset(px, py))
+        }
+    }
+}
+
 private suspend fun runVoiceCallLoop(
     context: Context,
     settings: AppSettings,
     apiKey: String?,
     history: MutableList<ChatMessage>,
-    scope: CoroutineScope,
     isCallActive: () -> Boolean,
-    isBusy: () -> Boolean,
-    setBusy: (Boolean) -> Unit,
-    setStatus: (String) -> Unit,
-    setSpeaking: (Boolean) -> Unit
+    setPhase: (VoiceCallPhase) -> Unit,
+    setStatus: (String) -> Unit
 ) {
     var lastTranscript = ""
     var lastTranscriptAt = 0L
     while (coroutineContext.isActive && isCallActive()) {
         try {
-            if (isBusy()) {
-                delay(180)
-                continue
-            }
-            setStatus("Ascolto...")
-            val file = captureVoiceChunk(context)
-            if (file == null) {
-                delay(120)
-                continue
-            }
-            setBusy(true)
+            setPhase(VoiceCallPhase.Listening)
+            setStatus("Ti ascolto.")
+            val file = captureVoiceUtterance(context) ?: continue
+            setPhase(VoiceCallPhase.Thinking)
             setStatus("Trascrivo...")
-            val text = transcribeVoiceFile(settings, apiKey, file).trim()
-            file.delete()
-            val now = System.currentTimeMillis()
-            if (text.length >= 2 && !(text.equals(lastTranscript, ignoreCase = true) && now - lastTranscriptAt < 8_000)) {
-                lastTranscript = text
-                lastTranscriptAt = now
-                setStatus("Tu: ${text.trimForStatus()}")
-                runVoiceTurn(context, settings, apiKey, history, text, scope, setStatus, setSpeaking)
-            } else {
-                setStatus("Ascolto...")
+            val text = try {
+                transcribeVoiceFile(settings, apiKey, file).trim()
+            } finally {
+                file.delete()
             }
+            val now = System.currentTimeMillis()
+            if (!isUsefulTranscript(text) || (text.equals(lastTranscript, ignoreCase = true) && now - lastTranscriptAt < 8_000)) {
+                continue
+            }
+            lastTranscript = text
+            lastTranscriptAt = now
+            setStatus("Tu: ${text.trimForStatus()}")
+            runVoiceTurn(context, settings, apiKey, history, text, setPhase, setStatus)
         } catch (_: CancellationException) {
             break
         } catch (ex: Exception) {
-            setStatus("Errore voce: ${ex.message}")
-            delay(900)
-        } finally {
-            setBusy(false)
+            setPhase(VoiceCallPhase.Error)
+            setStatus("Errore voce: ${ex.message ?: "errore sconosciuto"}")
+            kotlinx.coroutines.delay(900)
         }
     }
 }
 
-private suspend fun captureVoiceChunk(
-    context: Context
-): File? = withContext(Dispatchers.IO) {
-    val file = File(context.cacheDir, "voice-call-${System.currentTimeMillis()}.m4a")
-    val recorder = createVoiceRecorder(context, file)
-    var heardVoice = false
+private suspend fun captureVoiceUtterance(context: Context): File? = withContext(Dispatchers.IO) {
+    val minimumBuffer = AudioRecord.getMinBufferSize(
+        VoiceSampleRate,
+        AudioFormat.CHANNEL_IN_MONO,
+        AudioFormat.ENCODING_PCM_16BIT
+    )
+    check(minimumBuffer > 0) { "Microfono non disponibile." }
+    val recorder = AudioRecord.Builder()
+        .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+        .setAudioFormat(
+            AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(VoiceSampleRate)
+                .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                .build()
+        )
+        .setBufferSizeInBytes(max(minimumBuffer, VoiceFrameBytes * 6))
+        .build()
+    check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Impossibile inizializzare il microfono." }
+
+    val effects = listOfNotNull(
+        if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(recorder.audioSessionId) else null,
+        if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(recorder.audioSessionId) else null,
+        if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(recorder.audioSessionId) else null
+    )
+    effects.forEach { it.enabled = true }
+
+    val preRoll = ArrayDeque<ByteArray>(VoicePreRollFrames)
+    val pcm = ByteArrayOutputStream(VoiceSampleRate * 2 * 8)
+    val frame = ByteArray(VoiceFrameBytes)
+    var noiseFloor = 240.0
+    var triggerFrames = 0
+    var speechStartedAt = 0L
     var lastVoiceAt = 0L
-    val startedAt = System.currentTimeMillis()
+    var heardVoice = false
+
     try {
-        recorder.prepare()
-        recorder.start()
+        recorder.startRecording()
+        check(recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Microfono non in registrazione." }
         while (coroutineContext.isActive) {
-            delay(120)
+            val read = recorder.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
+            if (read <= 0) continue
+            val chunk = frame.copyOf(read)
+            val rms = pcmRms(chunk)
+            val threshold = (noiseFloor * 2.75).coerceIn(620.0, 4_200.0)
+            val voiced = rms >= threshold
             val now = System.currentTimeMillis()
-            val amplitude = runCatching { recorder.maxAmplitude }.getOrDefault(0)
-            if (amplitude > 1_400) {
-                heardVoice = true
-                lastVoiceAt = now
+
+            if (!heardVoice) {
+                preRoll.addLast(chunk)
+                while (preRoll.size > VoicePreRollFrames) preRoll.removeFirst()
+                if (voiced) {
+                    triggerFrames++
+                } else {
+                    triggerFrames = max(0, triggerFrames - 1)
+                    noiseFloor = noiseFloor * 0.94 + rms * 0.06
+                }
+                if (triggerFrames >= 3) {
+                    heardVoice = true
+                    speechStartedAt = now
+                    lastVoiceAt = now
+                    preRoll.forEach { pcm.write(it) }
+                    preRoll.clear()
+                }
+                continue
             }
-            if (heardVoice && now - lastVoiceAt > 760 && now - startedAt > 900) break
-            if (now - startedAt > 3_600) break
+
+            pcm.write(chunk)
+            if (voiced) lastVoiceAt = now
+            if (now - speechStartedAt >= VoiceMaxUtteranceMillis) break
+            if (now - speechStartedAt >= 320 && now - lastVoiceAt >= VoiceEndSilenceMillis) break
         }
     } finally {
-        recorder.runCatchingStopAndRelease()
+        runCatching { recorder.stop() }
+        recorder.release()
+        effects.forEach { runCatching { it.release() } }
     }
-    if (heardVoice && file.length() > 900) file else {
-        file.delete()
-        null
-    }
+
+    if (!heardVoice || pcm.size() < VoiceSampleRate / 4) return@withContext null
+    val file = File(context.cacheDir, "voice-call-${System.currentTimeMillis()}.wav")
+    writePcmWav(file, pcm.toByteArray(), VoiceSampleRate)
+    file
 }
 
 private suspend fun runVoiceTurn(
@@ -341,20 +445,25 @@ private suspend fun runVoiceTurn(
     apiKey: String?,
     history: MutableList<ChatMessage>,
     prompt: String,
-    scope: CoroutineScope,
-    setStatus: (String) -> Unit,
-    setSpeaking: (Boolean) -> Unit
-) {
+    setPhase: (VoiceCallPhase) -> Unit,
+    setStatus: (String) -> Unit
+) = coroutineScope {
+    val contextHistory = history.takeLast(10)
     history += ChatMessage("Tu", prompt, fromUser = true)
+    while (history.size > 20) history.removeAt(0)
+
     val answer = StringBuilder()
     val speechBuffer = StringBuilder()
-    var playback = CompletableDeferred(Unit).also { it.complete(Unit) }
-    setStatus("Hermes sta rispondendo...")
+    var playback: Deferred<Unit> = CompletableDeferred<Unit>().also { it.complete(Unit) }
+    var speechQueued = false
+    setPhase(VoiceCallPhase.Thinking)
+    setStatus("Hermes sta pensando...")
+
     streamChatRequest(
         settings = settings,
         mode = "Chat",
-        prompt = "Rispondi in italiano in modo naturale e conversazionale. Utente in chiamata vocale: $prompt",
-        history = history.takeLast(20),
+        prompt = "Sei in una chiamata vocale. Rispondi subito in italiano, con tono naturale e frasi brevi. Niente markdown, elenchi o preamboli. La prima frase deve avere al massimo 8 parole. Utente: $prompt",
+        history = contextHistory,
         conversationId = null,
         previousResponseId = null,
         attachments = emptyList(),
@@ -365,65 +474,164 @@ private suspend fun runVoiceTurn(
                 answer.append(event.delta)
                 speechBuffer.append(event.delta)
                 setStatus("Hermes: ${answer.toString().trimForStatus()}")
-                playback = queueVoiceSpeech(context, settings, apiKey, speechBuffer, flush = false, previous = playback, scope = scope, setSpeaking = setSpeaking)
+                val queued = drainSpeechSegments(speechBuffer, flush = false)
+                for (segment in queued) {
+                    if (!speechQueued) {
+                        speechQueued = true
+                        setPhase(VoiceCallPhase.Speaking)
+                    }
+                    playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this)
+                }
             }
-            is ChatStreamEvent.Error -> setStatus("Hermes: ${event.message}")
+            is ChatStreamEvent.Error -> throw java.io.IOException(event.message)
             else -> Unit
         }
     }
-    playback = queueVoiceSpeech(context, settings, apiKey, speechBuffer, flush = true, previous = playback, scope = scope, setSpeaking = setSpeaking)
+
+    for (segment in drainSpeechSegments(speechBuffer, flush = true)) {
+        if (!speechQueued) {
+            speechQueued = true
+            setPhase(VoiceCallPhase.Speaking)
+        }
+        playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this)
+    }
     playback.await()
+
     val finalText = answer.toString().trim()
     if (finalText.isNotBlank()) history += ChatMessage("Hermes", finalText, fromUser = false)
-    setSpeaking(false)
-    setStatus("Ascolto...")
+    while (history.size > 20) history.removeAt(0)
+    setPhase(VoiceCallPhase.Listening)
+    setStatus("Ti ascolto.")
 }
 
-private fun queueVoiceSpeech(
+private fun queueSpeechSegment(
     context: Context,
     settings: AppSettings,
     apiKey: String?,
-    buffer: StringBuilder,
-    flush: Boolean,
-    previous: CompletableDeferred<Unit>,
-    scope: CoroutineScope,
-    setSpeaking: (Boolean) -> Unit
-): CompletableDeferred<Unit> {
-    var chain = previous
-    while (true) {
-        val cut = findSpeechCut(buffer.toString(), flush)
-        if (cut <= 0) return chain
-        val chunk = buffer.substring(0, cut).trim()
-        buffer.delete(0, cut)
-        if (chunk.length < 2) continue
-        val next = CompletableDeferred<Unit>()
-        val waitFor = chain
-        scope.launch {
-            waitFor.await()
-            try {
-                setSpeaking(true)
-                speakChatMessage(context, settings, chunk, apiKey)
-            } finally {
-                setSpeaking(false)
-                next.complete(Unit)
-            }
-        }
-        chain = next
+    segment: String,
+    previous: Deferred<Unit>,
+    scope: CoroutineScope
+): Deferred<Unit> = scope.async {
+    previous.await()
+    val file = synthesizeVoiceFile(context, settings, apiKey, segment)
+    try {
+        playVoiceFile(file)
+    } finally {
+        file.delete()
     }
 }
 
+private suspend fun synthesizeVoiceFile(
+    context: Context,
+    settings: AppSettings,
+    apiKey: String?,
+    text: String
+): File = withContext(Dispatchers.IO) {
+    val payload = JSONObject()
+        .put("input", text.trim())
+        .put("voice", "if_sara")
+        .put("lang", "it")
+        .put("speed", 1.08)
+        .put("response_format", "wav")
+        .toString()
+        .toRequestBody("application/json; charset=utf-8".toMediaType())
+    var lastError = "Sintesi vocale non disponibile."
+    for (root in voiceGatewayRoots(settings)) {
+        for (token in hermesAuthCandidates(apiKey)) {
+            val request = Request.Builder()
+                .url("$root/audio/speech")
+                .header("Accept", "audio/wav")
+                .header("User-Agent", "HermesHub-Android-Voice")
+                .apply { token?.let { header("Authorization", "Bearer $it") } }
+                .post(payload)
+                .build()
+            val response = try {
+                voiceHttpClient.newCall(request).execute()
+            } catch (ex: Exception) {
+                lastError = ex.message ?: ex.javaClass.simpleName
+                continue
+            }
+            response.use {
+                val bytes = it.body.bytes()
+                if (it.isSuccessful && bytes.isNotEmpty()) {
+                    return@withContext File(context.cacheDir, "voice-tts-${System.nanoTime()}.wav").apply { writeBytes(bytes) }
+                }
+                lastError = "HTTP ${it.code}: ${bytes.decodeToString().take(160)}"
+                if (it.code != 401) break
+            }
+        }
+    }
+    throw java.io.IOException(lastError)
+}
+
+private suspend fun playVoiceFile(file: File): Unit = withContext(Dispatchers.Main) {
+    suspendCancellableCoroutine { continuation ->
+        val player = MediaPlayer()
+        val finished = AtomicBoolean(false)
+        fun complete(error: Throwable? = null) {
+            if (!finished.compareAndSet(false, true)) return
+            runCatching { player.stop() }
+            player.release()
+            if (!continuation.isActive) return
+            if (error == null) continuation.resume(Unit) else continuation.resumeWithException(error)
+        }
+        player.setOnPreparedListener { it.start() }
+        player.setOnCompletionListener { complete() }
+        player.setOnErrorListener { _, what, extra ->
+            complete(java.io.IOException("Riproduzione audio fallita ($what/$extra)."))
+            true
+        }
+        continuation.invokeOnCancellation {
+            Handler(Looper.getMainLooper()).post { complete() }
+        }
+        try {
+            player.setDataSource(file.absolutePath)
+            player.prepareAsync()
+        } catch (ex: Exception) {
+            complete(ex)
+        }
+    }
+}
+
+private suspend fun verifyVoiceGateway(settings: AppSettings, apiKey: String?) = withContext(Dispatchers.IO) {
+    var lastError = "Gateway Hermes non raggiungibile."
+    for (root in voiceGatewayRoots(settings)) {
+        for (token in hermesAuthCandidates(apiKey)) {
+            val request = Request.Builder()
+                .url("$root/capabilities")
+                .header("Accept", "application/json")
+                .header("User-Agent", "HermesHub-Android-Voice")
+                .apply { token?.let { header("Authorization", "Bearer $it") } }
+                .get()
+                .build()
+            val response = try {
+                voiceHttpClient.newCall(request).execute()
+            } catch (ex: Exception) {
+                lastError = ex.message ?: ex.javaClass.simpleName
+                continue
+            }
+            response.use {
+                if (it.isSuccessful) return@withContext
+                lastError = "HTTP ${it.code}"
+                if (it.code != 401) break
+            }
+        }
+    }
+    throw java.io.IOException(lastError)
+}
+
 private suspend fun transcribeVoiceFile(settings: AppSettings, apiKey: String?, file: File): String = withContext(Dispatchers.IO) {
-    var lastError = "Trascrizione non disponibile"
+    var lastError = "Trascrizione non disponibile."
     for (root in voiceGatewayRoots(settings)) {
         for (token in hermesAuthCandidates(apiKey)) {
             val body = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaType()))
+                .addFormDataPart("file", file.name, file.asRequestBody("audio/wav".toMediaType()))
                 .build()
             val request = Request.Builder()
                 .url("$root/audio/transcriptions")
                 .header("Accept", "application/json")
-                .header("User-Agent", "HermesHub-Android")
+                .header("User-Agent", "HermesHub-Android-Voice")
                 .apply { token?.let { header("Authorization", "Bearer $it") } }
                 .post(body)
                 .build()
@@ -444,24 +652,6 @@ private suspend fun transcribeVoiceFile(settings: AppSettings, apiKey: String?, 
     throw java.io.IOException(lastError)
 }
 
-private fun createVoiceRecorder(context: Context, file: File): MediaRecorder {
-    @Suppress("DEPRECATION")
-    val recorder = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else MediaRecorder()
-    recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-    recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-    recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-    recorder.setAudioEncodingBitRate(128_000)
-    recorder.setAudioSamplingRate(44_100)
-    recorder.setOutputFile(file.absolutePath)
-    return recorder
-}
-
-private fun MediaRecorder.runCatchingStopAndRelease() {
-    runCatching { stop() }
-    runCatching { reset() }
-    runCatching { release() }
-}
-
 private fun voiceGatewayRoots(settings: AppSettings): List<String> {
     val roots = mutableListOf<String>()
     runCatching {
@@ -478,18 +668,112 @@ private fun voiceGatewayRoots(settings: AppSettings): List<String> {
     return roots.distinctBy { it.lowercase() }
 }
 
+private fun drainSpeechSegments(buffer: StringBuilder, flush: Boolean): List<String> {
+    val segments = mutableListOf<String>()
+    while (true) {
+        val cut = findSpeechCut(buffer.toString(), flush)
+        if (cut <= 0) return segments
+        val segment = buffer.substring(0, cut).trim()
+        buffer.delete(0, cut)
+        if (segment.length >= 2) segments += segment
+    }
+}
+
 private fun findSpeechCut(text: String, flush: Boolean): Int {
     if (text.isBlank()) return -1
-    val limit = minOf(text.length, 160)
-    for (i in limit - 1 downTo 0) {
-        if ((text[i] == '.' || text[i] == '!' || text[i] == '?' || text[i] == '\n') && i >= 14) return i + 1
+    val searchLimit = min(text.length, 76)
+    for (index in searchLimit - 1 downTo 0) {
+        if (text[index] in charArrayOf('.', '!', '?', '\n') && index >= 9) return index + 1
     }
-    if (text.length > 120) {
-        val comma = text.lastIndexOfAny(charArrayOf(',', ';', ':', ' '), startIndex = minOf(text.length - 1, 120))
-        return if (comma > 55) comma + 1 else 120
+    if (text.length > 46) {
+        val soft = text.lastIndexOfAny(charArrayOf(',', ';', ':', ' '), startIndex = min(text.length - 1, 46))
+        return if (soft > 25) soft + 1 else 46
     }
     return if (flush) text.length else -1
 }
+
+private fun isUsefulTranscript(text: String): Boolean {
+    val clean = text.trim()
+    if (clean.length < 2) return false
+    val normalized = clean.lowercase().trim('.', ',', '!', '?', ' ')
+    return normalized !in setOf(
+        "grazie",
+        "sottotitoli e revisione a cura di qtss",
+        "sottotitoli creati dalla comunita amara.org"
+    )
+}
+
+private fun pcmRms(bytes: ByteArray): Double {
+    if (bytes.size < 2) return 0.0
+    var sum = 0.0
+    var samples = 0
+    var index = 0
+    while (index + 1 < bytes.size) {
+        val value = ((bytes[index + 1].toInt() shl 8) or (bytes[index].toInt() and 0xFF)).toShort().toInt()
+        sum += value.toDouble() * value
+        samples++
+        index += 2
+    }
+    return if (samples == 0) 0.0 else sqrt(sum / samples)
+}
+
+private fun writePcmWav(file: File, pcm: ByteArray, sampleRate: Int) {
+    val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+    header.put("RIFF".toByteArray(Charsets.US_ASCII))
+    header.putInt(36 + pcm.size)
+    header.put("WAVE".toByteArray(Charsets.US_ASCII))
+    header.put("fmt ".toByteArray(Charsets.US_ASCII))
+    header.putInt(16)
+    header.putShort(1.toShort())
+    header.putShort(1.toShort())
+    header.putInt(sampleRate)
+    header.putInt(sampleRate * 2)
+    header.putShort(2.toShort())
+    header.putShort(16.toShort())
+    header.put("data".toByteArray(Charsets.US_ASCII))
+    header.putInt(pcm.size)
+    FileOutputStream(file).use {
+        it.write(header.array())
+        it.write(pcm)
+    }
+}
+
+private fun buildVoiceParticles(): List<VoiceParticle> {
+    val random = Random(8642)
+    return List(680) {
+        val theta = (PI * 2.0 * random.nextDouble()).toFloat()
+        val phi = acos(2.0 * random.nextDouble() - 1.0).toFloat()
+        val radius = random.nextFloat(0.91f, 1.09f)
+        VoiceParticle(
+            idleX = random.nextFloat(-3.5f, 3.5f),
+            idleY = random.nextFloat(-2.4f, 2.4f),
+            idleZ = random.nextFloat(-3.1f, 3.1f),
+            sphereX = radius * sin(phi) * cos(theta),
+            sphereY = radius * cos(phi),
+            sphereZ = radius * sin(phi) * sin(theta),
+            phase = random.nextFloat(0f, (PI * 2.0).toFloat()),
+            speed = random.nextFloat(0.42f, 1.58f),
+            size = random.nextFloat(1.45f, 3.75f),
+            hot = random.nextFloat() > 0.72f
+        )
+    }
+}
+
+private data class VoiceParticle(
+    val idleX: Float,
+    val idleY: Float,
+    val idleZ: Float,
+    val sphereX: Float,
+    val sphereY: Float,
+    val sphereZ: Float,
+    val phase: Float,
+    val speed: Float,
+    val size: Float,
+    val hot: Boolean
+)
+
+private fun Random.nextFloat(minimum: Float, maximum: Float): Float = minimum + nextFloat() * (maximum - minimum)
+private fun lerpFloat(start: Float, stop: Float, amount: Float): Float = start + (stop - start) * amount
 
 private fun String.trimForStatus(): String {
     val clean = replace('\n', ' ').replace('\r', ' ').trim()

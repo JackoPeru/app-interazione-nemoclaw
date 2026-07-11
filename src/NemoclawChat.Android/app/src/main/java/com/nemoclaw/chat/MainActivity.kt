@@ -7247,7 +7247,7 @@ internal suspend fun speakChatMessage(context: Context, settings: AppSettings, t
         .put("input", cleanText)
         .put("voice", "if_sara")
         .put("lang", "it")
-        .put("speed", 1.0)
+        .put("speed", 1.08)
         .put("response_format", "wav")
     var lastError = "nessuna risposta"
     var lastHttpError: String? = null

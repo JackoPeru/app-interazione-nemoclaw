@@ -2785,6 +2785,12 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("audio speech endpoint handler")
 
+    old_kokoro_executor = "audio = await loop.run_in_executor(None, _hermes_hub_kokoro_speech_bytes, text, voice, lang, speed)"
+    new_kokoro_executor = "audio = await loop.run_in_executor(_hermes_hub_kokoro_executor(), _hermes_hub_kokoro_speech_bytes, text, voice, lang, speed)"
+    if old_kokoro_executor in text:
+        text = text.replace(old_kokoro_executor, new_kokoro_executor, 1)
+        changes.append("dedicated kokoro tts executor")
+
     if "async def _handle_hub_hardware" not in text:
         text, _ = _replace_once(
             text,
@@ -3874,33 +3880,94 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("router audio speech endpoint")
 
-    if "def _hermes_hub_kokoro_speech_bytes(" not in text:
-        text += (
+    kokoro_runtime = (
             "\n\n"
-            "def _hermes_hub_kokoro_speech_bytes(text, voice='if_sara', lang='it', speed=1.0):\n"
-            "    import io\n"
+            "# HERMES_HUB_KOKORO_GPU_V4\n"
+            "def _hermes_hub_kokoro_executor():\n"
+            "    from concurrent.futures import ThreadPoolExecutor\n"
+            "\n"
+            "    global _hermes_hub_kokoro_thread_pool\n"
+            "    if '_hermes_hub_kokoro_thread_pool' not in globals():\n"
+            "        _hermes_hub_kokoro_thread_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='hermes-kokoro')\n"
+            "    return _hermes_hub_kokoro_thread_pool\n"
+            "\n"
+            "\n"
+            "def _hermes_hub_build_kokoro_model(force_cpu=False):\n"
+            "    import gc\n"
             "    import os\n"
-            "    import threading\n"
             "    from pathlib import Path\n"
             "\n"
-            "    import numpy as _np\n"
-            "    import soundfile as _sf\n"
             "    from kokoro_onnx import Kokoro\n"
             "\n"
-            "    global _hermes_hub_kokoro_model, _hermes_hub_kokoro_lock\n"
-            "    if '_hermes_hub_kokoro_lock' not in globals():\n"
-            "        _hermes_hub_kokoro_lock = threading.Lock()\n"
-            "    model_path = Path(os.environ.get('HERMES_KOKORO_MODEL_PATH', '~/.hermes/kokoro-tts/models/kokoro-v1.0.int8.onnx')).expanduser()\n"
             "    voices_path = Path(os.environ.get('HERMES_KOKORO_VOICES_PATH', '~/.hermes/kokoro-tts/models/voices-v1.0.bin')).expanduser()\n"
+            "    cpu_path = Path(os.environ.get('HERMES_KOKORO_CPU_MODEL_PATH', '~/.hermes/kokoro-tts/models/kokoro-v1.0.int8.onnx')).expanduser()\n"
+            "    gpu_path = Path(os.environ.get('HERMES_KOKORO_GPU_MODEL_PATH', '~/.hermes/kokoro-tts/models/kokoro-v1.0.fp16.onnx')).expanduser()\n"
+            "    configured_path = str(os.environ.get('HERMES_KOKORO_MODEL_PATH', '')).strip()\n"
+            "    provider = 'CPUExecutionProvider' if force_cpu else str(os.environ.get('HERMES_KOKORO_ONNX_PROVIDER', 'CUDAExecutionProvider')).strip()\n"
+            "    device_id = int(os.environ.get('HERMES_KOKORO_CUDA_DEVICE', '1'))\n"
+            "    use_gpu = provider == 'CUDAExecutionProvider' and gpu_path.is_file()\n"
+            "    model_path = Path(configured_path).expanduser() if configured_path else (gpu_path if use_gpu else cpu_path)\n"
             "    if not model_path.is_file():\n"
             "        raise RuntimeError(f'Kokoro model not found: {model_path}')\n"
             "    if not voices_path.is_file():\n"
             "        raise RuntimeError(f'Kokoro voices not found: {voices_path}')\n"
+            "\n"
+            "    if use_gpu:\n"
+            "        try:\n"
+            "            import onnxruntime as _ort\n"
+            "            if hasattr(_ort, 'preload_dlls'):\n"
+            "                _ort.preload_dlls(directory='')\n"
+            "            bootstrap_path = cpu_path if cpu_path.is_file() else model_path\n"
+            "            model = Kokoro(str(bootstrap_path), str(voices_path))\n"
+            "            session = _ort.InferenceSession(\n"
+            "                str(model_path),\n"
+            "                providers=[\n"
+            "                    ('CUDAExecutionProvider', {'device_id': device_id, 'cudnn_conv_algo_search': 'HEURISTIC'}),\n"
+            "                    'CPUExecutionProvider',\n"
+            "                ],\n"
+            "            )\n"
+            "            if 'CUDAExecutionProvider' not in session.get_providers():\n"
+            "                raise RuntimeError(f'CUDA provider unavailable: {session.get_providers()}')\n"
+            "            previous_session = model.sess\n"
+            "            model.sess = session\n"
+            "            del previous_session\n"
+            "            gc.collect()\n"
+            "            print(f'Kokoro TTS provider: CUDAExecutionProvider device {device_id}, model {model_path.name}')\n"
+            "        except Exception as exc:\n"
+            "            print('Kokoro CUDA unavailable, falling back to CPU:', exc)\n"
+            "            if not cpu_path.is_file():\n"
+            "                raise\n"
+            "            model = Kokoro(str(cpu_path), str(voices_path))\n"
+            "            provider = 'CPUExecutionProvider'\n"
+            "    else:\n"
+            "        model = Kokoro(str(model_path), str(voices_path))\n"
+            "        provider = 'CPUExecutionProvider'\n"
+            "\n"
+            "    _hermes_hub_patch_kokoro_speed_dtype(model)\n"
+            "    return model, provider\n"
+            "\n"
+            "\n"
+            "def _hermes_hub_kokoro_speech_bytes(text, voice='if_sara', lang='it', speed=1.0):\n"
+            "    import io\n"
+            "    import threading\n"
+            "\n"
+            "    import numpy as _np\n"
+            "    import soundfile as _sf\n"
+            "\n"
+            "    global _hermes_hub_kokoro_model, _hermes_hub_kokoro_provider, _hermes_hub_kokoro_lock\n"
+            "    if '_hermes_hub_kokoro_lock' not in globals():\n"
+            "        _hermes_hub_kokoro_lock = threading.Lock()\n"
             "    with _hermes_hub_kokoro_lock:\n"
             "        if '_hermes_hub_kokoro_model' not in globals():\n"
-            "            _hermes_hub_kokoro_model = Kokoro(str(model_path), str(voices_path))\n"
-            "            _hermes_hub_patch_kokoro_speed_dtype(_hermes_hub_kokoro_model)\n"
-            "        audio, sample_rate = _hermes_hub_kokoro_model.create(text, voice=voice, lang=lang, speed=float(speed))\n"
+            "            _hermes_hub_kokoro_model, _hermes_hub_kokoro_provider = _hermes_hub_build_kokoro_model()\n"
+            "        try:\n"
+            "            audio, sample_rate = _hermes_hub_kokoro_model.create(text, voice=voice, lang=lang, speed=float(speed))\n"
+            "        except Exception as exc:\n"
+            "            if _hermes_hub_kokoro_provider != 'CUDAExecutionProvider':\n"
+            "                raise\n"
+            "            print('Kokoro CUDA inference failed, switching to CPU:', exc)\n"
+            "            _hermes_hub_kokoro_model, _hermes_hub_kokoro_provider = _hermes_hub_build_kokoro_model(force_cpu=True)\n"
+            "            audio, sample_rate = _hermes_hub_kokoro_model.create(text, voice=voice, lang=lang, speed=float(speed))\n"
             "    audio = _np.asarray(audio, dtype=_np.float32).reshape(-1)\n"
             "    out = io.BytesIO()\n"
             "    _sf.write(out, audio, int(sample_rate), format='WAV')\n"
@@ -3916,14 +3983,54 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "            tokens = self.tokenizer.tokenize(phonemes[:510])\n"
             "            style = _np.asarray(voice[len(tokens)], dtype=_np.float32).reshape(1, 256)\n"
             "            input_ids = _np.array([[0, *tokens, 0]], dtype=_np.int64)\n"
-            "            outputs = self.sess.run(None, {'input_ids': input_ids, 'style': style, 'speed': _np.array([float(speed)], dtype=_np.float32)})\n"
+            "            input_names = {item.name for item in self.sess.get_inputs()}\n"
+            "            token_name = 'input_ids' if 'input_ids' in input_names else 'tokens'\n"
+            "            outputs = self.sess.run(None, {token_name: input_ids, 'style': style, 'speed': _np.array([float(speed)], dtype=_np.float32)})\n"
             "            return _np.asarray(outputs[0], dtype=_np.float32).reshape(-1), 24000\n"
             "\n"
             "        model._create_audio = types.MethodType(_create_audio_compat, model)\n"
             "    except Exception:\n"
             "        pass\n"
-        )
+    )
+
+    if "def _hermes_hub_kokoro_speech_bytes(" not in text:
+        text += kokoro_runtime
         changes.append("kokoro tts runtime helpers")
+    elif "# HERMES_HUB_KOKORO_GPU_V4" not in text:
+        runtime_start = text.find("# HERMES_HUB_KOKORO_GPU_")
+        if runtime_start < 0:
+            runtime_start = text.index("def _hermes_hub_kokoro_speech_bytes(")
+        runtime_end = text.find("\ndef _hermes_hub_preload_kokoro():", runtime_start)
+        if runtime_end < 0:
+            raise PatchError("kokoro runtime upgrade anchor not found")
+        text = text[:runtime_start] + kokoro_runtime.lstrip("\n") + text[runtime_end:]
+        changes.append("upgrade kokoro tts runtime to GPU v4")
+
+    if "def _hermes_hub_preload_kokoro():" not in text:
+        text += (
+            "\n\n"
+            "def _hermes_hub_preload_kokoro():\n"
+            "    try:\n"
+            "        import os\n"
+            "        enabled = str(os.environ.get('HERMES_KOKORO_PRELOAD', '1')).lower() not in {'0', 'false', 'no'}\n"
+            "        if not enabled:\n"
+            "            return\n"
+            "        voice = os.environ.get('HERMES_KOKORO_TTS_VOICE', 'if_sara')\n"
+            "        _hermes_hub_kokoro_executor().submit(_hermes_hub_kokoro_speech_bytes, 'ok', voice, 'it', 1.08).result()\n"
+            "        print('Kokoro TTS preloaded successfully.')\n"
+            "    except Exception as e:\n"
+            "        print('Failed to pre-load Kokoro TTS:', e)\n"
+            "\n"
+            "_hermes_hub_preload_kokoro()\n"
+        )
+        changes.append("pre-load kokoro tts at startup")
+    elif "_hermes_hub_kokoro_speech_bytes('ok', voice, 'it', 1.08)" in text:
+        text = text.replace(
+            "_hermes_hub_kokoro_speech_bytes('ok', voice, 'it', 1.08)",
+            "_hermes_hub_kokoro_executor().submit(_hermes_hub_kokoro_speech_bytes, 'ok', voice, 'it', 1.08).result()",
+            1,
+        )
+        changes.append("preload kokoro on dedicated executor")
 
     if "def _hermes_hub_preload_whisper():" not in text:
         text += (

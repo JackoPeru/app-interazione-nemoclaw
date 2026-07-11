@@ -13,6 +13,49 @@ public static class SpeechGatewayService
         Timeout = TimeSpan.FromMinutes(3)
     };
 
+    public static async Task EnsureReadyAsync(
+        AppSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        string? lastError = null;
+        foreach (var root in GatewayRoots(settings))
+        {
+            foreach (var token in AuthCandidates())
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{root}/capabilities");
+                request.Headers.TryAddWithoutValidation("Accept", "application/json");
+                request.Headers.TryAddWithoutValidation("User-Agent", "HermesHub-Windows-Voice");
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                }
+
+                try
+                {
+                    using var response = await HttpClient.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        cancellationToken).ConfigureAwait(false);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        return;
+                    }
+                    lastError = $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}";
+                    if (response.StatusCode != HttpStatusCode.Unauthorized)
+                    {
+                        break;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    lastError = ex.Message;
+                }
+            }
+        }
+
+        throw new InvalidOperationException(lastError ?? "Gateway Hermes non raggiungibile.");
+    }
+
     public static async Task<string> SynthesizeToFileAsync(
         AppSettings settings,
         string text,
@@ -28,7 +71,7 @@ public static class SpeechGatewayService
             input = text.Trim(),
             voice = "if_sara",
             lang = "it",
-            speed = 1.0,
+            speed = 1.08,
             response_format = "wav"
         });
 
@@ -93,7 +136,7 @@ public static class SpeechGatewayService
                 await using var fs = File.OpenRead(filePath);
                 using var form = new MultipartFormDataContent();
                 using var streamContent = new StreamContent(fs);
-                streamContent.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/mp4");
+                streamContent.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/wav");
                 form.Add(streamContent, "file", Path.GetFileName(filePath));
 
                 using var request = new HttpRequestMessage(HttpMethod.Post, url);

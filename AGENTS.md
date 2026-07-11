@@ -33,10 +33,26 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.151 Release Hermes Hub 0.6.151 natural voice call and Android particles
+v0.6.152 Release Hermes Hub 0.6.152 voice mode rewrite and GPU Kokoro
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.152 (Voice mode rewrite and GPU Kokoro):
+
+Release 0.6.152:
+- Windows/Android: sezione `Voce` riscritta da zero come chiamata continua. Un tap avvia, uno chiude; nessun pulsante premi-e-parla e ascolto automatico dopo ogni risposta.
+- Windows/Android: nuovo VAD adattivo PCM con calibrazione rumore, pre-roll 300 ms, fine frase dopo 680 ms di silenzio e interventi fino a 18 secondi.
+- Windows/Android: macchina stati coerente (`connessione`, `ascolto`, `elaborazione`, `parlato`) con cancellazione pulita di recorder, stream e player.
+- Windows/Android: scena particelle arancioni pseudo-3D rifatta. Movimento libero a chiamata chiusa, sfera quando sistema pronto, impulsi solo mentre Hermes parla.
+- Windows: recorder PCM/VAD dedicato con NAudio; rimossi blocchi MediaCapture a durata fissa.
+- Android: AudioRecord PCM 16 kHz con echo/noise/AGC quando disponibili e WAV nativo per Whisper.
+- Windows/Android: TTS segmentato riprodotto davvero in sequenza, attendendo fine audio prima del segmento seguente.
+- Gateway: Kokoro FP16 con ONNX Runtime CUDA su GPU 1, preload ed executor dedicato sullo stesso thread CUDA; fallback CPU INT8.
+- Prestazioni misurate: frase breve da circa 1,46-2,60 s a 0,094-0,143 s sul gateway; 0,322 s via Tailnet da Windows.
+- Verifiche pre-release: Windows Debug x64 0 errori/0 avvisi, AdminBridge Release 0 errori/0 avvisi, Android `assembleDebug` e `assembleRelease` OK con lint senza errori, MSIX Authenticode firmato e verificato, APK signature v2 valida, gateway tar verificato, Tailnet capabilities/TTS/STT/chat SSE HTTP 200.
+- Asset release: Android APK `HermesHub-0.6.152-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.152.0_x64.msix`, Linux Gateway `HermesHub-0.6.152-linux-gateway.tar.gz`.
+- Release bump: Windows/AdminBridge `0.6.152`, Android `versionName 0.6.152`, `versionCode 156`.
 
 Hermes Hub 0.6.151 (Natural voice call and Android particles):
 

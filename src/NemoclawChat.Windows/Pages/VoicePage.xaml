@@ -34,12 +34,12 @@
                 BorderThickness="1"
                 ToolTipService.ToolTip="Avvia o chiudi chiamata con Hermes"
                 AutomationProperties.Name="Avvia o chiudi chiamata con Hermes">
-                <FontIcon x:Name="CallIcon" Glyph="&#xE720;" FontSize="28" Foreground="White" />
+                <FontIcon x:Name="CallIcon" Glyph="&#xE717;" FontSize="28" Foreground="White" />
             </Button>
             <TextBlock
                 x:Name="StatusText"
                 Width="520"
-                Text="Premi per avviare la chiamata."
+                Text="Hermes voce pronto."
                 TextAlignment="Center"
                 TextTrimming="CharacterEllipsis"
                 Foreground="#B8FFFFFF"

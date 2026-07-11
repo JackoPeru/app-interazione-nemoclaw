@@ -1,4 +1,3 @@
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -6,12 +5,8 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using NemoclawChat_Windows.Services;
 using System.Text;
-using Windows.Foundation;
-using Windows.Media.Capture;
 using Windows.Media.Core;
-using Windows.Media.MediaProperties;
 using Windows.Media.Playback;
-using Windows.Storage;
 using Windows.System;
 
 namespace NemoclawChat_Windows.Pages;
@@ -19,26 +14,24 @@ namespace NemoclawChat_Windows.Pages;
 public sealed partial class VoicePage : Page
 {
     private readonly DispatcherTimer _timer = new();
-    private readonly List<VoiceStar> _stars = BuildStars();
+    private readonly List<VoiceParticle> _particles = BuildParticles();
     private readonly List<Ellipse> _dots = [];
     private readonly List<ChatMessageRecord> _history = [];
-    private readonly SolidColorBrush _starBrush = new(Microsoft.UI.ColorHelper.FromArgb(245, 255, 146, 32));
-    private readonly SolidColorBrush _warmBrush = new(Microsoft.UI.ColorHelper.FromArgb(255, 255, 206, 82));
-    private readonly SolidColorBrush _glowBrush = new(Microsoft.UI.ColorHelper.FromArgb(95, 255, 112, 18));
-    private MediaCapture? _mediaCapture;
-    private StorageFile? _recordingFile;
-    private MediaPlayer? _voicePlayer;
+    private readonly VoiceActivityRecorder _recorder = new();
+    private readonly SolidColorBrush _particleBrush = new(Microsoft.UI.ColorHelper.FromArgb(245, 255, 128, 24));
+    private readonly SolidColorBrush _hotBrush = new(Microsoft.UI.ColorHelper.FromArgb(255, 255, 218, 98));
+    private readonly SolidColorBrush _glowBrush = new(Microsoft.UI.ColorHelper.FromArgb(92, 255, 105, 16));
     private CancellationTokenSource? _callCts;
+    private Task? _callTask;
+    private MediaPlayer? _voicePlayer;
     private DateTimeOffset _lastFrame = DateTimeOffset.Now;
-    private Task _playbackChain = Task.CompletedTask;
+    private DateTimeOffset _lastTranscriptAt = DateTimeOffset.MinValue;
+    private VoiceCallPhase _phase = VoiceCallPhase.Idle;
     private double _time;
     private double _assembly;
     private bool _callActive;
-    private bool _isRecordingChunk;
-    private bool _isBusy;
-    private bool _isSpeaking;
+    private bool _callReady;
     private string _lastTranscript = string.Empty;
-    private DateTimeOffset _lastTranscriptAt = DateTimeOffset.MinValue;
 
     public VoicePage()
     {
@@ -58,8 +51,10 @@ public sealed partial class VoicePage : Page
     private void Page_Unloaded(object sender, RoutedEventArgs e)
     {
         _timer.Stop();
+        _callActive = false;
+        _callReady = false;
         _callCts?.Cancel();
-        _mediaCapture?.Dispose();
+        _recorder.Stop();
         _voicePlayer?.Dispose();
     }
 
@@ -101,48 +96,79 @@ public sealed partial class VoicePage : Page
         _callCts?.Cancel();
         _callCts = new CancellationTokenSource();
         _callActive = true;
-        _isBusy = false;
-        _isSpeaking = false;
+        _callReady = false;
         _lastTranscript = string.Empty;
+        SetPhase(VoiceCallPhase.Connecting, "Connessione a Hermes...");
         SetCallVisual(true);
-        SetStatus("Chiamata attiva. Parla quando vuoi.");
-        _ = ListenLoopAsync(_callCts.Token);
-        await Task.CompletedTask;
+
+        try
+        {
+            var settings = AppSettingsStore.Load();
+            await SpeechGatewayService.EnsureReadyAsync(settings, _callCts.Token).ConfigureAwait(true);
+            if (!_callActive)
+            {
+                return;
+            }
+            _callReady = true;
+            SetPhase(VoiceCallPhase.Listening, "Ti ascolto.");
+            _callTask = ListenLoopAsync(_callCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _callActive = false;
+            _callReady = false;
+            SetPhase(VoiceCallPhase.Error, $"Voce non disponibile: {ex.Message}");
+            SetCallVisual(false);
+        }
     }
 
     private async Task StopCallSessionAsync()
     {
         _callActive = false;
+        _callReady = false;
         _callCts?.Cancel();
-        await StopActiveRecordingAsync();
-        CleanupRecorder();
-        _isBusy = false;
-        _isSpeaking = false;
+        _recorder.Stop();
+        _voicePlayer?.Dispose();
+        _voicePlayer = null;
+        var callTask = _callTask;
+        _callTask = null;
+        if (callTask is not null)
+        {
+            try { await callTask.ConfigureAwait(true); }
+            catch (OperationCanceledException) { }
+            catch { }
+        }
+        SetPhase(VoiceCallPhase.Idle, "Chiamata chiusa.");
         SetCallVisual(false);
-        SetStatus("Chiamata chiusa.");
     }
 
     private async Task ListenLoopAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested && _callActive)
         {
+            string? path = null;
             try
             {
-                if (_isBusy || _isSpeaking)
-                {
-                    await Task.Delay(180, cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                SetStatus("Ascolto...");
-                var path = await RecordVoiceChunkAsync(cancellationToken).ConfigureAwait(true);
+                SetPhase(VoiceCallPhase.Listening, "Ti ascolto.");
+                path = await _recorder.CaptureUtteranceAsync(cancellationToken).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(path))
                 {
                     continue;
                 }
 
-                _isBusy = true;
-                await Task.Run(() => ProcessVoiceFileAsync(path, cancellationToken), cancellationToken).ConfigureAwait(false);
+                SetPhase(VoiceCallPhase.Thinking, "Trascrivo...");
+                var settings = AppSettingsStore.Load();
+                var text = await SpeechGatewayService.TranscribeFileAsync(settings, path, cancellationToken).ConfigureAwait(false);
+                if (!ShouldSendTranscript(text))
+                {
+                    continue;
+                }
+
+                SetStatus($"Tu: {TrimForStatus(text)}");
+                await SendVoiceTurnAsync(settings, text, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -150,109 +176,36 @@ public sealed partial class VoicePage : Page
             }
             catch (Exception ex)
             {
-                SetStatus($"Errore voce: {ex.Message}");
+                SetPhase(VoiceCallPhase.Error, $"Errore voce: {ex.Message}");
                 await Task.Delay(900, CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
-                _isBusy = false;
-            }
-        }
-    }
-
-    private async Task<string?> RecordVoiceChunkAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await RunOnUiAsync(async () =>
-            {
-                CleanupRecorder();
-                _mediaCapture = new MediaCapture();
-                await _mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings
+                if (!string.IsNullOrWhiteSpace(path))
                 {
-                    StreamingCaptureMode = StreamingCaptureMode.Audio
-                });
-                _recordingFile = await ApplicationData.Current.TemporaryFolder.CreateFileAsync(
-                    $"voice-call-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.m4a",
-                    CreationCollisionOption.GenerateUniqueName);
-                await _mediaCapture.StartRecordToStorageFileAsync(
-                    MediaEncodingProfile.CreateM4a(AudioEncodingQuality.Medium),
-                    _recordingFile);
-                _isRecordingChunk = true;
-            });
-
-            await Task.Delay(2600, cancellationToken).ConfigureAwait(false);
-            var path = _recordingFile?.Path;
-            await StopActiveRecordingAsync().ConfigureAwait(true);
-            return path;
-        }
-        catch
-        {
-            await StopActiveRecordingAsync().ConfigureAwait(true);
-            CleanupRecorder();
-            throw;
-        }
-    }
-
-    private async Task StopActiveRecordingAsync()
-    {
-        if (!_isRecordingChunk)
-        {
-            return;
-        }
-
-        try
-        {
-            if (_mediaCapture is not null)
-            {
-                await RunOnUiAsync(async () => await _mediaCapture.StopRecordAsync());
+                    TryDelete(path);
+                }
             }
-        }
-        catch
-        {
-        }
-        finally
-        {
-            _isRecordingChunk = false;
-            CleanupRecorder();
-        }
-    }
-
-    private async Task ProcessVoiceFileAsync(string path, CancellationToken cancellationToken)
-    {
-        try
-        {
-            SetStatus("Trascrivo...");
-            var settings = AppSettingsStore.Load();
-            var text = await SpeechGatewayService.TranscribeFileAsync(settings, path, cancellationToken).ConfigureAwait(false);
-            TryDelete(path);
-            if (!ShouldSendTranscript(text))
-            {
-                SetStatus(_callActive ? "Ascolto..." : "Chiamata chiusa.");
-                return;
-            }
-
-            SetStatus($"Tu: {TrimForStatus(text)}");
-            await SendVoiceTurnAsync(settings, text, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            TryDelete(path);
         }
     }
 
     private async Task SendVoiceTurnAsync(AppSettings settings, string prompt, CancellationToken cancellationToken)
     {
+        var contextHistory = _history.TakeLast(10).ToList();
         _history.Add(new ChatMessageRecord("Tu", prompt, DateTimeOffset.Now));
+        TrimHistory();
+
         var answer = new StringBuilder();
         var speechBuffer = new StringBuilder();
-        SetStatus("Hermes sta rispondendo...");
+        Task playbackChain = Task.CompletedTask;
+        var speechQueued = false;
+        SetPhase(VoiceCallPhase.Thinking, "Hermes sta pensando...");
 
         await foreach (var ev in ChatStreamClient.StreamChatAsync(
                            settings,
                            "Chat",
-                           $"Rispondi in italiano in modo naturale e conversazionale. Utente in chiamata vocale: {prompt}",
-                           _history,
+                           $"Sei in una chiamata vocale. Rispondi subito in italiano, con tono naturale e frasi brevi. Niente markdown, elenchi o preamboli. La prima frase deve avere al massimo 8 parole. Utente: {prompt}",
+                           contextHistory,
                            conversationId: null,
                            previousResponseId: null,
                            cancellationToken: cancellationToken))
@@ -264,63 +217,67 @@ public sealed partial class VoicePage : Page
                     answer.Append(delta.Delta);
                     speechBuffer.Append(delta.Delta);
                     SetStatus($"Hermes: {TrimForStatus(answer.ToString())}");
-                    QueueCompleteSpeechSegments(settings, speechBuffer, false, cancellationToken);
-                    break;
-                case StreamDone done:
-                    if (!string.IsNullOrWhiteSpace(done.AccumulatedText))
+                    foreach (var segment in DrainSpeechSegments(speechBuffer, flush: false))
                     {
-                        answer.Clear();
-                        answer.Append(done.AccumulatedText);
+                        if (!speechQueued)
+                        {
+                            speechQueued = true;
+                            SetPhase(VoiceCallPhase.Speaking);
+                        }
+                        playbackChain = QueueSpeechSegmentAsync(playbackChain, settings, segment, cancellationToken);
                     }
                     break;
-                case StreamError error:
-                    SetStatus($"Hermes: {error.Message}");
+                case StreamDone done when !string.IsNullOrWhiteSpace(done.AccumulatedText):
+                    answer.Clear();
+                    answer.Append(done.AccumulatedText);
                     break;
+                case StreamError error:
+                    throw new InvalidOperationException(error.Message);
             }
         }
 
-        QueueCompleteSpeechSegments(settings, speechBuffer, true, cancellationToken);
-        await _playbackChain.ConfigureAwait(true);
+        foreach (var segment in DrainSpeechSegments(speechBuffer, flush: true))
+        {
+            if (!speechQueued)
+            {
+                speechQueued = true;
+                SetPhase(VoiceCallPhase.Speaking);
+            }
+            playbackChain = QueueSpeechSegmentAsync(playbackChain, settings, segment, cancellationToken);
+        }
+        await playbackChain.ConfigureAwait(false);
+
         var finalText = answer.ToString().Trim();
         if (!string.IsNullOrWhiteSpace(finalText))
         {
             _history.Add(new ChatMessageRecord("Hermes", finalText, DateTimeOffset.Now));
+            TrimHistory();
         }
-        _isSpeaking = false;
-        SetStatus(_callActive ? "Ascolto..." : "Premi per avviare la chiamata.");
-    }
-
-    private void QueueCompleteSpeechSegments(AppSettings settings, StringBuilder buffer, bool flush, CancellationToken cancellationToken)
-    {
-        while (true)
+        if (_callActive)
         {
-            var text = buffer.ToString();
-            var cut = FindSpeechCut(text, flush);
-            if (cut <= 0)
-            {
-                return;
-            }
-
-            var chunk = text[..cut].Trim();
-            buffer.Remove(0, cut);
-            if (chunk.Length < 2)
-            {
-                continue;
-            }
-
-            _playbackChain = _playbackChain
-                .ContinueWith(_ => SpeakSegmentAsync(settings, chunk, cancellationToken), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default)
-                .Unwrap();
+            SetPhase(VoiceCallPhase.Listening, "Ti ascolto.");
         }
     }
 
-    private async Task SpeakSegmentAsync(AppSettings settings, string text, CancellationToken cancellationToken)
+    private Task QueueSpeechSegmentAsync(
+        Task previous,
+        AppSettings settings,
+        string text,
+        CancellationToken cancellationToken)
     {
-        _isSpeaking = true;
-        SetStatus($"Hermes parla: {TrimForStatus(text)}");
-        var file = await SpeechGatewayService.SynthesizeToFileAsync(settings, text, cancellationToken).ConfigureAwait(false);
+        var synthesis = SpeechGatewayService.SynthesizeToFileAsync(settings, text, cancellationToken);
+        return PlaySynthesizedAfterAsync(previous, synthesis, cancellationToken);
+    }
+
+    private async Task PlaySynthesizedAfterAsync(
+        Task previous,
+        Task<string> synthesis,
+        CancellationToken cancellationToken)
+    {
+        var file = await synthesis.ConfigureAwait(false);
         try
         {
+            await previous.ConfigureAwait(false);
             await PlayAudioFileAsync(file, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -332,26 +289,60 @@ public sealed partial class VoicePage : Page
     private Task PlayAudioFileAsync(string filePath, CancellationToken cancellationToken)
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
-        DispatcherQueue.TryEnqueue(() =>
+        if (!DispatcherQueue.TryEnqueue(() =>
         {
             _voicePlayer?.Dispose();
-            _voicePlayer = new MediaPlayer
+            var player = new MediaPlayer
             {
                 Source = MediaSource.CreateFromUri(new Uri(filePath))
             };
-            _voicePlayer.MediaEnded += (_, _) => completion.TrySetResult();
-            _voicePlayer.MediaFailed += (_, args) => completion.TrySetException(new InvalidOperationException(args.ErrorMessage));
-            _voicePlayer.Play();
-        });
-        return completion.Task;
-    }
+            _voicePlayer = player;
+            var finished = 0;
+            CancellationTokenRegistration registration = default;
 
-    private void CleanupRecorder()
-    {
-        _mediaCapture?.Dispose();
-        _mediaCapture = null;
-        _recordingFile = null;
+            void Complete(Exception? error = null, bool canceled = false)
+            {
+                if (Interlocked.Exchange(ref finished, 1) != 0)
+                {
+                    return;
+                }
+                registration.Dispose();
+                player.Dispose();
+                if (ReferenceEquals(_voicePlayer, player))
+                {
+                    _voicePlayer = null;
+                }
+                if (canceled)
+                {
+                    completion.TrySetCanceled(cancellationToken);
+                }
+                else if (error is not null)
+                {
+                    completion.TrySetException(error);
+                }
+                else
+                {
+                    completion.TrySetResult();
+                }
+            }
+
+            player.MediaEnded += (_, _) => Complete();
+            player.MediaFailed += (_, args) => Complete(new InvalidOperationException(args.ErrorMessage));
+            if (cancellationToken.IsCancellationRequested)
+            {
+                Complete(canceled: true);
+                return;
+            }
+            registration = cancellationToken.Register(() => DispatcherQueue.TryEnqueue(() => Complete(canceled: true)));
+            if (Volatile.Read(ref finished) == 0)
+            {
+                player.Play();
+            }
+        }))
+        {
+            completion.TrySetException(new InvalidOperationException("Riproduzione audio non disponibile."));
+        }
+        return completion.Task;
     }
 
     private void ParticleCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateScene(0);
@@ -368,20 +359,21 @@ public sealed partial class VoicePage : Page
     private void BuildVisuals()
     {
         ParticleCanvas.Children.Clear();
-        foreach (var star in _stars)
+        _dots.Clear();
+        foreach (var particle in _particles)
         {
             var glow = new Ellipse
             {
                 Fill = _glowBrush,
-                Width = star.Size * 9,
-                Height = star.Size * 9,
+                Width = particle.Size * 8,
+                Height = particle.Size * 8,
                 Opacity = 0
             };
             var dot = new Ellipse
             {
-                Fill = star.Warm ? _warmBrush : _starBrush,
-                Width = star.Size,
-                Height = star.Size,
+                Fill = particle.Hot ? _hotBrush : _particleBrush,
+                Width = particle.Size,
+                Height = particle.Size,
                 Opacity = 0.72,
                 Tag = glow
             };
@@ -393,40 +385,50 @@ public sealed partial class VoicePage : Page
 
     private void UpdateScene(double dt)
     {
-        var w = Math.Max(1, ParticleCanvas.ActualWidth);
-        var h = Math.Max(1, ParticleCanvas.ActualHeight);
-        var target = _isSpeaking ? 1.0 : 0.0;
-        _assembly += (target - _assembly) * Math.Min(1, dt * (_isSpeaking ? 5.8 : 3.2));
+        var width = Math.Max(1, ParticleCanvas.ActualWidth);
+        var height = Math.Max(1, ParticleCanvas.ActualHeight);
+        var target = _callActive && _callReady ? 1.0 : 0.0;
+        _assembly += (target - _assembly) * Math.Min(1, dt * (target > _assembly ? 4.2 : 3.8));
         var eased = EaseInOut(_assembly);
-        var scale = Math.Min(w, h) * 0.34;
-        var camera = 4.2;
-        var spin = _time * (0.18 + eased * 0.55);
+        var speaking = _phase == VoiceCallPhase.Speaking;
+        var primary = speaking ? Math.Pow(Math.Max(0, Math.Sin(_time * 10.8)), 2) * 0.105 : 0;
+        var secondary = speaking ? Math.Pow(Math.Max(0, Math.Sin(_time * 17.1 + 0.8)), 2) * 0.035 : 0;
+        var breath = target > 0 ? Math.Sin(_time * 1.35) * 0.012 : 0;
+        var scale = Math.Min(width, height) * (0.355 + breath + primary + secondary);
+        var camera = 4.1;
+        var spin = _time * (0.17 + eased * 0.38);
+        var tilt = Math.Sin(_time * 0.31) * 0.16;
 
-        for (var i = 0; i < _stars.Count; i++)
+        for (var index = 0; index < _particles.Count; index++)
         {
-            var s = _stars[i];
-            var idleX = s.IdleX + Math.Sin(_time * s.Speed + s.Phase) * 0.12;
-            var idleY = s.IdleY + Math.Cos(_time * s.Speed * 0.77 + s.Phase) * 0.1;
-            var idleZ = s.IdleZ + Math.Sin(_time * s.Speed * 0.43 + s.Phase) * 0.2;
-            var x = Lerp(idleX, s.SphereX, eased);
-            var y = Lerp(idleY, s.SphereY, eased);
-            var z = Lerp(idleZ, s.SphereZ, eased);
-            var cos = Math.Cos(spin);
-            var sin = Math.Sin(spin);
-            var rx = x * cos - z * sin;
-            var rz = x * sin + z * cos;
-            var perspective = camera / (camera + rz);
-            var screenX = w * 0.5 + rx * scale * perspective;
-            var screenY = h * 0.48 + y * scale * perspective;
-            var dotSize = Math.Clamp(s.Size * (0.8 + perspective * 0.85 + eased * 0.45), 1.1, 6.5);
-            var dot = _dots[i];
+            var particle = _particles[index];
+            var idleX = particle.IdleX + Math.Sin(_time * particle.Speed + particle.Phase) * 0.14;
+            var idleY = particle.IdleY + Math.Cos(_time * particle.Speed * 0.73 + particle.Phase) * 0.11;
+            var idleZ = particle.IdleZ + Math.Sin(_time * particle.Speed * 0.41 + particle.Phase) * 0.19;
+            var x = Lerp(idleX, particle.SphereX, eased);
+            var y = Lerp(idleY, particle.SphereY, eased);
+            var z = Lerp(idleZ, particle.SphereZ, eased);
+
+            var cosSpin = Math.Cos(spin);
+            var sinSpin = Math.Sin(spin);
+            var spunX = x * cosSpin - z * sinSpin;
+            var spunZ = x * sinSpin + z * cosSpin;
+            var cosTilt = Math.Cos(tilt);
+            var sinTilt = Math.Sin(tilt);
+            var rotatedY = y * cosTilt - spunZ * sinTilt;
+            var rotatedZ = y * sinTilt + spunZ * cosTilt;
+            var perspective = camera / Math.Max(0.65, camera + rotatedZ);
+            var screenX = width * 0.5 + spunX * scale * perspective;
+            var screenY = height * 0.46 + rotatedY * scale * perspective;
+            var dotSize = Math.Clamp(particle.Size * (0.7 + perspective * 0.55 + eased * 0.35), 1.1, 6.2);
+            var dot = _dots[index];
             var glow = (Ellipse)dot.Tag;
             dot.Width = dotSize;
             dot.Height = dotSize;
-            dot.Opacity = Math.Clamp(0.24 + perspective * 0.32 + eased * 0.36, 0.18, 0.96);
-            glow.Width = dotSize * (5 + eased * 4);
-            glow.Height = dotSize * (5 + eased * 4);
-            glow.Opacity = eased * 0.16 * Math.Clamp(perspective, 0.4, 1.25);
+            dot.Opacity = Math.Clamp(0.3 + perspective * 0.22 + eased * 0.28, 0.28, 0.98);
+            glow.Width = dotSize * (4.8 + (primary + secondary) * 18);
+            glow.Height = glow.Width;
+            glow.Opacity = Math.Clamp(0.05 + eased * 0.09 + (primary + secondary) * 0.75, 0.04, 0.28);
             Canvas.SetLeft(dot, screenX - dot.Width / 2);
             Canvas.SetTop(dot, screenY - dot.Height / 2);
             Canvas.SetLeft(glow, screenX - glow.Width / 2);
@@ -434,35 +436,15 @@ public sealed partial class VoicePage : Page
         }
     }
 
-    private static int FindSpeechCut(string text, bool flush)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return -1;
-        }
-
-        var searchLimit = Math.Min(text.Length, 160);
-        for (var i = searchLimit - 1; i >= 0; i--)
-        {
-            if ((text[i] == '.' || text[i] == '!' || text[i] == '?' || text[i] == '\n') && i >= 14)
-            {
-                return i + 1;
-            }
-        }
-
-        if (text.Length > 120)
-        {
-            var soft = text.LastIndexOfAny(new[] { ',', ';', ':', ' ' }, Math.Min(text.Length - 1, 120));
-            return soft > 55 ? soft + 1 : 120;
-        }
-
-        return flush ? text.Length : -1;
-    }
-
     private bool ShouldSendTranscript(string text)
     {
         var clean = text.Trim();
         if (clean.Length < 2)
+        {
+            return false;
+        }
+        var normalized = clean.Trim('.', ',', '!', '?', ' ').ToLowerInvariant();
+        if (normalized is "grazie" or "sottotitoli e revisione a cura di qtss" or "sottotitoli creati dalla comunita amara.org")
         {
             return false;
         }
@@ -473,10 +455,60 @@ public sealed partial class VoicePage : Page
         {
             return false;
         }
-
         _lastTranscript = clean;
         _lastTranscriptAt = now;
         return true;
+    }
+
+    private static List<string> DrainSpeechSegments(StringBuilder buffer, bool flush)
+    {
+        var segments = new List<string>();
+        while (true)
+        {
+            var text = buffer.ToString();
+            var cut = FindSpeechCut(text, flush);
+            if (cut <= 0)
+            {
+                return segments;
+            }
+            var segment = text[..cut].Trim();
+            buffer.Remove(0, cut);
+            if (segment.Length >= 2)
+            {
+                segments.Add(segment);
+            }
+        }
+    }
+
+    private static int FindSpeechCut(string text, bool flush)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return -1;
+        }
+        var searchLimit = Math.Min(text.Length, 76);
+        for (var index = searchLimit - 1; index >= 0; index--)
+        {
+            if ((text[index] == '.' || text[index] == '!' || text[index] == '?' || text[index] == '\n') && index >= 9)
+            {
+                return index + 1;
+            }
+        }
+        if (text.Length > 46)
+        {
+            var soft = text.LastIndexOfAny(new[] { ',', ';', ':', ' ' }, Math.Min(text.Length - 1, 46));
+            return soft > 25 ? soft + 1 : 46;
+        }
+        return flush ? text.Length : -1;
+    }
+
+    private void SetPhase(VoiceCallPhase phase, string? status = null)
+    {
+        _phase = phase;
+        if (status is not null)
+        {
+            SetStatus(status);
+        }
     }
 
     private void SetStatus(string text)
@@ -488,62 +520,46 @@ public sealed partial class VoicePage : Page
     {
         DispatcherQueue.TryEnqueue(() =>
         {
-            CallIcon.Glyph = active ? "\uE71A" : "\uE720";
+            CallIcon.Glyph = active ? "\uE778" : "\uE717";
             CallButton.BorderBrush = new SolidColorBrush(active
                 ? Microsoft.UI.Colors.OrangeRed
                 : Microsoft.UI.ColorHelper.FromArgb(85, 255, 255, 255));
+            CallButton.Background = new SolidColorBrush(active
+                ? Microsoft.UI.ColorHelper.FromArgb(220, 139, 32, 32)
+                : Microsoft.UI.ColorHelper.FromArgb(34, 255, 255, 255));
         });
     }
 
-    private Task RunOnUiAsync(Func<Task> action)
+    private void TrimHistory()
     {
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!DispatcherQueue.TryEnqueue(async () =>
+        while (_history.Count > 20)
         {
-            try
-            {
-                await action();
-                completion.TrySetResult();
-            }
-            catch (Exception ex)
-            {
-                completion.TrySetException(ex);
-            }
-        }))
-        {
-            completion.TrySetException(new InvalidOperationException("Dispatcher UI non disponibile."));
+            _history.RemoveAt(0);
         }
-
-        return completion.Task;
     }
 
-    private static List<VoiceStar> BuildStars()
+    private static List<VoiceParticle> BuildParticles()
     {
         var random = new Random(8642);
-        var stars = new List<VoiceStar>();
-        for (var i = 0; i < 520; i++)
+        var particles = new List<VoiceParticle>();
+        for (var index = 0; index < 520; index++)
         {
-            var u = random.NextDouble();
-            var v = random.NextDouble();
-            var theta = 2 * Math.PI * u;
-            var phi = Math.Acos(2 * v - 1);
-            var radius = 0.92 + random.NextDouble() * 0.12;
-            var sphereX = radius * Math.Sin(phi) * Math.Cos(theta);
-            var sphereY = radius * Math.Cos(phi);
-            var sphereZ = radius * Math.Sin(phi) * Math.Sin(theta);
-            stars.Add(new VoiceStar(
-                (random.NextDouble() - 0.5) * 5.8,
-                (random.NextDouble() - 0.5) * 3.2,
-                (random.NextDouble() - 0.5) * 5.2,
-                sphereX,
-                sphereY,
-                sphereZ,
-                0.35 + random.NextDouble() * 1.4,
+            var theta = 2 * Math.PI * random.NextDouble();
+            var phi = Math.Acos(2 * random.NextDouble() - 1);
+            var radius = 0.91 + random.NextDouble() * 0.18;
+            particles.Add(new VoiceParticle(
+                (random.NextDouble() - 0.5) * 7.0,
+                (random.NextDouble() - 0.5) * 4.8,
+                (random.NextDouble() - 0.5) * 6.2,
+                radius * Math.Sin(phi) * Math.Cos(theta),
+                radius * Math.Cos(phi),
+                radius * Math.Sin(phi) * Math.Sin(theta),
+                0.42 + random.NextDouble() * 1.16,
                 random.NextDouble() * Math.PI * 2,
-                1.4 + random.NextDouble() * 2.4,
+                1.35 + random.NextDouble() * 2.4,
                 random.NextDouble() > 0.72));
         }
-        return stars;
+        return particles;
     }
 
     private static string TrimForStatus(string text)
@@ -557,10 +573,20 @@ public sealed partial class VoicePage : Page
         try { File.Delete(path); } catch { }
     }
 
-    private static double EaseInOut(double t) => t * t * (3 - 2 * t);
+    private static double EaseInOut(double value) => value * value * (3 - 2 * value);
     private static double Lerp(double start, double stop, double amount) => start + (stop - start) * amount;
 
-    private sealed record VoiceStar(
+    private enum VoiceCallPhase
+    {
+        Idle,
+        Connecting,
+        Listening,
+        Thinking,
+        Speaking,
+        Error
+    }
+
+    private sealed record VoiceParticle(
         double IdleX,
         double IdleY,
         double IdleZ,
@@ -570,5 +596,5 @@ public sealed partial class VoicePage : Page
         double Speed,
         double Phase,
         double Size,
-        bool Warm);
+        bool Hot);
 }
