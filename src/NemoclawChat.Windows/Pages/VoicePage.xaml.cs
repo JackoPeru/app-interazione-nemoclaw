@@ -1,8 +1,9 @@
+using Microsoft.Graphics.Canvas.UI;
+using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
 using NemoclawChat_Windows.Services;
 using System.Text;
 using Windows.Media.Core;
@@ -13,18 +14,14 @@ namespace NemoclawChat_Windows.Pages;
 
 public sealed partial class VoicePage : Page
 {
-    private readonly DispatcherTimer _timer = new();
     private readonly List<VoiceParticle> _particles = BuildParticles();
-    private readonly List<Ellipse> _dots = [];
     private readonly List<ChatMessageRecord> _history = [];
     private readonly VoiceActivityRecorder _recorder = new();
-    private readonly SolidColorBrush _particleBrush = new(Microsoft.UI.ColorHelper.FromArgb(245, 255, 128, 24));
-    private readonly SolidColorBrush _hotBrush = new(Microsoft.UI.ColorHelper.FromArgb(255, 255, 218, 98));
-    private readonly SolidColorBrush _glowBrush = new(Microsoft.UI.ColorHelper.FromArgb(92, 255, 105, 16));
     private CancellationTokenSource? _callCts;
     private Task? _callTask;
     private MediaPlayer? _voicePlayer;
-    private DateTimeOffset _lastFrame = DateTimeOffset.Now;
+    private MediaPlayer? _waitingPlayer;
+    private string? _waitingTonePath;
     private DateTimeOffset _lastTranscriptAt = DateTimeOffset.MinValue;
     private VoiceCallPhase _phase = VoiceCallPhase.Idle;
     private double _time;
@@ -36,26 +33,28 @@ public sealed partial class VoicePage : Page
     public VoicePage()
     {
         InitializeComponent();
-        _timer.Interval = TimeSpan.FromMilliseconds(16);
-        _timer.Tick += Timer_Tick;
-        BuildVisuals();
     }
 
     private void Page_Loaded(object sender, RoutedEventArgs e)
     {
         Root.Focus(FocusState.Programmatic);
-        _lastFrame = DateTimeOffset.Now;
-        _timer.Start();
+        ParticleCanvas.Paused = false;
     }
 
     private void Page_Unloaded(object sender, RoutedEventArgs e)
     {
-        _timer.Stop();
+        ParticleCanvas.Paused = true;
         _callActive = false;
         _callReady = false;
         _callCts?.Cancel();
         _recorder.Stop();
         _voicePlayer?.Dispose();
+        StopWaitingTone();
+        if (_waitingTonePath is not null)
+        {
+            TryDelete(_waitingTonePath);
+            _waitingTonePath = null;
+        }
     }
 
     private async void CallButton_Click(object sender, RoutedEventArgs e)
@@ -159,7 +158,7 @@ public sealed partial class VoicePage : Page
                     continue;
                 }
 
-                SetPhase(VoiceCallPhase.Thinking, "Trascrivo...");
+                SetPhase(VoiceCallPhase.Transcribing, "Trascrivo...");
                 var settings = AppSettingsStore.Load();
                 var text = await SpeechGatewayService.TranscribeFileAsync(settings, path, cancellationToken).ConfigureAwait(false);
                 if (!ShouldSendTranscript(text))
@@ -198,7 +197,6 @@ public sealed partial class VoicePage : Page
         var answer = new StringBuilder();
         var speechBuffer = new StringBuilder();
         Task playbackChain = Task.CompletedTask;
-        var speechQueued = false;
         SetPhase(VoiceCallPhase.Thinking, "Hermes sta pensando...");
 
         await foreach (var ev in ChatStreamClient.StreamChatAsync(
@@ -219,11 +217,6 @@ public sealed partial class VoicePage : Page
                     SetStatus($"Hermes: {TrimForStatus(answer.ToString())}");
                     foreach (var segment in DrainSpeechSegments(speechBuffer, flush: false))
                     {
-                        if (!speechQueued)
-                        {
-                            speechQueued = true;
-                            SetPhase(VoiceCallPhase.Speaking);
-                        }
                         playbackChain = QueueSpeechSegmentAsync(playbackChain, settings, segment, cancellationToken);
                     }
                     break;
@@ -238,11 +231,6 @@ public sealed partial class VoicePage : Page
 
         foreach (var segment in DrainSpeechSegments(speechBuffer, flush: true))
         {
-            if (!speechQueued)
-            {
-                speechQueued = true;
-                SetPhase(VoiceCallPhase.Speaking);
-            }
             playbackChain = QueueSpeechSegmentAsync(playbackChain, settings, segment, cancellationToken);
         }
         await playbackChain.ConfigureAwait(false);
@@ -336,6 +324,7 @@ public sealed partial class VoicePage : Page
             registration = cancellationToken.Register(() => DispatcherQueue.TryEnqueue(() => Complete(canceled: true)));
             if (Volatile.Read(ref finished) == 0)
             {
+                SetPhase(VoiceCallPhase.Speaking);
                 player.Play();
             }
         }))
@@ -345,55 +334,27 @@ public sealed partial class VoicePage : Page
         return completion.Task;
     }
 
-    private void ParticleCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateScene(0);
-
-    private void Timer_Tick(object? sender, object e)
+    private void ParticleCanvas_Update(ICanvasAnimatedControl sender, CanvasAnimatedUpdateEventArgs args)
     {
-        var now = DateTimeOffset.Now;
-        var dt = Math.Min(0.05, (now - _lastFrame).TotalSeconds);
-        _lastFrame = now;
+        var dt = Math.Min(0.05, args.Timing.ElapsedTime.TotalSeconds);
         _time += dt;
-        UpdateScene(dt);
-    }
-
-    private void BuildVisuals()
-    {
-        ParticleCanvas.Children.Clear();
-        _dots.Clear();
-        foreach (var particle in _particles)
-        {
-            var glow = new Ellipse
-            {
-                Fill = _glowBrush,
-                Width = particle.Size * 8,
-                Height = particle.Size * 8,
-                Opacity = 0
-            };
-            var dot = new Ellipse
-            {
-                Fill = particle.Hot ? _hotBrush : _particleBrush,
-                Width = particle.Size,
-                Height = particle.Size,
-                Opacity = 0.72,
-                Tag = glow
-            };
-            _dots.Add(dot);
-            ParticleCanvas.Children.Add(glow);
-            ParticleCanvas.Children.Add(dot);
-        }
-    }
-
-    private void UpdateScene(double dt)
-    {
-        var width = Math.Max(1, ParticleCanvas.ActualWidth);
-        var height = Math.Max(1, ParticleCanvas.ActualHeight);
         var target = _callActive && _callReady ? 1.0 : 0.0;
-        _assembly += (target - _assembly) * Math.Min(1, dt * (target > _assembly ? 4.2 : 3.8));
+        var duration = target > _assembly ? 2.2 : 1.2;
+        var step = dt / duration;
+        _assembly = target > _assembly
+            ? Math.Min(target, _assembly + step)
+            : Math.Max(target, _assembly - step);
+    }
+
+    private void ParticleCanvas_Draw(ICanvasAnimatedControl sender, CanvasAnimatedDrawEventArgs args)
+    {
+        var width = Math.Max(1, sender.Size.Width);
+        var height = Math.Max(1, sender.Size.Height);
         var eased = EaseInOut(_assembly);
         var speaking = _phase == VoiceCallPhase.Speaking;
         var primary = speaking ? Math.Pow(Math.Max(0, Math.Sin(_time * 10.8)), 2) * 0.105 : 0;
         var secondary = speaking ? Math.Pow(Math.Max(0, Math.Sin(_time * 17.1 + 0.8)), 2) * 0.035 : 0;
-        var breath = target > 0 ? Math.Sin(_time * 1.35) * 0.012 : 0;
+        var breath = _assembly > 0 ? Math.Sin(_time * 1.35) * 0.012 : 0;
         var scale = Math.Min(width, height) * (0.355 + breath + primary + secondary);
         var camera = 4.1;
         var spin = _time * (0.17 + eased * 0.38);
@@ -405,8 +366,9 @@ public sealed partial class VoicePage : Page
             var idleX = particle.IdleX + Math.Sin(_time * particle.Speed + particle.Phase) * 0.14;
             var idleY = particle.IdleY + Math.Cos(_time * particle.Speed * 0.73 + particle.Phase) * 0.11;
             var idleZ = particle.IdleZ + Math.Sin(_time * particle.Speed * 0.41 + particle.Phase) * 0.19;
-            var x = Lerp(idleX, particle.SphereX, eased);
-            var y = Lerp(idleY, particle.SphereY, eased);
+            var gatherArc = Math.Sin(Math.PI * eased) * 0.24;
+            var x = Lerp(idleX, particle.SphereX, eased) + Math.Sin(particle.Phase + eased * Math.PI * 2) * gatherArc;
+            var y = Lerp(idleY, particle.SphereY, eased) + Math.Cos(particle.Phase * 0.73 + eased * Math.PI * 2) * gatherArc * 0.65;
             var z = Lerp(idleZ, particle.SphereZ, eased);
 
             var cosSpin = Math.Cos(spin);
@@ -421,18 +383,15 @@ public sealed partial class VoicePage : Page
             var screenX = width * 0.5 + spunX * scale * perspective;
             var screenY = height * 0.46 + rotatedY * scale * perspective;
             var dotSize = Math.Clamp(particle.Size * (0.7 + perspective * 0.55 + eased * 0.35), 1.1, 6.2);
-            var dot = _dots[index];
-            var glow = (Ellipse)dot.Tag;
-            dot.Width = dotSize;
-            dot.Height = dotSize;
-            dot.Opacity = Math.Clamp(0.3 + perspective * 0.22 + eased * 0.28, 0.28, 0.98);
-            glow.Width = dotSize * (4.8 + (primary + secondary) * 18);
-            glow.Height = glow.Width;
-            glow.Opacity = Math.Clamp(0.05 + eased * 0.09 + (primary + secondary) * 0.75, 0.04, 0.28);
-            Canvas.SetLeft(dot, screenX - dot.Width / 2);
-            Canvas.SetTop(dot, screenY - dot.Height / 2);
-            Canvas.SetLeft(glow, screenX - glow.Width / 2);
-            Canvas.SetTop(glow, screenY - glow.Height / 2);
+            var alpha = Math.Clamp(0.3 + perspective * 0.22 + eased * 0.28, 0.28, 0.98);
+            var glowAlpha = Math.Clamp(0.05 + eased * 0.09 + (primary + secondary) * 0.75, 0.04, 0.28);
+            var glowSize = dotSize * (4.8 + (primary + secondary) * 18);
+            var glowColor = Microsoft.UI.ColorHelper.FromArgb((byte)(glowAlpha * 255), 255, 105, 16);
+            var coreColor = particle.Hot
+                ? Microsoft.UI.ColorHelper.FromArgb((byte)(alpha * 255), 255, 218, 98)
+                : Microsoft.UI.ColorHelper.FromArgb((byte)(alpha * 255), 255, 128, 24);
+            args.DrawingSession.FillCircle((float)screenX, (float)screenY, (float)glowSize, glowColor);
+            args.DrawingSession.FillCircle((float)screenX, (float)screenY, (float)dotSize, coreColor);
         }
     }
 
@@ -504,11 +463,44 @@ public sealed partial class VoicePage : Page
 
     private void SetPhase(VoiceCallPhase phase, string? status = null)
     {
+        var changed = _phase != phase;
         _phase = phase;
+        if (changed)
+        {
+            SetWaitingToneEnabled(phase == VoiceCallPhase.Thinking);
+        }
         if (status is not null)
         {
             SetStatus(status);
         }
+    }
+
+    private void SetWaitingToneEnabled(bool enabled)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!enabled || !_callActive)
+            {
+                StopWaitingTone();
+                return;
+            }
+
+            StopWaitingTone();
+            _waitingTonePath ??= CreateWaitingToneFile();
+            _waitingPlayer = new MediaPlayer
+            {
+                Source = MediaSource.CreateFromUri(new Uri(_waitingTonePath)),
+                IsLoopingEnabled = true,
+                Volume = 0.25
+            };
+            _waitingPlayer.Play();
+        });
+    }
+
+    private void StopWaitingTone()
+    {
+        _waitingPlayer?.Dispose();
+        _waitingPlayer = null;
     }
 
     private void SetStatus(string text)
@@ -573,6 +565,49 @@ public sealed partial class VoicePage : Page
         try { File.Delete(path); } catch { }
     }
 
+    private static string CreateWaitingToneFile()
+    {
+        const int sampleRate = 24_000;
+        const double cycleSeconds = 2.2;
+        var sampleCount = (int)(sampleRate * cycleSeconds);
+        var path = Path.Combine(Path.GetTempPath(), $"hermes-waiting-{Guid.NewGuid():N}.wav");
+        using var stream = File.Create(path);
+        using var writer = new BinaryWriter(stream);
+        writer.Write("RIFF"u8.ToArray());
+        writer.Write(36 + sampleCount * 2);
+        writer.Write("WAVE"u8.ToArray());
+        writer.Write("fmt "u8.ToArray());
+        writer.Write(16);
+        writer.Write((short)1);
+        writer.Write((short)1);
+        writer.Write(sampleRate);
+        writer.Write(sampleRate * 2);
+        writer.Write((short)2);
+        writer.Write((short)16);
+        writer.Write("data"u8.ToArray());
+        writer.Write(sampleCount * 2);
+        for (var index = 0; index < sampleCount; index++)
+        {
+            var time = index / (double)sampleRate;
+            var sample = WaitingNote(time, 0.08, 0.24, 620) + WaitingNote(time, 0.40, 0.28, 780);
+            writer.Write((short)Math.Clamp(sample * short.MaxValue * 0.78, short.MinValue, short.MaxValue));
+        }
+        return path;
+    }
+
+    private static double WaitingNote(double time, double start, double duration, double frequency)
+    {
+        var local = time - start;
+        if (local < 0 || local > duration)
+        {
+            return 0;
+        }
+        var attack = Math.Min(1, local / 0.035);
+        var release = Math.Min(1, (duration - local) / 0.09);
+        var envelope = attack * release * 0.22;
+        return envelope * (Math.Sin(2 * Math.PI * frequency * local) + 0.18 * Math.Sin(4 * Math.PI * frequency * local));
+    }
+
     private static double EaseInOut(double value) => value * value * (3 - 2 * value);
     private static double Lerp(double start, double stop, double amount) => start + (stop - start) * amount;
 
@@ -581,6 +616,7 @@ public sealed partial class VoicePage : Page
         Idle,
         Connecting,
         Listening,
+        Transcribing,
         Thinking,
         Speaking,
         Error

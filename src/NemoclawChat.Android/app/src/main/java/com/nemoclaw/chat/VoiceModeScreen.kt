@@ -6,17 +6,17 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioAttributes
+import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.media.MediaRecorder
-import android.media.audiofx.AcousticEchoCanceler
-import android.media.audiofx.AutomaticGainControl
-import android.media.audiofx.NoiseSuppressor
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -91,6 +91,7 @@ import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.cos
 import kotlin.math.max
@@ -120,6 +121,7 @@ private enum class VoiceCallPhase {
     Idle,
     Connecting,
     Listening,
+    Transcribing,
     Thinking,
     Speaking,
     Error
@@ -136,6 +138,7 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
     var status by remember { mutableStateOf("Hermes voce pronto.") }
     var callJob by remember { mutableStateOf<Job?>(null) }
     var startRequested by remember { mutableStateOf(false) }
+    val waitingTone = remember { WaitingTonePlayer() }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -190,7 +193,12 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
         onDispose {
             callActive = false
             callJob?.cancel()
+            waitingTone.release()
         }
+    }
+
+    LaunchedEffect(phase) {
+        if (phase == VoiceCallPhase.Thinking) waitingTone.start() else waitingTone.stop()
     }
 
     val assembled = callActive && phase != VoiceCallPhase.Connecting && phase != VoiceCallPhase.Error
@@ -257,11 +265,16 @@ private fun VoiceParticleField(
     modifier: Modifier = Modifier
 ) {
     val particles = remember { buildVoiceParticles() }
-    val assembly by animateFloatAsState(
-        targetValue = if (assembled) 1f else 0f,
-        animationSpec = tween(durationMillis = if (assembled) 900 else 720),
-        label = "voice-assembly"
-    )
+    val assembly = remember { Animatable(if (assembled) 1f else 0f) }
+    LaunchedEffect(assembled) {
+        assembly.animateTo(
+            targetValue = if (assembled) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (assembled) 2_200 else 1_200,
+                easing = FastOutSlowInEasing
+            )
+        )
+    }
     var time by remember { mutableStateOf(0f) }
     LaunchedEffect(Unit) {
         val start = withFrameNanos { it }
@@ -270,7 +283,7 @@ private fun VoiceParticleField(
 
     Canvas(modifier = modifier.background(Color.Black)) {
         drawRect(Color.Black)
-        val eased = assembly * assembly * (3f - 2f * assembly)
+        val eased = assembly.value
         val speechBeat = if (speaking) {
             val primary = max(0f, sin(time * 10.8f))
             val secondary = max(0f, sin(time * 17.1f + 0.8f))
@@ -287,8 +300,9 @@ private fun VoiceParticleField(
             val idleX = particle.idleX + sin(time * particle.speed + particle.phase) * 0.14f
             val idleY = particle.idleY + cos(time * particle.speed * 0.73f + particle.phase) * 0.11f
             val idleZ = particle.idleZ + sin(time * particle.speed * 0.41f + particle.phase) * 0.19f
-            val x = lerpFloat(idleX, particle.sphereX, eased)
-            val y = lerpFloat(idleY, particle.sphereY, eased)
+            val gatherArc = sin(PI.toFloat() * eased) * 0.24f
+            val x = lerpFloat(idleX, particle.sphereX, eased) + sin(particle.phase + eased * PI.toFloat() * 2f) * gatherArc
+            val y = lerpFloat(idleY, particle.sphereY, eased) + cos(particle.phase * 0.73f + eased * PI.toFloat() * 2f) * gatherArc * 0.65f
             val z = lerpFloat(idleZ, particle.sphereZ, eased)
 
             val cosSpin = cos(spin)
@@ -330,7 +344,7 @@ private suspend fun runVoiceCallLoop(
             setPhase(VoiceCallPhase.Listening)
             setStatus("Ti ascolto.")
             val file = captureVoiceUtterance(context) ?: continue
-            setPhase(VoiceCallPhase.Thinking)
+            setPhase(VoiceCallPhase.Transcribing)
             setStatus("Trascrivo...")
             val text = try {
                 transcribeVoiceFile(settings, apiKey, file).trim()
@@ -356,6 +370,9 @@ private suspend fun runVoiceCallLoop(
 }
 
 private suspend fun captureVoiceUtterance(context: Context): File? = withContext(Dispatchers.IO) {
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        throw SecurityException("Permesso microfono non disponibile.")
+    }
     val minimumBuffer = AudioRecord.getMinBufferSize(
         VoiceSampleRate,
         AudioFormat.CHANNEL_IN_MONO,
@@ -363,7 +380,7 @@ private suspend fun captureVoiceUtterance(context: Context): File? = withContext
     )
     check(minimumBuffer > 0) { "Microfono non disponibile." }
     val recorder = AudioRecord.Builder()
-        .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+        .setAudioSource(MediaRecorder.AudioSource.MIC)
         .setAudioFormat(
             AudioFormat.Builder()
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -375,18 +392,13 @@ private suspend fun captureVoiceUtterance(context: Context): File? = withContext
         .build()
     check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Impossibile inizializzare il microfono." }
 
-    val effects = listOfNotNull(
-        if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(recorder.audioSessionId) else null,
-        if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(recorder.audioSessionId) else null,
-        if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(recorder.audioSessionId) else null
-    )
-    effects.forEach { it.enabled = true }
-
     val preRoll = ArrayDeque<ByteArray>(VoicePreRollFrames)
     val pcm = ByteArrayOutputStream(VoiceSampleRate * 2 * 8)
     val frame = ByteArray(VoiceFrameBytes)
-    var noiseFloor = 240.0
+    var noiseFloor = 8.0
     var triggerFrames = 0
+    var observedFrames = 0
+    var maxObservedRms = 0.0
     var speechStartedAt = 0L
     var lastVoiceAt = 0L
     var heardVoice = false
@@ -399,25 +411,36 @@ private suspend fun captureVoiceUtterance(context: Context): File? = withContext
             if (read <= 0) continue
             val chunk = frame.copyOf(read)
             val rms = pcmRms(chunk)
-            val threshold = (noiseFloor * 2.75).coerceIn(620.0, 4_200.0)
-            val voiced = rms >= threshold
+            val peak = pcmPeak(chunk)
+            observedFrames++
+            maxObservedRms = max(maxObservedRms, rms)
+            val threshold = (noiseFloor * 2.5 + 6.0).coerceIn(18.0, 1_800.0)
+            val peakThreshold = (noiseFloor * 10.0 + 80.0).coerceIn(100.0, 12_000.0)
+            val voiced = rms >= threshold || peak >= peakThreshold
             val now = System.currentTimeMillis()
 
             if (!heardVoice) {
                 preRoll.addLast(chunk)
                 while (preRoll.size > VoicePreRollFrames) preRoll.removeFirst()
+                if (observedFrames <= VoicePreRollFrames) {
+                    noiseFloor = if (observedFrames == 1) rms else noiseFloor * 0.82 + rms * 0.18
+                    continue
+                }
                 if (voiced) {
                     triggerFrames++
                 } else {
                     triggerFrames = max(0, triggerFrames - 1)
-                    noiseFloor = noiseFloor * 0.94 + rms * 0.06
+                    noiseFloor = noiseFloor * 0.92 + min(rms, threshold) * 0.08
                 }
-                if (triggerFrames >= 3) {
+                if (triggerFrames >= 2) {
                     heardVoice = true
                     speechStartedAt = now
                     lastVoiceAt = now
                     preRoll.forEach { pcm.write(it) }
                     preRoll.clear()
+                }
+                if (observedFrames >= 250 && maxObservedRms < 1.5) {
+                    error("Il microfono non sta inviando audio.")
                 }
                 continue
             }
@@ -430,7 +453,6 @@ private suspend fun captureVoiceUtterance(context: Context): File? = withContext
     } finally {
         runCatching { recorder.stop() }
         recorder.release()
-        effects.forEach { runCatching { it.release() } }
     }
 
     if (!heardVoice || pcm.size() < VoiceSampleRate / 4) return@withContext null
@@ -455,7 +477,6 @@ private suspend fun runVoiceTurn(
     val answer = StringBuilder()
     val speechBuffer = StringBuilder()
     var playback: Deferred<Unit> = CompletableDeferred<Unit>().also { it.complete(Unit) }
-    var speechQueued = false
     setPhase(VoiceCallPhase.Thinking)
     setStatus("Hermes sta pensando...")
 
@@ -476,11 +497,9 @@ private suspend fun runVoiceTurn(
                 setStatus("Hermes: ${answer.toString().trimForStatus()}")
                 val queued = drainSpeechSegments(speechBuffer, flush = false)
                 for (segment in queued) {
-                    if (!speechQueued) {
-                        speechQueued = true
+                    playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this) {
                         setPhase(VoiceCallPhase.Speaking)
                     }
-                    playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this)
                 }
             }
             is ChatStreamEvent.Error -> throw java.io.IOException(event.message)
@@ -489,11 +508,9 @@ private suspend fun runVoiceTurn(
     }
 
     for (segment in drainSpeechSegments(speechBuffer, flush = true)) {
-        if (!speechQueued) {
-            speechQueued = true
+        playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this) {
             setPhase(VoiceCallPhase.Speaking)
         }
-        playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this)
     }
     playback.await()
 
@@ -510,12 +527,13 @@ private fun queueSpeechSegment(
     apiKey: String?,
     segment: String,
     previous: Deferred<Unit>,
-    scope: CoroutineScope
+    scope: CoroutineScope,
+    onPlaybackStarted: () -> Unit
 ): Deferred<Unit> = scope.async {
     previous.await()
     val file = synthesizeVoiceFile(context, settings, apiKey, segment)
     try {
-        playVoiceFile(file)
+        playVoiceFile(file, onPlaybackStarted)
     } finally {
         file.delete()
     }
@@ -564,7 +582,7 @@ private suspend fun synthesizeVoiceFile(
     throw java.io.IOException(lastError)
 }
 
-private suspend fun playVoiceFile(file: File): Unit = withContext(Dispatchers.Main) {
+private suspend fun playVoiceFile(file: File, onPlaybackStarted: () -> Unit): Unit = withContext(Dispatchers.Main) {
     suspendCancellableCoroutine { continuation ->
         val player = MediaPlayer()
         val finished = AtomicBoolean(false)
@@ -575,7 +593,10 @@ private suspend fun playVoiceFile(file: File): Unit = withContext(Dispatchers.Ma
             if (!continuation.isActive) return
             if (error == null) continuation.resume(Unit) else continuation.resumeWithException(error)
         }
-        player.setOnPreparedListener { it.start() }
+        player.setOnPreparedListener {
+            onPlaybackStarted()
+            it.start()
+        }
         player.setOnCompletionListener { complete() }
         player.setOnErrorListener { _, what, extra ->
             complete(java.io.IOException("Riproduzione audio fallita ($what/$extra)."))
@@ -717,6 +738,91 @@ private fun pcmRms(bytes: ByteArray): Double {
     return if (samples == 0) 0.0 else sqrt(sum / samples)
 }
 
+private fun pcmPeak(bytes: ByteArray): Double {
+    var peak = 0
+    var index = 0
+    while (index + 1 < bytes.size) {
+        val value = ((bytes[index + 1].toInt() shl 8) or (bytes[index].toInt() and 0xFF)).toShort().toInt()
+        peak = max(peak, abs(value))
+        index += 2
+    }
+    return peak.toDouble()
+}
+
+private class WaitingTonePlayer {
+    private var track: AudioTrack? = null
+
+    fun start() {
+        if (track?.playState == AudioTrack.PLAYSTATE_PLAYING) return
+        runCatching {
+            val player = track ?: createTrack().also { track = it }
+            player.setPlaybackHeadPosition(0)
+            player.play()
+        }.onFailure {
+            release()
+        }
+    }
+
+    fun stop() {
+        val player = track ?: return
+        runCatching { player.pause() }
+        runCatching { player.setPlaybackHeadPosition(0) }
+    }
+
+    fun release() {
+        val player = track ?: return
+        track = null
+        runCatching { player.stop() }
+        player.release()
+    }
+
+    private fun createTrack(): AudioTrack {
+        val samples = buildWaitingToneSamples()
+        val player = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(VoiceWaitingToneSampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setBufferSizeInBytes(samples.size * 2)
+            .build()
+        check(player.write(samples, 0, samples.size) == samples.size) { "Suono di attesa non disponibile." }
+        check(player.setLoopPoints(0, samples.size, -1) == AudioTrack.SUCCESS) { "Loop audio non disponibile." }
+        player.setVolume(0.25f)
+        return player
+    }
+}
+
+private const val VoiceWaitingToneSampleRate = 24_000
+
+private fun buildWaitingToneSamples(): ShortArray {
+    val samples = ShortArray((VoiceWaitingToneSampleRate * 2.2).toInt())
+    for (index in samples.indices) {
+        val time = index.toDouble() / VoiceWaitingToneSampleRate
+        val sample = waitingNote(time, 0.08, 0.24, 620.0) + waitingNote(time, 0.40, 0.28, 780.0)
+        samples[index] = (sample * Short.MAX_VALUE * 0.78).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+    }
+    return samples
+}
+
+private fun waitingNote(time: Double, start: Double, duration: Double, frequency: Double): Double {
+    val local = time - start
+    if (local < 0.0 || local > duration) return 0.0
+    val attack = min(1.0, local / 0.035)
+    val release = min(1.0, (duration - local) / 0.09)
+    val envelope = attack * release * 0.22
+    return envelope * (sin(2.0 * PI * frequency * local) + 0.18 * sin(4.0 * PI * frequency * local))
+}
+
 private fun writePcmWav(file: File, pcm: ByteArray, sampleRate: Int) {
     val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
     header.put("RIFF".toByteArray(Charsets.US_ASCII))
@@ -745,9 +851,9 @@ private fun buildVoiceParticles(): List<VoiceParticle> {
         val phi = acos(2.0 * random.nextDouble() - 1.0).toFloat()
         val radius = random.nextFloat(0.91f, 1.09f)
         VoiceParticle(
-            idleX = random.nextFloat(-3.5f, 3.5f),
+            idleX = random.nextFloat(-1.35f, 1.35f),
             idleY = random.nextFloat(-2.4f, 2.4f),
-            idleZ = random.nextFloat(-3.1f, 3.1f),
+            idleZ = random.nextFloat(-2.4f, 2.4f),
             sphereX = radius * sin(phi) * cos(theta),
             sphereY = radius * cos(phi),
             sphereZ = radius * sin(phi) * sin(theta),

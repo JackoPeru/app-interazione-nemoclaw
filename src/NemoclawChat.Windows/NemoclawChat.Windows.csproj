@@ -15,9 +15,9 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.6.152</Version>
-    <AssemblyVersion>0.6.152.0</AssemblyVersion>
-    <FileVersion>0.6.152.0</FileVersion>
+    <Version>0.6.153</Version>
+    <AssemblyVersion>0.6.153.0</AssemblyVersion>
+    <FileVersion>0.6.153.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -47,6 +47,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.*" />
     <PackageReference Include="NAudio" Version="2.2.1" />

@@ -1,14 +1,11 @@
-Hermes Hub 0.6.152 (Voice mode rewrite and GPU Kokoro)
+Hermes Hub 0.6.153 (Fluid voice particles and waiting tone)
 
-- Windows/Android: sezione `Voce` riscritta da zero come chiamata continua. Un tap avvia, uno chiude; nessun pulsante premi-e-parla e ascolto automatico dopo ogni risposta.
-- Windows/Android: nuovo VAD adattivo PCM con calibrazione del rumore, pre-roll di 300 ms, rilevamento fine frase dopo 680 ms di silenzio e supporto a interventi fino a 18 secondi.
-- Windows/Android: nuova macchina stati condivisa (`connessione`, `ascolto`, `elaborazione`, `parlato`) e gestione cancellazione pulita di recorder, stream e player.
-- Windows/Android: scena particelle arancioni pseudo-3D rifatta. Le particelle si muovono nello spazio a chiamata chiusa, formano la sfera quando il sistema e' pronto e pulsano soltanto mentre Hermes parla.
-- Windows: aggiunto recorder PCM/VAD dedicato basato su NAudio; rimossi i vecchi blocchi MediaCapture a durata fissa.
-- Android: sostituito MediaRecorder AAC con AudioRecord PCM 16 kHz, effetti echo/noise/AGC quando disponibili e WAV nativo per Whisper.
-- Windows/Android: TTS streaming corretto. I segmenti vengono riprodotti in ordine e il player attende davvero la fine dell'audio prima di proseguire.
-- Gateway: Kokoro usa modello ufficiale FP16 con ONNX Runtime CUDA su GPU 1, preload e executor dedicato sullo stesso thread CUDA; fallback CPU INT8 mantenuto.
-- Prestazioni server misurate: frase breve Kokoro da circa 1,46-2,60 s a 0,094-0,143 s sul gateway; 0,322 s via Tailnet da Windows.
-- Verifiche: Windows Debug x64 0 errori/0 avvisi, AdminBridge Release 0 errori/0 avvisi, Android `assembleDebug` e `assembleRelease` OK con lint senza errori, MSIX Authenticode firmato e verificato, APK signature v2 valida, gateway tar verificato, Tailnet capabilities/TTS/STT/chat SSE HTTP 200.
-- Asset: Android APK `HermesHub-0.6.152-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.152.0_x64.msix`, Linux Gateway `HermesHub-0.6.152-linux-gateway.tar.gz`.
-- Release bump: Windows/AdminBridge `0.6.152`, Android `versionName 0.6.152`, `versionCode 156`.
+- Windows: rendering particelle `Voce` migrato a Win2D `CanvasAnimatedControl`. Eliminati oltre mille aggiornamenti layout XAML per frame che rendevano scena e assemblaggio scattosi.
+- Android: rilevamento parlato corretto con `AudioSource.MIC`, calibrazione iniziale e VAD adattivo basato su RMS e picco. Rimossi effetti audio che su alcuni dispositivi sopprimevano il segnale.
+- Windows/Android: assemblaggio particelle reso chiaramente visibile in 2,2 secondi, con traiettorie curve verso la sfera invece del cambio istantaneo.
+- Windows/Android: aggiunto chime d'attesa originale a due note mentre Hermes pensa o genera testo. Parte solo dopo trascrizione e si ferma esattamente quando inizia la prima riproduzione TTS.
+- Windows/Android: suono d'attesa sintetizzato localmente, a volume basso, senza asset di rete; chiusura chiamata, errore e cambio stato lo interrompono subito.
+- Gateway Linux invariato: continuano a essere usati STT, chat stream e Kokoro GPU gia pubblicati con la 0.6.152.
+- Verifiche pre-release: Windows Debug x64 0 errori/0 avvisi e Android `assembleDebug` OK; build Release, firme e pacchetti verificati durante pubblicazione.
+- Asset: Android APK `HermesHub-0.6.153-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.153.0_x64.msix`.
+- Release bump: Windows/AdminBridge `0.6.153`, Android `versionName 0.6.153`, `versionCode 157`.

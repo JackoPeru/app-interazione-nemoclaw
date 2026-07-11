@@ -1233,7 +1233,7 @@ private fun ChatScreen(
                 val loadedMessages = saved.messages.toMutableList()
                 val activeStream = state.activeStreams[saved.id]
                 if (activeStream != null && loadedMessages.isNotEmpty() && loadedMessages.last().author == "Hermes") {
-                    loadedMessages.removeLast()
+                    loadedMessages.removeAt(loadedMessages.lastIndex)
                 }
                 state.messages.addAll(loadedMessages)
             }

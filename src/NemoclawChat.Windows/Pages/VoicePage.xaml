@@ -3,6 +3,7 @@
     x:Class="NemoclawChat_Windows.Pages.VoicePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml"
     Background="Black"
     Loaded="Page_Loaded"
     Unloaded="Page_Unloaded">
@@ -11,10 +12,12 @@
         Background="Black"
         IsTabStop="True"
         KeyDown="Root_KeyDown">
-        <Canvas
+        <canvas:CanvasAnimatedControl
             x:Name="ParticleCanvas"
-            Background="Black"
-            SizeChanged="ParticleCanvas_SizeChanged" />
+            ClearColor="Black"
+            Draw="ParticleCanvas_Draw"
+            IsFixedTimeStep="False"
+            Update="ParticleCanvas_Update" />
 
         <StackPanel
             HorizontalAlignment="Center"

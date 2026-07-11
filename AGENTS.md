@@ -33,10 +33,23 @@ main
 Ultimo push release fatto su richiesta utente:
 
 ```text
-v0.6.152 Release Hermes Hub 0.6.152 voice mode rewrite and GPU Kokoro
+v0.6.153 Release Hermes Hub 0.6.153 fluid voice particles and waiting tone
 ```
 
 ## Release Corrente
+
+Hermes Hub 0.6.153 (Fluid voice particles and waiting tone):
+
+Release 0.6.153:
+- Windows: rendering particelle `Voce` migrato a Win2D `CanvasAnimatedControl`, eliminando gli aggiornamenti layout XAML per particella che causavano animazione a pochi FPS.
+- Android: cattura voce corretta con `AudioSource.MIC`, calibrazione iniziale e VAD adattivo RMS+picco; rimossi effetti audio che potevano sopprimere il parlato.
+- Windows/Android: assemblaggio particelle visibile in 2,2 secondi con traiettorie curve verso la sfera.
+- Windows/Android: chime d'attesa originale a due note durante pensiero/generazione Hermes; parte dopo Whisper e si ferma quando inizia davvero la prima riproduzione TTS.
+- Windows/Android: tono generato localmente, a volume basso e chiuso subito su ascolto, errore o fine chiamata.
+- Gateway Linux invariato rispetto alla 0.6.152.
+- Verifiche pre-release: Windows Debug x64 0 errori/0 avvisi, Android `assembleDebug` OK; build Release, firme e pacchetti verificati durante pubblicazione.
+- Asset release: Android APK `HermesHub-0.6.153-android.apk`, Windows MSIX `NemoclawChat.Windows_0.6.153.0_x64.msix`.
+- Release bump: Windows/AdminBridge `0.6.153`, Android `versionName 0.6.153`, `versionCode 157`.
 
 Hermes Hub 0.6.152 (Voice mode rewrite and GPU Kokoro):
 
