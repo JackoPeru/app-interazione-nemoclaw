@@ -8,6 +8,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -42,6 +43,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -177,6 +181,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.TextStyle
@@ -189,6 +194,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.edit
 import androidx.core.content.FileProvider
 import androidx.core.graphics.scale
@@ -3445,7 +3451,7 @@ private fun ArchiveScreen(
     pendingDelete?.let { item ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            properties = androidx.compose.ui.window.DialogProperties(
+            properties = DialogProperties(
                 dismissOnBackPress = true,
                 dismissOnClickOutside = false
             ),
@@ -4813,6 +4819,124 @@ private fun VideoThumbnail(settings: AppSettings, item: VideoLibraryItem, apiKey
     }
 }
 
+internal fun fullscreenLandscapeOrientation(autoRotateEnabled: Boolean, displayRotation: Int): Int {
+    if (autoRotateEnabled) return ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    return if (displayRotation == android.view.Surface.ROTATION_270) {
+        ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+    } else {
+        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private fun isSystemAutoRotateEnabled(context: Context): Boolean = runCatching {
+    Settings.System.getInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0) == 1
+}.getOrDefault(false)
+
+private fun Activity.currentDisplayRotation(): Int {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        display?.rotation ?: android.view.Surface.ROTATION_0
+    } else {
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.rotation
+    }
+}
+
+@Composable
+private fun FullscreenVideoOrientationEffect(enabled: Boolean, activity: Activity?) {
+    DisposableEffect(enabled, activity) {
+        if (!enabled || activity == null) {
+            onDispose { }
+        } else {
+            val previousOrientation = activity.requestedOrientation
+            val targetOrientation = fullscreenLandscapeOrientation(
+                autoRotateEnabled = isSystemAutoRotateEnabled(activity),
+                displayRotation = activity.currentDisplayRotation()
+            )
+            val changedOrientation = previousOrientation != targetOrientation
+            if (changedOrientation) {
+                activity.requestedOrientation = targetOrientation
+            }
+            onDispose {
+                if (
+                    changedOrientation &&
+                    !activity.isFinishing &&
+                    !activity.isDestroyed &&
+                    activity.requestedOrientation == targetOrientation
+                ) {
+                    activity.requestedOrientation = previousOrientation
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullscreenVideoSystemUi() {
+    val dialogView = LocalView.current
+    DisposableEffect(dialogView) {
+        val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
+        if (dialogWindow == null) {
+            onDispose { }
+        } else {
+            val previousCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                dialogWindow.attributes.layoutInDisplayCutoutMode
+            } else {
+                null
+            }
+            dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                dialogWindow.attributes = dialogWindow.attributes.apply {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+            WindowCompat.setDecorFitsSystemWindows(dialogWindow, false)
+            val controller = WindowCompat.getInsetsController(dialogWindow, dialogWindow.decorView)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            onDispose {
+                dialogWindow.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && previousCutoutMode != null) {
+                    dialogWindow.attributes = dialogWindow.attributes.apply {
+                        layoutInDisplayCutoutMode = previousCutoutMode
+                    }
+                }
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+private fun createVideoPlayerView(
+    context: Context,
+    player: Player,
+    onControllerVisibilityChanged: ((Boolean) -> Unit)? = null
+): PlayerView {
+    return PlayerView(context).apply {
+        useController = true
+        controllerAutoShow = true
+        controllerHideOnTouch = true
+        controllerShowTimeoutMs = 3_500
+        setKeepContentOnPlayerReset(true)
+        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+        if (onControllerVisibilityChanged != null) {
+            setControllerVisibilityListener(
+                PlayerView.ControllerVisibilityListener { visibility ->
+                    onControllerVisibilityChanged(visibility == android.view.View.VISIBLE)
+                }
+            )
+        }
+        this.player = player
+    }
+}
+
 @Composable
 @androidx.annotation.OptIn(UnstableApi::class)
 private fun VideoWatchScreen(context: Context, settings: AppSettings, item: VideoLibraryItem, onBack: () -> Unit) {
@@ -4839,32 +4963,10 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
     var feedback by remember(item.id) { mutableStateOf(loadVideoFeedback(context, item.id)) }
     var reaction by remember(item.id) { mutableStateOf(loadVideoReaction(context, item.id)) }
     var status by remember(item.id) { mutableStateOf("Lascia feedback: Hermes lo usera' come memoria editoriale per i prossimi video.") }
-    var fullScreen by rememberSaveable(item.id) { mutableStateOf(false) }
-    DisposableEffect(fullScreen) {
-        if (!fullScreen) {
-            onDispose { }
-        } else {
-            val activity = context as? Activity
-            val previousOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            val window = activity?.window
-            val insetsController = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            if (window != null) {
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-            }
-            insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
-            onDispose {
-                activity?.requestedOrientation = previousOrientation
-                window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                insetsController?.show(WindowInsetsCompat.Type.systemBars())
-                if (window != null) {
-                    WindowCompat.setDecorFitsSystemWindows(window, false)
-                }
-            }
-        }
-    }
+    var fullScreen by remember(item.id) { mutableStateOf(false) }
+    var fullScreenControlsVisible by remember(item.id) { mutableStateOf(true) }
+    val activity = remember(context) { context.findActivity() }
+    FullscreenVideoOrientationEffect(enabled = fullScreen, activity = activity)
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -4902,13 +5004,7 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
                     if (!fullScreen) {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
-                            factory = { viewContext ->
-                                PlayerView(viewContext).apply {
-                                    useController = true
-                                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                    this.player = player
-                                }
-                            },
+                            factory = { viewContext -> createVideoPlayerView(viewContext, player) },
                             update = { view ->
                                 view.player = player
                             }
@@ -4919,7 +5015,10 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
                             .align(Alignment.TopEnd)
                             .padding(8.dp)
                             .background(Color.Black.copy(alpha = 0.62f), CircleShape),
-                        onClick = { fullScreen = true }
+                        onClick = {
+                            fullScreenControlsVisible = true
+                            fullScreen = true
+                        }
                     ) {
                         Icon(Icons.Rounded.CropFree, contentDescription = "Schermo intero", tint = Color.White)
                     }
@@ -4986,15 +5085,16 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
         }
 
         if (fullScreen) {
-            androidx.compose.ui.window.Dialog(
+            Dialog(
                 onDismissRequest = { fullScreen = false },
-                properties = androidx.compose.ui.window.DialogProperties(
+                properties = DialogProperties(
                     usePlatformDefaultWidth = false,
                     decorFitsSystemWindows = false,
                     dismissOnBackPress = true,
                     dismissOnClickOutside = false
                 )
             ) {
+                FullscreenVideoSystemUi()
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -5003,24 +5103,63 @@ private fun VideoWatchScreen(context: Context, settings: AppSettings, item: Vide
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { viewContext ->
-                            PlayerView(viewContext).apply {
-                                useController = true
-                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                this.player = player
+                            createVideoPlayerView(viewContext, player) { visible ->
+                                fullScreenControlsVisible = visible
                             }
                         },
                         update = { view ->
                             view.player = player
                         }
                     )
-                    IconButton(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(16.dp)
-                            .background(Color.Black.copy(alpha = 0.62f), CircleShape),
-                        onClick = { fullScreen = false }
+                    AnimatedVisibility(
+                        visible = fullScreenControlsVisible,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier.align(Alignment.TopCenter)
                     ) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Chiudi schermo intero", tint = Color.White)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(92.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Black.copy(alpha = 0.82f), Color.Transparent)
+                                    )
+                                )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .statusBarsPadding()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                IconButton(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(Color.Black.copy(alpha = 0.42f), CircleShape),
+                                    onClick = { fullScreen = false }
+                                ) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "Chiudi schermo intero", tint = Color.White)
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        item.title,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        "Schermo intero",
+                                        color = Color.White.copy(alpha = 0.72f),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

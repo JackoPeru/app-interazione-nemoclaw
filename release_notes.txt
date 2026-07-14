@@ -1,11 +1,11 @@
-Hermes Hub 0.6.157 (Android UI redesign)
+Hermes Hub 0.6.158 (Android video fullscreen)
 
-- Android: rimossa la barra inferiore e introdotta una navigazione laterale globale, organizzata in Operativita, Controllo, Contenuti e Account.
-- Chat: nuova testata compatta, accesso rapido ad archivio e nuova chat, stato vuoto piu leggibile, messaggi con gerarchia visiva distinta e composer piu ergonomico.
-- Sezioni: testata coerente con apertura del menu e ritorno immediato alla Chat; tutti i percorsi preesistenti restano raggiungibili.
-- Stile: palette scura piu profonda, superfici e bordi uniformati, arancione Hermes usato solo per stato e azioni primarie.
+- Android Video: corretto il loop di rotazione in schermo intero con rotazione automatica disattivata.
+- Orientamento: fullscreen transitorio; landscape fisso con auto-rotate OFF, landscape sensor con auto-rotate ON, ripristino deterministico all'uscita.
+- Lifecycle: l'Activity non viene piu ricreata durante ingresso e uscita dal player; stesso `ExoPlayer` mantenuto senza riavviare la riproduzione.
+- Player: immersive mode sulla finestra corretta, supporto notch, controlli Media3 e testata a scomparsa sincronizzata con i controlli.
 - Compatibilita': `applicationId com.nemoclaw.chat`, firma Android, package identity Windows, archivio e impostazioni storiche preservati.
-- Versioni: Windows/AdminBridge `0.6.157`; Android `versionName 0.6.157`, `versionCode 161`.
-- Asset: `HermesHub-0.6.157-android.apk`, `NemoclawChat.Windows_0.6.157.0_x64.msix`.
-- SHA-256 Android: `9FE5D21A86F92459D83BCDA13F7200222FA09AF25400FA2515AF35D404D91DFA`.
-- SHA-256 Windows: `0545B3C61C21B3F05A95B05B337D1F755E676CB3F1A99D4588764FC2948494F8`.
+- Versioni: Windows/AdminBridge `0.6.158`; Android `versionName 0.6.158`, `versionCode 162`.
+- Asset: `HermesHub-0.6.158-android.apk`, `NemoclawChat.Windows_0.6.158.0_x64.msix`.
+- SHA-256 Android: `BECC24772959BE7569EE67491D4577E502EDC5EDCF365DB250A0B01D83BEFE96`.
+- SHA-256 Windows: `9BE9676D844420AD6E2B79B3A294D0D75E782D7761CCA958198E97091F412390`.

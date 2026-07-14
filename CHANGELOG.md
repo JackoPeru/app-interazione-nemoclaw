@@ -2,6 +2,14 @@
 
 Le modifiche rilevanti di Hermes Hub sono documentate qui. Le release GitHub restano la fonte per asset e note complete.
 
+## 0.6.158 - 2026-07-14
+
+- Corretto il loop di rotazione del player Android in schermo intero quando la rotazione automatica e' disattivata.
+- Reso il fullscreen transitorio e stabile, senza ricreazioni dell'Activity o ripristini concorrenti dell'orientamento.
+- Gestiti separatamente landscape fisso e landscape sensor in base all'impostazione di sistema.
+- Rifiniti immersive mode, supporto notch, controlli Media3 e barra superiore a scomparsa.
+- Aggiunti test regressione per la politica di orientamento fullscreen.
+
 ## 0.6.157 - 2026-07-14
 
 - Ridisegnata la UI Android con una gerarchia piu pulita e una palette scura coerente.
