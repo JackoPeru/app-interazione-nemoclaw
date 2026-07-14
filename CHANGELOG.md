@@ -2,6 +2,12 @@
 
 Le modifiche rilevanti di Hermes Hub sono documentate qui. Le release GitHub restano la fonte per asset e note complete.
 
+## 0.6.159 - 2026-07-14
+
+- Gateway TTS: pronuncia mista italiano/inglese per termini tecnici, con segmenti inglesi `en-us` e fallback sicuro alla voce italiana.
+- Il patcher Kokoro unisce i segmenti WAV con micro-pause e conserva fallback CPU/CUDA e timeouts esistenti.
+- Aggiunti test di segmentazione e regressione del patcher idempotente.
+
 ## 0.6.158 - 2026-07-14
 
 - Corretto il loop di rotazione del player Android in schermo intero quando la rotazione automatica e' disattivata.

@@ -957,6 +957,37 @@ class GatewayScriptTests(unittest.TestCase):
         self.assertEqual(hardened, hardened_again)
         self.assertEqual([], second_changes)
 
+    def test_kokoro_mixed_language_segments_preserve_italian_and_switch_english_terms(self):
+        source = UPSTREAM_GATEWAY_FIXTURE.read_text(encoding="utf-8")
+        patched, _ = self.patcher._patch_text(source)
+        runtime_start = patched.index("# HERMES_HUB_KOKORO_GPU_V6")
+        runtime_end = patched.index("\ndef _hermes_hub_preload_kokoro():", runtime_start)
+        namespace: dict[str, object] = {}
+        exec(patched[runtime_start:runtime_end], namespace)
+        segment = namespace["_hermes_hub_tts_segments"]
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "HERMES_KOKORO_TTS_MIXED_LANGUAGE": "1",
+                "HERMES_KOKORO_TTS_ENGLISH_VOICE": "af_bella",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                [
+                    ("Apri ", "it", None),
+                    ("YouTube", "en-us", "af_bella"),
+                    (" e ", "it", None),
+                    ("GPT-5.6", "en-us", "af_bella"),
+                    (".", "it", None),
+                ],
+                segment("Apri YouTube e GPT-5.6.", "it"),
+            )
+
+        with mock.patch.dict(os.environ, {"HERMES_KOKORO_TTS_MIXED_LANGUAGE": "0"}, clear=False):
+            self.assertEqual([("Apri YouTube.", "it", None)], segment("Apri YouTube.", "it"))
+
     def test_shell_scripts_parse_when_bash_is_available(self):
         bash = shutil.which("bash")
         if not bash and os.name == "nt":
