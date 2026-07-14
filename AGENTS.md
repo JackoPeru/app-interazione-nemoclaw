@@ -20,7 +20,7 @@ Il client non deve sostituire memoria, planning, tool loop o policy di Hermes Ag
 
 ## Repository e Git
 
-- Remoto: `https://github.com/JackoPeru/app-interazione-nemoclaw.git`.
+- Remoto: `https://github.com/JackoPeru/HermesHub.git`.
 - Branch di release: `main`.
 - Non fare commit, push, tag o release senza richiesta esplicita di Matteo.
 - Non sovrascrivere modifiche estranee presenti nel worktree.

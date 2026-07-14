@@ -25,8 +25,8 @@ public sealed record UpdateDownloadProgress(double? Percent, string Status, stri
 public static class AppUpdateService
 {
     public const string RepositoryOwner = "JackoPeru";
-    public const string RepositoryName = "app-interazione-nemoclaw";
-    public const string ReleasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases";
+    public const string RepositoryName = "HermesHub";
+    public const string ReleasesPage = "https://github.com/JackoPeru/HermesHub/releases";
     private const long MaxAssetBytes = 500L * 1024 * 1024;
     private const int MaxReleaseMetadataBytes = 2 * 1024 * 1024;
     private const string TrustedAssetHost = "objects.githubusercontent.com";

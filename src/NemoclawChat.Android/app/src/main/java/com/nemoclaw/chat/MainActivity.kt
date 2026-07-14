@@ -10384,8 +10384,8 @@ private object AppDefaults {
     const val maxAttachmentMb = 150
     const val strictNativeMode = false
     const val demoMode = false
-    const val releasesPage = "https://github.com/JackoPeru/app-interazione-nemoclaw/releases"
-    const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/app-interazione-nemoclaw/releases/latest"
+    const val releasesPage = "https://github.com/JackoPeru/HermesHub/releases"
+    const val latestReleaseApi = "https://api.github.com/repos/JackoPeru/HermesHub/releases/latest"
 }
 
 internal object AppColors {

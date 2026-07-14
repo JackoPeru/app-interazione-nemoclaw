@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Transactional updater for the Hermes Hub Linux gateway helper.
 
-REPO="${HERMES_HUB_REPO:-JackoPeru/app-interazione-nemoclaw}"
+REPO="${HERMES_HUB_REPO:-JackoPeru/HermesHub}"
 INSTALL_DIR="${HERMES_HUB_INSTALL_DIR:-$HOME/.local/share/hermes-hub-gateway}"
 BIN_DIR="${HERMES_HUB_BIN_DIR:-$HOME/.local/bin}"
 SERVICE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
@@ -37,7 +37,7 @@ usage() {
 Usage: hermes-hub-linux-update [--check] [--force] [--allow-downgrade] [--restart] [--no-restart]
 
 Env:
-  HERMES_HUB_REPO=JackoPeru/app-interazione-nemoclaw
+  HERMES_HUB_REPO=JackoPeru/HermesHub
   HERMES_HUB_INSTALL_DIR=$HOME/.local/share/hermes-hub-gateway
   HERMES_HUB_SERVICE=hermes-hub.service
   HERMES_HUB_CHANNEL=latest

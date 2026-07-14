@@ -44,6 +44,40 @@ class ReleaseConsistencyTests(unittest.TestCase):
         )
         self.assertIn(f"## {EXPECTED_VERSION} -", read("CHANGELOG.md"))
 
+    def test_github_repository_defaults_target_hermes_hub(self) -> None:
+        expected_slug = "JackoPeru/HermesHub"
+        obsolete_slug = "app-interazione-nemoclaw"
+        files = (
+            "AGENTS.md",
+            "CHANGELOG.md",
+            "scripts/hermes-hub-linux-update.service",
+            "scripts/hermes-hub-linux-update.sh",
+            "src/NemoclawChat.Windows/Services/AppUpdateService.cs",
+            "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt",
+        )
+
+        contents = {path: read(path) for path in files}
+        for path, content in contents.items():
+            self.assertNotIn(obsolete_slug, content, path)
+
+        self.assertIn(expected_slug, contents["AGENTS.md"])
+        self.assertIn(expected_slug, contents["CHANGELOG.md"])
+        self.assertIn(expected_slug, contents["scripts/hermes-hub-linux-update.service"])
+        self.assertIn(
+            'REPO="${HERMES_HUB_REPO:-JackoPeru/HermesHub}"',
+            contents["scripts/hermes-hub-linux-update.sh"],
+        )
+        self.assertIn(
+            'public const string RepositoryName = "HermesHub";',
+            contents["src/NemoclawChat.Windows/Services/AppUpdateService.cs"],
+        )
+        self.assertIn(
+            "https://api.github.com/repos/JackoPeru/HermesHub/releases/latest",
+            contents[
+                "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt"
+            ],
+        )
+
     def test_android_has_one_canonical_gradle_build(self) -> None:
         for stale_file in (
             "build.gradle.kts",
