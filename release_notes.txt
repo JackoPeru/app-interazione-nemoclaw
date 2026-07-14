@@ -1,11 +1,11 @@
-Hermes Hub 0.6.158 (Android video fullscreen)
+Hermes Hub 0.6.159 (TTS italiano/inglese misto)
 
-- Android Video: corretto il loop di rotazione in schermo intero con rotazione automatica disattivata.
-- Orientamento: fullscreen transitorio; landscape fisso con auto-rotate OFF, landscape sensor con auto-rotate ON, ripristino deterministico all'uscita.
-- Lifecycle: l'Activity non viene piu ricreata durante ingresso e uscita dal player; stesso `ExoPlayer` mantenuto senza riavviare la riproduzione.
-- Player: immersive mode sulla finestra corretta, supporto notch, controlli Media3 e testata a scomparsa sincronizzata con i controlli.
+- TTS gateway: le frasi italiane mantengono la voce italiana; termini inglesi riconosciuti sono sintetizzati come segmenti `en-us`.
+- Affidabilita: micro-pause WAV tra cambi lingua, timeout e fallback CPU esistenti preservati; se la voce inglese non e disponibile la risposta resta riproducibile in italiano.
+- Patcher Linux: aggiornamento idempotente e copertura automatica per segmentazione, fallback e coerenza della release.
 - Compatibilita': `applicationId com.nemoclaw.chat`, firma Android, package identity Windows, archivio e impostazioni storiche preservati.
-- Versioni: Windows/AdminBridge `0.6.158`; Android `versionName 0.6.158`, `versionCode 162`.
-- Asset: `HermesHub-0.6.158-android.apk`, `NemoclawChat.Windows_0.6.158.0_x64.msix`.
-- SHA-256 Android: `BECC24772959BE7569EE67491D4577E502EDC5EDCF365DB250A0B01D83BEFE96`.
-- SHA-256 Windows: `9BE9676D844420AD6E2B79B3A294D0D75E782D7761CCA958198E97091F412390`.
+- Versioni: Windows/AdminBridge `0.6.159`; Android `versionName 0.6.159`, `versionCode 163`.
+- Asset: `HermesHub-0.6.159-android.apk`, `NemoclawChat.Windows_0.6.159.0_x64.msix`, `HermesHub-0.6.159-linux-gateway.tar.gz`.
+- SHA-256 Android: `8FB5E41AA17F4592808C8469D6DD393DEE402AA5FFEFEACA2FCF57D69AE7977E`.
+- SHA-256 Windows: `FA987B82C119D8AF5C7C16E0C9A733E14CB3B78A9FB0C12BAC0D447E13CEABB9`.
+- SHA-256 gateway Linux: `92BF665CBDF6E7BD5F8B96E60577E7FD58AA22C9D81AA328712E2EFB3A6BCB53`.

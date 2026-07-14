@@ -69,4 +69,4 @@ python -m unittest discover -s tests -p "test_*.py"
 - [Visual Blocks](docs/visual-blocks-schema.md)
 - [Cronologia release](CHANGELOG.md)
 
-Versione corrente: `0.6.158`.
+Versione corrente: `0.6.159`.
