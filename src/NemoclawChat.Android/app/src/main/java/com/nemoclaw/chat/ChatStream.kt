@@ -548,11 +548,11 @@ fun streamChatRequest(
                 .put("metadata", visualBlocksMetadataJson(settings, conversationId))
             payload.put(
                 "instructions",
-                if (nativeMode) hermesNativeInstructions(mode) else
+                (if (nativeMode) hermesNativeInstructions(mode) else
                     (if (mode.equals("Agente", ignoreCase = true))
                         hermesHubAgentInstructions()
                     else
-                        hermesHubChatInstructions()) + if (videoMode) "\n\n" + hermesHubVideoInstructions(settings) else ""
+                        hermesHubChatInstructions())) + projectContextInstructions(settings) + if (videoMode) "\n\n" + hermesHubVideoInstructions(settings) else ""
             )
             return payload
         }
@@ -616,7 +616,7 @@ fun streamChatRequest(
                     put(
                         JSONObject()
                                 .put("role", "system")
-                                .put("content", if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
+                                .put("content", (if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions()) + projectContextInstructions(settings))
                     )
                 }
                 if (videoMode && !nativeMode) {
@@ -1066,7 +1066,7 @@ private fun runDetachedAgent(
     val payload = JSONObject()
         .put("model", settings.model)
         .put("input", buildMultimodalInput(prompt, attachments))
-        .put("instructions", hermesHubAgentInstructions())
+        .put("instructions", hermesHubAgentInstructions() + projectContextInstructions(settings))
         .put("session_id", hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, conversationId) ?: JSONObject.NULL)
         .put("metadata", visualBlocksMetadataJson(settings, conversationId))
         .put("conversation_history", JSONArray(history.takeLast(30).mapNotNull { msg ->
@@ -1916,6 +1916,17 @@ private fun visualBlocksMetadataJson(settings: AppSettings, conversationId: Stri
         .put("project_id", settings.activeProjectId)
         .put("project_name", settings.activeProjectName)
         .put("workspace", settings.activeProjectName.ifBlank { "default" })
+        .put(
+            "project_context",
+            if (settings.activeProjectId.isBlank()) JSONObject.NULL else JSONObject()
+                .put("id", settings.activeProjectId)
+                .put("name", settings.activeProjectName)
+                .put("workspace_path", settings.activeProjectWorkspacePath)
+                .put("repository_url", settings.activeProjectRepositoryUrl)
+                .put("instructions", settings.activeProjectInstructions)
+                .put("memory", settings.activeProjectMemory)
+                .put("authorized_tools", JSONArray(settings.activeProjectTools.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()))
+        )
         .put(
             "hub_conversation",
             JSONObject()

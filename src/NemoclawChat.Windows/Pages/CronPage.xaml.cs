@@ -8,11 +8,13 @@ namespace NemoclawChat_Windows.Pages;
 public sealed partial class CronPage : Page
 {
     private IReadOnlyList<CronJobRecord> _jobs = [];
+    private string? _editingId;
 
     public CronPage()
     {
         InitializeComponent();
         Loaded += CronPage_Loaded;
+        ProjectBox.Text = AppSettingsStore.Load().ActiveProjectId;
     }
 
     private async void CronPage_Loaded(object sender, RoutedEventArgs e)
@@ -107,11 +109,13 @@ public sealed partial class CronPage : Page
         AddDetail(details, "Programmazione", job.Schedule);
         AddDetail(details, "Prossima esecuzione", job.NextRunAt);
         AddDetail(details, "Ultima esecuzione", job.LastRunAt);
+        AddDetail(details, "Ultimo output", job.LastStatus);
         AddDetail(details, "Stato", job.State);
         AddDetail(details, "Consegna", job.Deliver);
         AddDetail(details, "Origine", job.Origin);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        actions.Children.Add(CreateActionButton("Modifica", job.Id, Edit_Click));
         actions.Children.Add(CreateActionButton("Esegui ora", job.Id, Run_Click));
         actions.Children.Add(CreateActionButton(job.Enabled ? "Pausa" : "Riprendi", job.Id, job.Enabled ? Pause_Click : Resume_Click));
         actions.Children.Add(CreateActionButton("Elimina", job.Id, Delete_Click));
@@ -188,6 +192,140 @@ public sealed partial class CronPage : Page
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
         await ExecuteActionAsync(sender, GatewayService.DeleteCronJobAsync);
+    }
+
+    private void Edit_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string id }) return;
+        var job = _jobs.FirstOrDefault(candidate => candidate.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        if (job is null) return;
+        var definition = AutomationPromptCodec.Decode(job.Prompt);
+        _editingId = job.Id;
+        EditorTitle.Text = $"Modifica · {job.Name}";
+        NameBox.Text = job.Name;
+        TaskPromptBox.Text = definition.TaskPrompt;
+        ConditionBox.Text = definition.Condition;
+        TimeoutBox.Value = definition.TimeoutSeconds;
+        RetryBox.Value = definition.RetryCount;
+        NotificationBox.Text = definition.NotificationTemplate;
+        ProjectBox.Text = definition.ProjectId;
+        DependenciesBox.Text = definition.Dependencies;
+        DeliverBox.Text = job.Deliver;
+        AdvancedCronBox.Text = job.Schedule;
+        FrequencyBox.SelectedIndex = 3;
+        UpdateSchedulePreview();
+    }
+
+    private void ClearEditor_Click(object sender, RoutedEventArgs e)
+    {
+        _editingId = null;
+        EditorTitle.Text = "Nuova automazione";
+        NameBox.Text = string.Empty;
+        TaskPromptBox.Text = string.Empty;
+        ConditionBox.Text = string.Empty;
+        TimeoutBox.Value = 900;
+        RetryBox.Value = 0;
+        NotificationBox.Text = string.Empty;
+        ProjectBox.Text = AppSettingsStore.Load().ActiveProjectId;
+        DependenciesBox.Text = string.Empty;
+        DeliverBox.Text = "local";
+        FrequencyBox.SelectedIndex = 1;
+        TimeBox.Text = "08:00";
+        DaysBox.Text = "1,2,3,4,5";
+        AdvancedCronBox.Text = string.Empty;
+        UpdateSchedulePreview();
+    }
+
+    private void DuplicateEditor_Click(object sender, RoutedEventArgs e)
+    {
+        _editingId = null;
+        NameBox.Text = string.IsNullOrWhiteSpace(NameBox.Text) ? string.Empty : $"{NameBox.Text.Trim()} copia";
+        EditorTitle.Text = "Duplica automazione";
+        StatusText.Text = "Copia pronta: modifica e salva.";
+    }
+
+    private async void SaveEditor_Click(object sender, RoutedEventArgs e)
+    {
+        var name = NameBox.Text.Trim();
+        var task = TaskPromptBox.Text.Trim();
+        var schedule = BuildSchedule();
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(task) || string.IsNullOrWhiteSpace(schedule))
+        {
+            StatusText.Text = "Nome, attività e programmazione obbligatori.";
+            return;
+        }
+
+        var definition = ReadDefinition(task);
+        StatusText.Text = "Salvo automazione...";
+        StatusText.Text = await GatewayService.SaveCronJobAsync(
+            AppSettingsStore.Load(), _editingId, name, schedule,
+            AutomationPromptCodec.Encode(definition), DeliverBox.Text);
+        if (!StatusText.Text.StartsWith("Automazione non", StringComparison.Ordinal))
+        {
+            ClearEditor_Click(sender, e);
+            await RefreshAsync();
+        }
+    }
+
+    private async void TestEditor_Click(object sender, RoutedEventArgs e)
+    {
+        var task = TaskPromptBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(task))
+        {
+            StatusText.Text = "Attività obbligatoria per prova.";
+            return;
+        }
+
+        StatusText.Text = "Prova in corso, job non salvato...";
+        var result = await GatewayService.SendWorkspaceRunAsync(
+            AppSettingsStore.Load(), "Automation", AutomationPromptCodec.Encode(ReadDefinition(task)));
+        StatusText.Text = $"{result.Status} {result.Result}".Trim();
+    }
+
+    private AutomationDefinition ReadDefinition(string task) => new(
+        task,
+        ConditionBox.Text.Trim(),
+        (int)Math.Clamp(double.IsFinite(TimeoutBox.Value) ? TimeoutBox.Value : 900, 10, 86_400),
+        (int)Math.Clamp(double.IsFinite(RetryBox.Value) ? RetryBox.Value : 0, 0, 10),
+        NotificationBox.Text.Trim(),
+        ProjectBox.Text.Trim(),
+        DependenciesBox.Text.Trim());
+
+    private void FrequencyBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (AdvancedCronBox is null) return;
+        AdvancedCronBox.Visibility = FrequencyBox.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSchedulePreview();
+    }
+
+    private string BuildSchedule()
+    {
+        if (FrequencyBox.SelectedIndex == 0) return "0 * * * *";
+        if (FrequencyBox.SelectedIndex == 3) return AdvancedCronBox.Text.Trim();
+        if (!TimeOnly.TryParse(TimeBox.Text.Trim(), out var time)) return string.Empty;
+        return FrequencyBox.SelectedIndex == 2
+            ? $"{time.Minute} {time.Hour} * * {DaysBox.Text.Trim()}"
+            : $"{time.Minute} {time.Hour} * * *";
+    }
+
+    private void UpdateSchedulePreview()
+    {
+        if (SchedulePreviewText is null) return;
+        var schedule = BuildSchedule();
+        SchedulePreviewText.Text = string.IsNullOrWhiteSpace(schedule)
+            ? "Programmazione non valida."
+            : $"Espressione: {schedule}. Anteprima: {DescribeSchedule()}";
+    }
+
+    private string DescribeSchedule()
+    {
+        return FrequencyBox.SelectedIndex switch
+        {
+            0 => "al minuto 0 di ogni ora",
+            1 => $"ogni giorno alle {TimeBox.Text.Trim()}",
+            2 => $"giorni {DaysBox.Text.Trim()} alle {TimeBox.Text.Trim()}",
+            _ => "cron avanzato; prossime date calcolate dal gateway"
+        };
     }
 
     private async Task ExecuteActionAsync(object sender, Func<AppSettings, string, Task<string>> action)

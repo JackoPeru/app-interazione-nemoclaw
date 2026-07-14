@@ -3,6 +3,7 @@
     <cache-path
         name="exports"
         path="exports/" />
+    <cache-path name="attachments" path="attachments/" />
     <external-files-path
         name="external_exports"
         path="exports/" />

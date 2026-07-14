@@ -13,7 +13,7 @@ public static class HermesHubProtocol
     {
         if (IsNativePreferred(settings))
         {
-            return NativeInstructions(mode);
+            return NativeInstructions(mode) + ProjectContextInstructions(settings);
         }
 
         var shared = """
@@ -32,6 +32,8 @@ public static class HermesHubProtocol
             Screenshot browser: quando Matteo chiede uno screen o una foto di cio' che stai facendo, cattura davvero lo screenshot, copialo prima in HERMES_HUB_UPLOAD_PATH (default ~/.hermes/hub_uploads), poi rispondi con un visual_blocks media_file di tipo image e media_url /v1/media/<nome-file>. La chat deve mostrare immagine dentro canvas; risposta testuale puo' descrivere contenuto ma non deve contenere path o URL. Non dichiarare screen inviato senza una card immagine valida.
             Durante lavori agente lunghi, inoltra eventi realtime per reasoning, tool call, argomenti tool, risultati tool e chiamate modello intermedie quando il gateway li supporta: Hermes Hub deve mostrare all'utente cosa stai facendo.
             """;
+
+        shared += ProjectContextInstructions(settings);
 
         if (mode.Equals("Agente", StringComparison.OrdinalIgnoreCase))
         {
@@ -79,6 +81,7 @@ public static class HermesHubProtocol
     public static object Metadata(AppSettings settings, string? workspace = null, string? source = null, string? conversationId = null)
     {
         var serverConversationId = ServerConversationId(conversationId);
+        var project = ResolveActiveProject(settings);
         return new
         {
             client = "hermes-hub",
@@ -90,6 +93,16 @@ public static class HermesHubProtocol
             project_id = settings.ActiveProjectId,
             project_name = settings.ActiveProjectName,
             workspace = workspace ?? (string.IsNullOrWhiteSpace(settings.ActiveProjectName) ? "default" : settings.ActiveProjectName),
+            project_context = project is null ? null : new
+            {
+                id = project.Id,
+                name = project.Title,
+                workspace_path = project.WorkspacePath,
+                repository_url = project.RepositoryUrl,
+                instructions = project.ProjectInstructions,
+                memory = project.ProjectMemory,
+                authorized_tools = project.AuthorizedTools
+            },
             source,
             hub_conversation = new
             {
@@ -176,6 +189,40 @@ public static class HermesHubProtocol
     {
         return """
             Hermes Hub media contract: never answer with a local filesystem path, file:// URL, or bracketed media address. For each file requested by Matteo return a visual_blocks media_file card using /v1/media/...; use image_gallery for multiple images. For a browser screenshot, capture it, copy it to HERMES_HUB_UPLOAD_PATH (default ~/.hermes/hub_uploads), and return a media_file image card with media_url /v1/media/<filename>. Do not claim a screenshot was shared unless that image card is present.
+            """;
+    }
+
+    private static ConversationRecord? ResolveActiveProject(AppSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ActiveProjectId))
+        {
+            return null;
+        }
+
+        var project = ChatArchiveStore.Find(settings.ActiveProjectId);
+        return project?.Kind.Equals("Progetto", StringComparison.OrdinalIgnoreCase) == true ? project : null;
+    }
+
+    private static string ProjectContextInstructions(AppSettings settings)
+    {
+        var project = ResolveActiveProject(settings);
+        if (project is null)
+        {
+            return string.Empty;
+        }
+
+        var tools = project.AuthorizedTools.Count == 0 ? "nessuno specificato" : string.Join(", ", project.AuthorizedTools);
+        return $"""
+
+            Contesto progetto attivo Hermes Hub:
+            - ID: {project.Id}
+            - Nome: {project.Title}
+            - Workspace: {project.WorkspacePath}
+            - Repository: {project.RepositoryUrl}
+            - Tool autorizzati: {tools}
+            - Istruzioni progetto: {project.ProjectInstructions}
+            - Memoria progetto: {project.ProjectMemory}
+            Usa automaticamente questo contesto per la richiesta corrente. Non usare tool fuori dalla lista autorizzata quando la lista non e' vuota; chiedi approvazione per ampliarli.
             """;
     }
 }

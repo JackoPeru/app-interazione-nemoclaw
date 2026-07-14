@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="NemoclawChat_Windows.Pages.ProjectsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{StaticResource AppBackgroundBrush}">
+
+    <Grid Padding="28" ColumnSpacing="20" RowSpacing="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.ColumnSpan="2" Spacing="6">
+            <TextBlock FontSize="30" FontWeight="SemiBold" Foreground="White" Text="Progetti" />
+            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Workspace operativi con chat, contesto, file e artifact collegati." />
+        </StackPanel>
+
+        <Border Grid.Row="1" Padding="16" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+            <Grid RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Button HorizontalAlignment="Stretch" Click="NewProject_Click" Content="+ Nuovo progetto" />
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="ProjectListPanel" Spacing="8" />
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="16" Padding="0,0,8,24">
+                <Border Padding="18" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="12">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="DashboardTitle" FontSize="22" FontWeight="SemiBold" Foreground="White" Text="Nuovo progetto" />
+                            <TextBlock x:Name="ActiveBadge" Grid.Column="1" VerticalAlignment="Center" Foreground="{StaticResource AccentGreenBrush}" Text="" />
+                        </Grid>
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Padding="12" Background="{StaticResource AssistantBubbleBrush}" CornerRadius="12">
+                                <StackPanel><TextBlock x:Name="ChatCountText" FontSize="22" Foreground="White" Text="0" /><TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Chat" /></StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Padding="12" Background="{StaticResource AssistantBubbleBrush}" CornerRadius="12">
+                                <StackPanel><TextBlock x:Name="ArtifactCountText" FontSize="22" Foreground="White" Text="0" /><TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Artifact" /></StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Padding="12" Background="{StaticResource AssistantBubbleBrush}" CornerRadius="12">
+                                <StackPanel><TextBlock x:Name="ActivityCountText" FontSize="22" Foreground="White" Text="0" /><TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Attività" /></StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Padding="18" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="12">
+                        <TextBlock FontWeight="SemiBold" Foreground="White" Text="Impostazioni progetto" />
+                        <TextBox x:Name="TitleBox" Header="Nome" MaxLength="180" />
+                        <TextBox x:Name="DescriptionBox" Header="Descrizione" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="4000" MinHeight="70" />
+                        <TextBox x:Name="WorkspacePathBox" Header="Cartella o workspace server" PlaceholderText="/home/matteo/progetti/..." MaxLength="1024" />
+                        <TextBox x:Name="RepositoryUrlBox" Header="Repository" PlaceholderText="https://github.com/..." MaxLength="2048" />
+                        <TextBox x:Name="InstructionsBox" Header="Istruzioni specifiche" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="20000" MinHeight="110" />
+                        <TextBox x:Name="MemoryBox" Header="Memoria progetto" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="20000" MinHeight="110" />
+                        <TextBox x:Name="ToolsBox" Header="Tool autorizzati" PlaceholderText="Uno per riga o separati da virgola" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Click="SaveProject_Click" Content="Salva progetto" />
+                            <Button x:Name="ActivateButton" Click="ActivateProject_Click" Content="Attiva" IsEnabled="False" />
+                            <Button x:Name="NewChatButton" Click="NewProjectChat_Click" Content="Nuova chat nel progetto" IsEnabled="False" />
+                            <Button x:Name="DeactivateButton" Click="DeactivateProject_Click" Content="Disattiva" />
+                        </StackPanel>
+                        <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedTextBrush}" Text="Pronto." TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border Padding="18" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="10">
+                        <TextBlock FontWeight="SemiBold" Foreground="White" Text="Chat associate" />
+                        <StackPanel x:Name="ProjectChatsPanel" Spacing="8" />
+                    </StackPanel>
+                </Border>
+
+                <Border Padding="18" Background="{StaticResource SurfaceBrush}" CornerRadius="18">
+                    <StackPanel Spacing="10">
+                        <TextBlock FontWeight="SemiBold" Foreground="White" Text="Artifact recenti" />
+                        <StackPanel x:Name="ProjectArtifactsPanel" Spacing="8" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

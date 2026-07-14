@@ -20,10 +20,10 @@
                             FontSize="30"
                             FontWeight="SemiBold"
                             Foreground="White"
-                            Text="Cron" />
+                            Text="Automation Studio" />
                         <TextBlock
                             Foreground="{StaticResource MutedTextBrush}"
-                            Text="Automazioni Hermes realmente programmate sul gateway. Per crearne una nuova, chiedilo in chat: Hermes usera' il proprio tool cron ufficiale." />
+                            Text="Crea, modifica, prova e controlla automazioni Hermes sul gateway." />
                     </StackPanel>
                     <Button
                         Grid.Column="1"
@@ -31,6 +31,43 @@
                         Click="Refresh_Click"
                         Content="Aggiorna" />
                 </Grid>
+
+                <Border Padding="18" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="18">
+                    <StackPanel Spacing="12">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="EditorTitle" Foreground="White" FontSize="20" FontWeight="SemiBold" Text="Nuova automazione" />
+                            <Button Grid.Column="1" Click="ClearEditor_Click" Content="Nuova" />
+                        </Grid>
+                        <TextBox x:Name="NameBox" Header="Nome" MaxLength="120" />
+                        <TextBox x:Name="TaskPromptBox" Header="Attività" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" MaxLength="12000" />
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <ComboBox x:Name="FrequencyBox" Header="Frequenza" SelectionChanged="FrequencyBox_SelectionChanged" SelectedIndex="1">
+                                <ComboBoxItem Content="Ogni ora" /><ComboBoxItem Content="Giornaliera" /><ComboBoxItem Content="Settimanale" /><ComboBoxItem Content="Cron avanzato" />
+                            </ComboBox>
+                            <TextBox x:Name="TimeBox" Grid.Column="1" Header="Ora" Text="08:00" />
+                            <TextBox x:Name="DaysBox" Grid.Column="2" Header="Giorni cron" PlaceholderText="1,2,3,4,5" Text="1,2,3,4,5" />
+                        </Grid>
+                        <TextBox x:Name="AdvancedCronBox" Header="Espressione cron avanzata" PlaceholderText="0 8 * * 1-5" Visibility="Collapsed" />
+                        <TextBlock x:Name="SchedulePreviewText" Foreground="{StaticResource MutedTextBrush}" Text="Prossime esecuzioni: ogni giorno alle 08:00" TextWrapping="Wrap" />
+                        <TextBox x:Name="ConditionBox" Header="Condizione opzionale" PlaceholderText="Esegui solo se temperatura server &gt; 85 C" />
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBox x:Name="DeliverBox" Header="Destinazione" Text="local" />
+                            <NumberBox x:Name="TimeoutBox" Grid.Column="1" Header="Timeout secondi" Value="900" Minimum="10" Maximum="86400" />
+                            <NumberBox x:Name="RetryBox" Grid.Column="2" Header="Retry" Value="0" Minimum="0" Maximum="10" />
+                        </Grid>
+                        <TextBox x:Name="NotificationBox" Header="Modello notifica" PlaceholderText="Titolo e messaggio da inviare al termine" />
+                        <TextBox x:Name="ProjectBox" Header="Progetto associato" />
+                        <TextBox x:Name="DependenciesBox" Header="Dipendenze" PlaceholderText="ID job separati da virgola" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Click="SaveEditor_Click" Content="Salva" />
+                            <Button Click="TestEditor_Click" Content="Prova senza salvare" />
+                            <Button Click="DuplicateEditor_Click" Content="Duplica" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
 
                 <Border
                     Padding="18"

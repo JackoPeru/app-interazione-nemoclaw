@@ -475,7 +475,7 @@ public sealed partial class HomePage : Page
 
     private void Projects_Click(object sender, RoutedEventArgs e)
     {
-        AddAction("Workspace", "Workspace/progetti saranno collegati agli artifact Hermes con audit trail.");
+        Frame.Navigate(typeof(ProjectsPage));
     }
 
     private void SetModeChat_Click(object sender, RoutedEventArgs e)
@@ -664,6 +664,7 @@ public sealed partial class HomePage : Page
         var previousResponseId = _previousResponseId;
         var localHistory = _messageHistory.ToList();
         var attachments = _pendingAttachments.ToList();
+        var settings = AppSettingsStore.Load();
 
         try
         {
@@ -678,7 +679,7 @@ public sealed partial class HomePage : Page
             _messageHistory.Add(userMessage);
             localHistory.Add(userMessage);
             PromptBox.Text = string.Empty;
-            var initialSave = await Task.Run(() => ChatArchiveStore.SaveSnapshot(conversationId, sendMode, displayPrompt, localHistory.ToList(), "Hermes in corso", previousResponseId));
+            var initialSave = await Task.Run(() => ChatArchiveStore.SaveSnapshot(conversationId, sendMode, displayPrompt, localHistory.ToList(), "Hermes in corso", previousResponseId, settings.ActiveProjectId));
             conversationId = initialSave.Id;
             previousResponseId = initialSave.PreviousResponseId;
             streamCts.Token.ThrowIfCancellationRequested();
@@ -688,7 +689,6 @@ public sealed partial class HomePage : Page
                 _previousResponseId = previousResponseId;
             }
 
-            var settings = AppSettingsStore.Load();
             bubble = CreateStreamingAssistantBubble();
             if (IsComposerRunCurrent(composerRunId))
             {

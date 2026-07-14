@@ -151,7 +151,13 @@ public sealed partial class ArchivePage : Page
         OpenButton.IsEnabled = true;
         PinButton.IsEnabled = true;
         DeleteButton.IsEnabled = item.ConversationId is not null;
+        ManageButton.IsEnabled = item.ConversationId is not null && item.Kind is "Chat" or "Task";
         StatusText.Text = "Elemento selezionato.";
+    }
+
+    private void ManageSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected?.ConversationId is { } id) Frame.Navigate(typeof(ConversationManagerPage), id);
     }
 
     private void RenderResults()

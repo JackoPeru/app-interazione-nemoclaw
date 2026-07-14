@@ -1,6 +1,7 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using NemoclawChat_Windows.Pages;
 using NemoclawChat_Windows.Services;
 using Windows.Graphics;
@@ -117,6 +118,19 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(ArchivePage));
     }
 
+    private void Search_Click(object sender, RoutedEventArgs e) => ContentFrame.Navigate(typeof(SearchPage));
+
+    private void SearchAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        ContentFrame.Navigate(typeof(SearchPage));
+        args.Handled = true;
+    }
+
+    private void Projects_Click(object sender, RoutedEventArgs e)
+    {
+        ContentFrame.Navigate(typeof(ProjectsPage));
+    }
+
     private void Cron_Click(object sender, RoutedEventArgs e)
     {
         ContentFrame.Navigate(typeof(CronPage));
@@ -126,6 +140,9 @@ public sealed partial class MainWindow : Window
     {
         ContentFrame.Navigate(typeof(NotificationsPage));
     }
+
+    private void Continuity_Click(object sender, RoutedEventArgs e) => ContentFrame.Navigate(typeof(ContinuityPage));
+    private void Audit_Click(object sender, RoutedEventArgs e) => ContentFrame.Navigate(typeof(AuditPage));
 
     private void Server_Click(object sender, RoutedEventArgs e)
     {
@@ -145,6 +162,11 @@ public sealed partial class MainWindow : Window
     private void Video_Click(object sender, RoutedEventArgs e)
     {
         ContentFrame.Navigate(typeof(VideoPage));
+    }
+
+    private void Artifacts_Click(object sender, RoutedEventArgs e)
+    {
+        ContentFrame.Navigate(typeof(ArtifactsPage));
     }
 
     private void News_Click(object sender, RoutedEventArgs e)

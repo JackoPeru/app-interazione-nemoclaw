@@ -9,6 +9,9 @@
     Title="Hermes Hub"
     mc:Ignorable="d">
     <Grid Background="{StaticResource AppBackgroundBrush}">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="SearchAccelerator_Invoked" />
+        </Grid.KeyboardAccelerators>
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="SidebarColumn" Width="280" />
             <ColumnDefinition Width="*" />
@@ -103,6 +106,13 @@
                             <TextBlock Text="Prestazioni" />
                         </StackPanel>
                     </Button>
+                    <Button Click="Continuity_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Continuità dispositivi" AutomationProperties.Name="Continuità dispositivi">
+                        <StackPanel Orientation="Horizontal" Spacing="10"><FontIcon FontSize="15" Glyph="&#xE8C8;" /><TextBlock Text="Continuità" /></StackPanel>
+                    </Button>
+                    <Button Click="Audit_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Timeline audit" AutomationProperties.Name="Timeline audit"><StackPanel Orientation="Horizontal" Spacing="10"><FontIcon FontSize="15" Glyph="&#xE9D5;" /><TextBlock Text="Audit" /></StackPanel></Button>
+                    <Button Click="Search_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Ricerca universale (Ctrl+K)" AutomationProperties.Name="Ricerca universale">
+                        <StackPanel Orientation="Horizontal" Spacing="10"><FontIcon FontSize="15" Glyph="&#xE721;" /><TextBlock Text="Ricerca globale" /></StackPanel>
+                    </Button>
                     <Button Click="Voice_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Voce" AutomationProperties.Name="Voce">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE720;" />
@@ -113,6 +123,12 @@
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon FontSize="15" Glyph="&#xE714;" />
                             <TextBlock Text="Video" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="Artifacts_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Artifact" AutomationProperties.Name="Artifact">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon FontSize="15" Glyph="&#xE8B7;" />
+                            <TextBlock Text="Artifact" />
                         </StackPanel>
                     </Button>
                     <Button Click="News_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="News" AutomationProperties.Name="News">
@@ -130,7 +146,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="2" Spacing="18">
-                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Progetti" AutomationProperties.Name="Progetti">
+                    <Button Click="Projects_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Progetti" AutomationProperties.Name="Progetti">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock
                                 Foreground="White"

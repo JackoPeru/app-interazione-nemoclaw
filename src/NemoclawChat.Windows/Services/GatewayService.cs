@@ -82,7 +82,15 @@ public sealed record HubNotificationRecord(
     string Source,
     string ConversationPrompt,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? ReadAt);
+    DateTimeOffset? ReadAt,
+    string Category = "Generale",
+    string Priority = "Normale",
+    bool Archived = false,
+    DateTimeOffset? SnoozedUntil = null,
+    string AutomationId = "",
+    string RunId = "",
+    string FileUrl = "",
+    string ProjectId = "");
 
 public sealed record HubNotificationsResult(
     IReadOnlyList<HubNotificationRecord> Items,
@@ -967,6 +975,34 @@ public static class GatewayService
         return $"HTTP {response.StatusCode} {response.ReasonPhrase}: {ExtractHumanError(body)}";
     }
 
+    public static async Task<(string Url, string Status)> UploadContinuityFileAsync(AppSettings settings, string path, CancellationToken cancellationToken = default)
+    {
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length <= 0 || info.Length > 100 * 1024 * 1024) return (string.Empty, "File assente, vuoto o oltre 100 MB.");
+        await EnsureReachableGatewayAsync(settings, cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Post, ResolveHermesUri(settings, "/v1/media/upload"));
+        var token = GatewayCredentialStore.LoadSecret();
+        if (string.IsNullOrWhiteSpace(token)) token = GatewayCredentialStore.DefaultApiKey;
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        using var content = new MultipartFormDataContent();
+        using var fileContent = new StreamContent(stream);
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        content.Add(fileContent, "file", info.Name);
+        request.Content = content;
+        using var response = await HttpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+        var body = await ReadBoundedStringAsync(response.Content, MaxBufferedResponseBytes, cancellationToken);
+        if (!response.IsSuccessStatusCode) return (string.Empty, $"Upload fallito: HTTP {(int)response.StatusCode} {ExtractHumanError(body)}");
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            var url = ExtractString(root, "media_url", "url", "file_url") ?? string.Empty;
+            return (url, string.IsNullOrWhiteSpace(url) ? "Upload riuscito ma URL mancante." : "File caricato.");
+        }
+        catch (JsonException) { return (string.Empty, "Risposta upload non valida."); }
+    }
+
     public static async Task<NewsLibraryResult> LoadNewsLibraryAsync(AppSettings settings)
     {
         try
@@ -1083,6 +1119,30 @@ public static class GatewayService
         return await CronJobActionAsync(settings, id, "run", HttpMethod.Post, "Cron avviato.");
     }
 
+    public static async Task<string> SaveCronJobAsync(
+        AppSettings settings,
+        string? id,
+        string name,
+        string schedule,
+        string prompt,
+        string deliver)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            name = name.Trim(),
+            schedule = schedule.Trim(),
+            prompt,
+            deliver = string.IsNullOrWhiteSpace(deliver) ? "local" : deliver.Trim()
+        });
+        var creating = string.IsNullOrWhiteSpace(id);
+        var path = creating ? "/api/jobs" : $"/api/jobs/{Uri.EscapeDataString(id!)}";
+        var method = creating ? HttpMethod.Post : HttpMethod.Patch;
+        var response = await SendBufferedAsync(token => BuildJsonRequest(method, ResolveHermesUri(settings, path), payload, token));
+        return response.IsSuccessStatusCode
+            ? creating ? "Automazione creata." : "Automazione aggiornata."
+            : $"Automazione non salvata: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}";
+    }
+
     public static async Task<string> PauseCronJobAsync(AppSettings settings, string id)
     {
         return await CronJobActionAsync(settings, id, "pause", HttpMethod.Post, "Cron messo in pausa.");
@@ -1182,6 +1242,25 @@ public static class GatewayService
                     deletedAt = item.DeletedAt?.ToUnixTimeMilliseconds(),
                     previousResponseId = string.IsNullOrWhiteSpace(item.PreviousResponseId) ? null : item.PreviousResponseId,
                     serverConversationId = string.IsNullOrWhiteSpace(item.ServerConversationId) ? null : item.ServerConversationId,
+                    projectId = string.IsNullOrWhiteSpace(item.ProjectId) ? null : item.ProjectId,
+                    workspacePath = string.IsNullOrWhiteSpace(item.WorkspacePath) ? null : item.WorkspacePath,
+                    repositoryUrl = string.IsNullOrWhiteSpace(item.RepositoryUrl) ? null : item.RepositoryUrl,
+                    projectInstructions = string.IsNullOrWhiteSpace(item.ProjectInstructions) ? null : item.ProjectInstructions,
+                    projectMemory = string.IsNullOrWhiteSpace(item.ProjectMemory) ? null : item.ProjectMemory,
+                    authorizedTools = item.AuthorizedTools,
+                    artifactType = string.IsNullOrWhiteSpace(item.ArtifactType) ? null : item.ArtifactType,
+                    artifactUrl = string.IsNullOrWhiteSpace(item.ArtifactUrl) ? null : item.ArtifactUrl,
+                    artifactFileName = string.IsNullOrWhiteSpace(item.ArtifactFileName) ? null : item.ArtifactFileName,
+                    artifactMimeType = string.IsNullOrWhiteSpace(item.ArtifactMimeType) ? null : item.ArtifactMimeType,
+                    sourceConversationId = string.IsNullOrWhiteSpace(item.SourceConversationId) ? null : item.SourceConversationId,
+                    sourceRunId = string.IsNullOrWhiteSpace(item.SourceRunId) ? null : item.SourceRunId,
+                    version = item.Version,
+                    tags = item.Tags,
+                    folder = string.IsNullOrWhiteSpace(item.Folder) ? null : item.Folder,
+                    summary = string.IsNullOrWhiteSpace(item.Summary) ? null : item.Summary,
+                    parentConversationId = string.IsNullOrWhiteSpace(item.ParentConversationId) ? null : item.ParentConversationId,
+                    branchFromMessageId = string.IsNullOrWhiteSpace(item.BranchFromMessageId) ? null : item.BranchFromMessageId,
+                    linkedConversationIds = item.LinkedConversationIds,
                     messages = item.Messages.Select(message => new
                     {
                         id = message.Id,
@@ -1193,7 +1272,8 @@ public static class GatewayService
                         visualBlocksVersion = message.VisualBlocksVersion,
                         visualBlocks = message.VisualBlocks ?? [],
                         stats = message.Stats,
-                        rawEvents = message.RawEvents ?? []
+                        rawEvents = message.RawEvents ?? [],
+                        bookmarked = message.IsBookmarked
                     })
                 })
         });
@@ -1252,7 +1332,8 @@ public static class GatewayService
                                 ReadMessageVisualBlocksVersion(message),
                                 visualBlocks.Count > 0 ? visualBlocks : null,
                                 ReadMessageStats(message),
-                                ReadMessageRawEvents(message))
+                                ReadMessageRawEvents(message),
+                                message.TryGetProperty("bookmarked", out var bookmarked) && bookmarked.ValueKind == JsonValueKind.True)
                             {
                                 Id = ExtractString(message, "id", "messageId", "message_id") ?? Guid.NewGuid().ToString("N")
                             });
@@ -1270,6 +1351,25 @@ public static class GatewayService
                         DeletedAt = deleted > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)deleted) : null,
                         PreviousResponseId = ExtractString(item, "previousResponseId", "previous_response_id") ?? string.Empty,
                         ServerConversationId = ExtractString(item, "serverConversationId", "server_conversation_id") ?? string.Empty,
+                        ProjectId = ExtractString(item, "projectId", "project_id") ?? string.Empty,
+                        WorkspacePath = ExtractString(item, "workspacePath", "workspace_path") ?? string.Empty,
+                        RepositoryUrl = ExtractString(item, "repositoryUrl", "repository_url") ?? string.Empty,
+                        ProjectInstructions = ExtractString(item, "projectInstructions", "project_instructions") ?? string.Empty,
+                        ProjectMemory = ExtractString(item, "projectMemory", "project_memory") ?? string.Empty,
+                        AuthorizedTools = ExtractStringArray(item, "authorizedTools", "authorized_tools"),
+                        ArtifactType = ExtractString(item, "artifactType", "artifact_type") ?? string.Empty,
+                        ArtifactUrl = ExtractString(item, "artifactUrl", "artifact_url") ?? string.Empty,
+                        ArtifactFileName = ExtractString(item, "artifactFileName", "artifact_file_name") ?? string.Empty,
+                        ArtifactMimeType = ExtractString(item, "artifactMimeType", "artifact_mime_type") ?? string.Empty,
+                        SourceConversationId = ExtractString(item, "sourceConversationId", "source_conversation_id") ?? string.Empty,
+                        SourceRunId = ExtractString(item, "sourceRunId", "source_run_id") ?? string.Empty,
+                        Version = ExtractInt(item, "version"),
+                        Tags = ExtractStringArray(item, "tags"),
+                        Folder = ExtractString(item, "folder") ?? string.Empty,
+                        Summary = ExtractString(item, "summary") ?? string.Empty,
+                        ParentConversationId = ExtractString(item, "parentConversationId", "parent_conversation_id") ?? string.Empty,
+                        BranchFromMessageId = ExtractString(item, "branchFromMessageId", "branch_from_message_id") ?? string.Empty,
+                        LinkedConversationIds = ExtractStringArray(item, "linkedConversationIds", "linked_conversation_ids"),
                         Messages = messages
                     });
                 }
@@ -1281,6 +1381,27 @@ public static class GatewayService
         {
             return new HubConversationsResult([], $"Archivio server non disponibile: {ex.Message}");
         }
+    }
+
+    private static List<string> ExtractStringArray(JsonElement root, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (!root.TryGetProperty(key, out var value) || value.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            return value.EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString()?.Trim() ?? string.Empty)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(100)
+                .ToList();
+        }
+
+        return [];
     }
 
     private static int? ReadMessageVisualBlocksVersion(JsonElement message)
@@ -1432,6 +1553,7 @@ public static class GatewayService
                     if (string.IsNullOrWhiteSpace(id)) continue;
                     var created = ExtractDouble(item, "created_at");
                     var readAt = ExtractDouble(item, "read_at");
+                    var snoozedUntil = ExtractDouble(item, "snoozed_until");
                     var read = false;
                     if (item.TryGetProperty("read", out var r) && (r.ValueKind == JsonValueKind.True || r.ValueKind == JsonValueKind.False))
                     {
@@ -1448,7 +1570,15 @@ public static class GatewayService
                         ExtractString(item, "source") ?? "hermes-agent",
                         ExtractString(item, "conversation_prompt") ?? ExtractString(item, "message", "body", "text") ?? string.Empty,
                         created > 0 ? DateTimeOffset.FromUnixTimeSeconds((long)created) : DateTimeOffset.Now,
-                        readAt > 0 ? DateTimeOffset.FromUnixTimeSeconds((long)readAt) : null));
+                        readAt > 0 ? DateTimeOffset.FromUnixTimeSeconds((long)readAt) : null,
+                        ExtractString(item, "category") ?? ExtractString(item, "kind") ?? "Generale",
+                        ExtractString(item, "priority") ?? ExtractString(item, "severity") ?? "Normale",
+                        item.TryGetProperty("archived", out var archived) && archived.ValueKind == JsonValueKind.True,
+                        snoozedUntil > 0 ? DateTimeOffset.FromUnixTimeSeconds((long)snoozedUntil) : null,
+                        ExtractString(item, "automation_id", "cron_id") ?? string.Empty,
+                        ExtractString(item, "run_id") ?? string.Empty,
+                        ExtractString(item, "file_url", "url") ?? string.Empty,
+                        ExtractString(item, "project_id") ?? string.Empty));
                 }
             }
 
@@ -1470,6 +1600,14 @@ public static class GatewayService
         return response.IsSuccessStatusCode
             ? "Notifica segnata come letta."
             : $"Notifica non aggiornata: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}";
+    }
+
+    public static async Task<string> PatchHubNotificationAsync(AppSettings settings, string id, object patch)
+    {
+        await EnsureReachableGatewayAsync(settings);
+        var payload = JsonSerializer.Serialize(patch);
+        var response = await SendBufferedAsync(token => BuildJsonRequest(HttpMethod.Patch, ResolveHermesUri(settings, $"/v1/hub/notifications/{Uri.EscapeDataString(id)}"), payload, token));
+        return response.IsSuccessStatusCode ? "Notifica aggiornata." : $"Notifica non aggiornata: HTTP {response.StatusCode} {ExtractHumanError(response.Body)}";
     }
 
     public static async Task<string> TryStopRunAsync(AppSettings settings, string runId, CancellationToken cancellationToken = default)

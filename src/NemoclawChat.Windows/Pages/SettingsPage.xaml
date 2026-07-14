@@ -27,7 +27,7 @@
                     <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Connessione Hermes" />
                         <TextBox x:Name="GatewayUrlBox" Header="Hermes API URL" PlaceholderText="http://hermes.local:8642/v1" />
                         <PasswordBox x:Name="ApiKeyBox" Header="API key Hermes" PlaceholderText="hermes-hub" />
-                        <TextBox x:Name="ActiveProjectNameBox" Header="Progetto attivo" PlaceholderText="Nome progetto condiviso" />
+                        <TextBox x:Name="ActiveProjectNameBox" Header="Progetto attivo (gestisci dalla pagina Progetti)" IsReadOnly="True" />
                         <TextBox x:Name="VideoLibraryPathBox" Header="Cartella video Hermes (sync server)" IsReadOnly="True" PlaceholderText="In attesa di sync da Hermes /health/detailed" />
                         <TextBox x:Name="NewsLibraryPathBox" Header="Cartella news Hermes" PlaceholderText="/home/matteo/news" />
                         <NumberBox x:Name="MaxAttachmentMbBox" Header="Limite allegati file (MB)" Minimum="1" Maximum="150" SmallChange="1" LargeChange="10" />

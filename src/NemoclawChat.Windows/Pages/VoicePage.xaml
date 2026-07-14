@@ -47,7 +47,27 @@
                 TextTrimming="CharacterEllipsis"
                 Foreground="#B8FFFFFF"
                 FontSize="13" />
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                <Button x:Name="InterruptButton" Click="Interrupt_Click" Content="Interrompi Hermes" IsEnabled="False" />
+                <Button x:Name="PttButton" Click="Ptt_Click" Content="Premi per parlare" />
+                <Button Click="ToggleTranscript_Click" Content="Trascrizione" />
+                <Button Click="SwitchToText_Click" Content="Passa a testo" />
+            </StackPanel>
         </StackPanel>
+
+        <Border Width="320" Margin="20" Padding="14" HorizontalAlignment="Right" VerticalAlignment="Top" Background="#CC151515" BorderBrush="#35FFFFFF" BorderThickness="1" CornerRadius="14">
+            <StackPanel Spacing="9"><TextBlock Text="Profilo voce" Foreground="White" FontWeight="SemiBold" />
+                <ComboBox x:Name="VoiceBox" Header="Voce" SelectedIndex="0"><ComboBoxItem Content="if_sara" /><ComboBoxItem Content="im_nicola" /><ComboBoxItem Content="if_alba" /></ComboBox>
+                <Slider x:Name="SpeedSlider" Header="Velocità" Minimum="0.75" Maximum="1.35" Value="1.08" StepFrequency="0.05" />
+                <TextBox x:Name="ProjectProfileBox" Header="Profilo progetto" PlaceholderText="ID progetto opzionale" />
+                <ToggleSwitch x:Name="WakeWordSwitch" Header="Wake word 'Hermes'" />
+                <StackPanel Orientation="Horizontal" Spacing="8"><Button Click="PreviewVoice_Click" Content="Anteprima" /><Button Click="SaveVoiceProfile_Click" Content="Salva profilo" /></StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border x:Name="TranscriptBorder" Width="440" MaxHeight="520" Margin="20,90,20,150" Padding="14" HorizontalAlignment="Left" VerticalAlignment="Stretch" Background="#DD151515" CornerRadius="14" Visibility="Collapsed">
+            <ScrollViewer><TextBlock x:Name="TranscriptText" Foreground="White" TextWrapping="Wrap" /></ScrollViewer>
+        </Border>
 
         <Button
             Width="40"

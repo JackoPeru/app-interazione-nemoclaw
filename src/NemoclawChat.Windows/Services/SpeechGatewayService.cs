@@ -62,6 +62,8 @@ public static class SpeechGatewayService
     public static async Task<string> SynthesizeToFileAsync(
         AppSettings settings,
         string text,
+        string voice = "if_sara",
+        double speed = 1.08,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -72,9 +74,9 @@ public static class SpeechGatewayService
         var payload = JsonSerializer.Serialize(new
         {
             input = text.Trim(),
-            voice = "if_sara",
+            voice = string.IsNullOrWhiteSpace(voice) ? "if_sara" : voice.Trim(),
             lang = "it",
-            speed = 1.08,
+            speed = Math.Clamp(speed, 0.75, 1.35),
             response_format = "wav"
         });
 

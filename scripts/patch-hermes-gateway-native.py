@@ -1613,6 +1613,139 @@ def _multimodal_validation_error(exc: ValueError, *, param: str) -> "web.Respons
     if hardware_filter_upgraded:
         changes.append("hardware disk filter v1")
 
+    if "def _hermes_hub_server_control_snapshot" not in text:
+        text, _ = _replace_once(
+            text,
+            "def _multimodal_validation_error(exc: ValueError, *, param: str) -> \"web.Response\":",
+            '''def _hermes_hub_run_control_command(args: List[str], timeout: int = 12) -> Dict[str, Any]:
+    import subprocess as _subprocess
+    try:
+        completed = _subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+        return {"ok": completed.returncode == 0, "exit_code": completed.returncode, "stdout": completed.stdout[-20000:], "stderr": completed.stderr[-8000:]}
+    except Exception as exc:
+        return {"ok": False, "exit_code": -1, "stdout": "", "stderr": str(exc)}
+
+
+def _hermes_hub_service_targets() -> Dict[str, Dict[str, str]]:
+    return {
+        "hermes": {"unit": os.environ.get("HERMES_AGENT_SERVICE", "hermes-hub.service"), "scope": "user"},
+        "gateway": {"unit": os.environ.get("HERMES_HUB_SERVICE", "hermes-hub.service"), "scope": "user"},
+        "llama": {"unit": os.environ.get("HERMES_LLAMA_SERVICE", "hermes-llama.service"), "scope": "system"},
+        "tailscale": {"unit": os.environ.get("HERMES_TAILSCALE_SERVICE", "tailscaled.service"), "scope": "system"},
+    }
+
+
+def _hermes_hub_systemctl_args(target: Dict[str, str], action: str, *extra: str) -> List[str]:
+    unit = str(target.get("unit") or "").strip()
+    scope = str(target.get("scope") or "").strip().lower()
+    if not unit:
+        raise ValueError("systemd unit missing")
+    if scope == "user":
+        return ["systemctl", "--user", action, unit, *extra]
+    if scope == "system":
+        return ["sudo", "-n", "systemctl", action, unit, *extra]
+    raise ValueError(f"unsupported systemd scope: {scope}")
+
+
+def _hermes_hub_server_control_snapshot(log_filter: str = "") -> Dict[str, Any]:
+    services = _hermes_hub_service_targets()
+    service_rows = []
+    for key, target in services.items():
+        result = _hermes_hub_run_control_command(
+            _hermes_hub_systemctl_args(
+                target,
+                "show",
+                "--property=LoadState,ActiveState,SubState,UnitFileState,Description",
+                "--no-pager",
+            ),
+            5,
+        )
+        fields = {}
+        for line in result.get("stdout", "").splitlines():
+            if "=" in line:
+                name, value = line.split("=", 1)
+                fields[name] = value
+        error = result.get("stderr", "")
+        if not result.get("ok") and not error:
+            error = f"systemctl exit {result.get('exit_code', -1)}"
+        service_rows.append({
+            "id": key,
+            "unit": target["unit"],
+            "scope": target["scope"],
+            "load": fields.get("LoadState", "unknown"),
+            "active": fields.get("ActiveState", "unknown"),
+            "sub": fields.get("SubState", "unknown"),
+            "enabled": fields.get("UnitFileState", "unknown"),
+            "description": fields.get("Description", ""),
+            "error": error,
+        })
+    log_parts = []
+    user_units = sorted({target["unit"] for target in services.values() if target["scope"] == "user"})
+    system_units = sorted({target["unit"] for target in services.values() if target["scope"] == "system"})
+    if user_units:
+        command = ["journalctl", "--user"]
+        for unit in user_units:
+            command.extend(["-u", unit])
+        command.extend(["-n", "250", "--no-pager", "--output=short-iso"])
+        log_parts.append(_hermes_hub_run_control_command(command, 8).get("stdout", ""))
+    if system_units:
+        command = ["sudo", "-n", "journalctl"]
+        for unit in system_units:
+            command.extend(["-u", unit])
+        command.extend(["-n", "250", "--no-pager", "--output=short-iso"])
+        log_parts.append(_hermes_hub_run_control_command(command, 8).get("stdout", ""))
+    logs = "\\n".join(part for part in log_parts if part)
+    if log_filter:
+        wanted = log_filter.lower()
+        logs = "\\n".join(line for line in logs.splitlines() if wanted in line.lower())
+    gpu = _hermes_hub_run_control_command(["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"], 5)
+    processes = _hermes_hub_run_control_command(["ps", "-eo", "pid,etimes,pcpu,pmem,comm,args", "--sort=-pcpu"], 5).get("stdout", "")
+    active = [line for line in processes.splitlines() if any(name in line.lower() for name in ("hermes", "llama", "python"))][:80]
+    compatible = all(row["load"] == "loaded" and not row["error"] for row in service_rows)
+    return {"status": "ok", "timestamp": time.time(), "services": service_rows, "logs": logs[-40000:], "active_runs": active, "gpu_processes": gpu.get("stdout", ""), "queue": _hermes_hub_read_json(_hermes_hub_storage_path("HERMES_HUB_RUN_QUEUE_PATH", "run_queue.json"), {"items": []}), "compatibility_warning": "" if compatible else "Una o piu unita systemd non sono installate o non sono leggibili."}
+
+
+def _hermes_hub_server_control_action(body: Dict[str, Any]) -> Dict[str, Any]:
+    service = str(body.get("service") or "").strip().lower()
+    action = str(body.get("action") or "").strip().lower()
+    services = _hermes_hub_service_targets()
+    target = services.get(service)
+    if target is None or action not in {"start", "stop", "restart"}:
+        return {"status": "denied", "message": "Servizio o azione fuori allowlist."}
+    command = _hermes_hub_systemctl_args(target, action)
+    scheduled = target["scope"] == "user" and service in {"hermes", "gateway"} and action in {"stop", "restart"}
+    if scheduled:
+        transient = f"hermes-hub-control-{int(time.time() * 1000)}"
+        command = ["systemd-run", "--user", f"--unit={transient}", "--collect", "--on-active=1s", "--no-block", *command]
+    result = _hermes_hub_run_control_command(command, 45)
+    tool = "systemd-run" if scheduled else "systemctl"
+    _hermes_hub_audit_event({"event": "server.service", "summary": f"{action} {service}", "tool": tool, "risk": "high" if action in {"stop", "restart"} else "medium", "status": "ok" if result["ok"] else "error"})
+    return {"status": "scheduled" if scheduled and result["ok"] else ("ok" if result["ok"] else "error"), "service": service, "action": action, "unit": target["unit"], "scope": target["scope"], "scheduled": scheduled, **result}
+
+
+def _hermes_hub_server_maintenance(body: Dict[str, Any]) -> Dict[str, Any]:
+    operation = str(body.get("operation") or "").strip().lower()
+    commands = {
+        "update": os.environ.get("HERMES_HUB_UPDATE_COMMAND", ""),
+        "rollback": os.environ.get("HERMES_HUB_ROLLBACK_COMMAND", ""),
+        "backup": os.environ.get("HERMES_HUB_BACKUP_COMMAND", ""),
+        "restore": os.environ.get("HERMES_HUB_RESTORE_COMMAND", ""),
+        "diagnostic": os.environ.get("HERMES_HUB_DIAGNOSTIC_COMMAND", ""),
+    }
+    command = commands.get(operation, "")
+    if not command:
+        return {"status": "unavailable", "operation": operation, "message": "Operazione non configurata sul server."}
+    import shlex as _shlex
+    result = _hermes_hub_run_control_command(_shlex.split(command), 900)
+    _hermes_hub_audit_event({"event": "server.maintenance", "summary": operation, "tool": "maintenance", "risk": "high", "status": "ok" if result["ok"] else "error"})
+    return {"status": "ok" if result["ok"] else "error", "operation": operation, **result}
+
+
+def _multimodal_validation_error(exc: ValueError, *, param: str) -> "web.Response":''',
+            "server control collectors",
+        )
+        changes.append("server control collectors")
+
     if "def _hermes_hub_storage_path" not in text:
         text, _ = _replace_once(
             text,
@@ -1703,9 +1836,14 @@ def _hermes_hub_add_state(payload: Dict[str, Any]) -> Dict[str, Any]:
     item = dict(payload or {})
     item.setdefault("id", f"hub_state_{int(time.time() * 1000)}")
     item.setdefault("created_at", time.time())
+    item["updated_at"] = float(item.get("updated_at") or time.time())
+    items[:] = [existing for existing in items if not isinstance(existing, dict) or str(existing.get("id", "")) != str(item.get("id", ""))]
     items.append(item)
+    items.sort(key=lambda value: float(value.get("updated_at") or value.get("created_at") or 0) if isinstance(value, dict) else 0, reverse=True)
+    del items[1000:]
     current["updated_at"] = time.time()
     _hermes_hub_write_json(_hermes_hub_storage_path("HERMES_HUB_STATE_PATH", "hub_state.json"), current)
+    _hermes_hub_audit_event({"event": str(item.get("type") or "hub.state"), "summary": str(item.get("value") or item.get("status") or "")[:500], "project": item.get("project_id"), "device": item.get("device"), "risk": "low"})
     return item
 
 
@@ -1715,6 +1853,7 @@ def _hermes_hub_delete_state(state_id: str) -> Dict[str, Any]:
     current["items"] = [item for item in current.get("items", []) if str(item.get("id", "")) != str(state_id)]
     current["updated_at"] = time.time()
     _hermes_hub_write_json(_hermes_hub_storage_path("HERMES_HUB_STATE_PATH", "hub_state.json"), current)
+    _hermes_hub_audit_event({"event": "hub.state.delete", "summary": str(state_id), "device": "server", "risk": "low"})
     return {"object": "hermes.hub.state.delete", "deleted": before - len(current["items"]), "id": state_id}
 
 
@@ -1814,6 +1953,7 @@ def _hermes_hub_normalize_message(raw: Any) -> Optional[Dict[str, Any]]:
         "visualBlocks": raw.get("visualBlocks") if isinstance(raw.get("visualBlocks"), list) else [],
         "stats": raw.get("stats") if isinstance(raw.get("stats"), dict) else None,
         "rawEvents": raw.get("rawEvents") if isinstance(raw.get("rawEvents"), list) else [],
+        "bookmarked": bool(raw.get("bookmarked", raw.get("isBookmarked", False))),
     }
 
 
@@ -1846,6 +1986,25 @@ def _hermes_hub_normalize_conversation(raw: Any) -> Optional[Dict[str, Any]]:
         "deletedAt": deleted_num if deleted_num > 0 else None,
         "previousResponseId": raw.get("previousResponseId") or raw.get("previous_response_id") or None,
         "serverConversationId": raw.get("serverConversationId") or raw.get("server_conversation_id") or None,
+        "projectId": raw.get("projectId") or raw.get("project_id") or None,
+        "workspacePath": raw.get("workspacePath") or raw.get("workspace_path") or None,
+        "repositoryUrl": raw.get("repositoryUrl") or raw.get("repository_url") or None,
+        "projectInstructions": raw.get("projectInstructions") or raw.get("project_instructions") or None,
+        "projectMemory": raw.get("projectMemory") or raw.get("project_memory") or None,
+        "authorizedTools": raw.get("authorizedTools") if isinstance(raw.get("authorizedTools"), list) else (raw.get("authorized_tools") if isinstance(raw.get("authorized_tools"), list) else []),
+        "artifactType": raw.get("artifactType") or raw.get("artifact_type") or None,
+        "artifactUrl": raw.get("artifactUrl") or raw.get("artifact_url") or None,
+        "artifactFileName": raw.get("artifactFileName") or raw.get("artifact_file_name") or None,
+        "artifactMimeType": raw.get("artifactMimeType") or raw.get("artifact_mime_type") or None,
+        "sourceConversationId": raw.get("sourceConversationId") or raw.get("source_conversation_id") or None,
+        "sourceRunId": raw.get("sourceRunId") or raw.get("source_run_id") or None,
+        "version": int(_hermes_hub_number(raw.get("version"), 0)),
+        "tags": raw.get("tags") if isinstance(raw.get("tags"), list) else [],
+        "folder": raw.get("folder") or None,
+        "summary": raw.get("summary") or None,
+        "parentConversationId": raw.get("parentConversationId") or raw.get("parent_conversation_id") or None,
+        "branchFromMessageId": raw.get("branchFromMessageId") or raw.get("branch_from_message_id") or None,
+        "linkedConversationIds": raw.get("linkedConversationIds") if isinstance(raw.get("linkedConversationIds"), list) else (raw.get("linked_conversation_ids") if isinstance(raw.get("linked_conversation_ids"), list) else []),
         "messages": [] if deleted_num > 0 else messages,
     }
 
@@ -1962,6 +2121,41 @@ def _hermes_hub_delete_conversation(conversation_id: str) -> Dict[str, Any]:
     return {"object": "hermes.hub.conversations.delete", "deleted": 1 if found else 0, "id": conversation_id, "tombstone": True}
 
 
+def _hermes_hub_audit_payload(filters: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    path = _hermes_hub_storage_path("HERMES_HUB_AUDIT_PATH", "hub_audit.json")
+    payload = _hermes_hub_read_json(path, {"items": []})
+    items = [item for item in payload.get("items", []) if isinstance(item, dict)]
+    for key, value in (filters or {}).items():
+        wanted = str(value or "").strip().lower()
+        if wanted:
+            items = [item for item in items if wanted in str(item.get(key, "")).lower()]
+    items.sort(key=lambda item: float(item.get("timestamp") or 0), reverse=True)
+    return {"object": "hermes.hub.audit", "status": "ok", "items": items[:2000], "path": str(path)}
+
+
+def _hermes_hub_audit_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+    current = _hermes_hub_audit_payload()
+    path = _hermes_hub_storage_path("HERMES_HUB_AUDIT_PATH", "hub_audit.json")
+    item = {
+        "id": str((payload or {}).get("id") or f"audit_{int(time.time() * 1000)}"),
+        "timestamp": float((payload or {}).get("timestamp") or time.time()),
+        "event": str((payload or {}).get("event") or "hub.event")[:120],
+        "summary": str((payload or {}).get("summary") or "")[:4000],
+        "project": str((payload or {}).get("project") or (payload or {}).get("project_id") or "")[:200],
+        "run": str((payload or {}).get("run") or (payload or {}).get("run_id") or "")[:200],
+        "tool": str((payload or {}).get("tool") or "")[:200],
+        "device": str((payload or {}).get("device") or "server")[:200],
+        "risk": str((payload or {}).get("risk") or "low")[:40],
+        "status": str((payload or {}).get("status") or "ok")[:80],
+        "metadata": (payload or {}).get("metadata") if isinstance((payload or {}).get("metadata"), dict) else {},
+    }
+    items = current.get("items", [])
+    items.insert(0, item)
+    del items[5000:]
+    _hermes_hub_write_json(path, {"items": items, "updated_at": time.time()})
+    return item
+
+
 def _hermes_hub_notifications_payload(unread_only: bool = False) -> Dict[str, Any]:
     path = _hermes_hub_storage_path("HERMES_HUB_NOTIFICATIONS_PATH", "hub_notifications.json")
     payload = _hermes_hub_read_json(path, {"items": []})
@@ -1977,7 +2171,11 @@ def _hermes_hub_notifications_payload(unread_only: bool = False) -> Dict[str, An
         item.setdefault("message", "")
         item.setdefault("created_at", time.time())
         item.setdefault("read_at", None)
-        if unread_only and item.get("read_at"):
+        item.setdefault("category", item.get("kind") or "Generale")
+        item.setdefault("priority", item.get("severity") or "Normale")
+        item.setdefault("archived", False)
+        item.setdefault("snoozed_until", None)
+        if unread_only and (item.get("read_at") or item.get("archived") or float(item.get("snoozed_until") or 0) > time.time()):
             continue
         normalized.append(item)
     normalized.sort(key=lambda x: float(x.get("created_at") or 0), reverse=True)
@@ -2006,6 +2204,15 @@ def _hermes_hub_add_notification(payload: Dict[str, Any]) -> Dict[str, Any]:
         "severity": str((payload or {}).get("severity") or "info"),
         "source": str((payload or {}).get("source") or "hermes-agent"),
         "conversation_prompt": str((payload or {}).get("conversation_prompt") or message[:4000]),
+        "category": str((payload or {}).get("category") or (payload or {}).get("kind") or "Generale"),
+        "priority": str((payload or {}).get("priority") or (payload or {}).get("severity") or "Normale"),
+        "archived": False,
+        "snoozed_until": None,
+        "automation_id": str((payload or {}).get("automation_id") or (payload or {}).get("cron_id") or ""),
+        "run_id": str((payload or {}).get("run_id") or ""),
+        "file_url": str((payload or {}).get("file_url") or (payload or {}).get("url") or ""),
+        "project_id": str((payload or {}).get("project_id") or ""),
+        "actions": (payload or {}).get("actions") if isinstance((payload or {}).get("actions"), list) else [],
         "payload": (payload or {}).get("payload") if isinstance((payload or {}).get("payload"), dict) else {},
         "created_at": float((payload or {}).get("created_at") or time.time()),
         "read_at": None,
@@ -2015,6 +2222,7 @@ def _hermes_hub_add_notification(payload: Dict[str, Any]) -> Dict[str, Any]:
     del items[500:]
     current["updated_at"] = time.time()
     _hermes_hub_write_json(path, current)
+    _hermes_hub_audit_event({"event": "notification.created", "summary": title, "project": item.get("project_id"), "run": item.get("run_id"), "device": "server", "risk": item.get("priority") or "low"})
     return item
 
 
@@ -2030,6 +2238,13 @@ def _hermes_hub_patch_notification(notification_id: str, payload: Dict[str, Any]
             item["read_at"] = now
         if "archived" in (payload or {}):
             item["archived"] = bool(payload.get("archived"))
+        if "snoozed_until" in (payload or {}):
+            try:
+                item["snoozed_until"] = float(payload.get("snoozed_until") or 0) or None
+            except Exception:
+                item["snoozed_until"] = None
+        if "priority" in (payload or {}):
+            item["priority"] = str(payload.get("priority") or "Normale")[:40]
         updated = item
         break
     current["updated_at"] = now
@@ -2266,6 +2481,116 @@ def _multimodal_validation_error(exc: ValueError, *, param: str) -> "web.Respons
             "hub support endpoint helpers",
         )
         changes.append("hub support endpoint helpers")
+
+    if "def _hermes_hub_audit_payload" not in text:
+        text, _ = _replace_once(
+            text,
+            "def _hermes_hub_notifications_payload(unread_only: bool = False) -> Dict[str, Any]:",
+            '''def _hermes_hub_audit_payload(filters: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    path = _hermes_hub_storage_path("HERMES_HUB_AUDIT_PATH", "hub_audit.json")
+    payload = _hermes_hub_read_json(path, {"items": []})
+    items = [item for item in payload.get("items", []) if isinstance(item, dict)]
+    for key, value in (filters or {}).items():
+        wanted = str(value or "").strip().lower()
+        if wanted:
+            items = [item for item in items if wanted in str(item.get(key, "")).lower()]
+    items.sort(key=lambda item: float(item.get("timestamp") or 0), reverse=True)
+    return {"object": "hermes.hub.audit", "status": "ok", "items": items[:2000], "path": str(path)}
+
+
+def _hermes_hub_audit_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+    current = _hermes_hub_audit_payload()
+    path = _hermes_hub_storage_path("HERMES_HUB_AUDIT_PATH", "hub_audit.json")
+    item = {
+        "id": str((payload or {}).get("id") or f"audit_{int(time.time() * 1000)}"),
+        "timestamp": float((payload or {}).get("timestamp") or time.time()),
+        "event": str((payload or {}).get("event") or "hub.event")[:120],
+        "summary": str((payload or {}).get("summary") or "")[:4000],
+        "project": str((payload or {}).get("project") or (payload or {}).get("project_id") or "")[:200],
+        "run": str((payload or {}).get("run") or (payload or {}).get("run_id") or "")[:200],
+        "tool": str((payload or {}).get("tool") or "")[:200],
+        "device": str((payload or {}).get("device") or "server")[:200],
+        "risk": str((payload or {}).get("risk") or "low")[:40],
+        "status": str((payload or {}).get("status") or "ok")[:80],
+        "metadata": (payload or {}).get("metadata") if isinstance((payload or {}).get("metadata"), dict) else {},
+    }
+    items = current.get("items", [])
+    items.insert(0, item)
+    del items[5000:]
+    _hermes_hub_write_json(path, {"items": items, "updated_at": time.time()})
+    return item
+
+
+def _hermes_hub_notifications_payload(unread_only: bool = False) -> Dict[str, Any]:''',
+            "audit storage helpers upgrade",
+        )
+        changes.append("audit storage helpers upgrade")
+
+    if '"event": str(item.get("type") or "hub.state")' not in text:
+        text, _ = _replace_once(
+            text,
+            '    _hermes_hub_write_json(_hermes_hub_storage_path("HERMES_HUB_STATE_PATH", "hub_state.json"), current)\n    return item',
+            '    _hermes_hub_write_json(_hermes_hub_storage_path("HERMES_HUB_STATE_PATH", "hub_state.json"), current)\n    _hermes_hub_audit_event({"event": str(item.get("type") or "hub.state"), "summary": str(item.get("value") or item.get("status") or "")[:500], "project": item.get("project_id"), "device": item.get("device"), "risk": "low"})\n    return item',
+            "audit continuity state changes",
+        )
+        changes.append("audit continuity state changes")
+
+    if "def _hermes_hub_serialized_store_mutation" not in text:
+        text, _ = _replace_once(
+            text,
+            'def _hermes_hub_storage_path(env_name: str, default_name: str) -> "Path":',
+            '''def _hermes_hub_serialized_store_mutation(function):
+    import functools as _functools
+    import threading as _threading
+
+    global _hermes_hub_store_mutex
+    if "_hermes_hub_store_mutex" not in globals():
+        _hermes_hub_store_mutex = _threading.RLock()
+
+    @_functools.wraps(function)
+    def _wrapped(*args, **kwargs):
+        with _hermes_hub_store_mutex:
+            return function(*args, **kwargs)
+    return _wrapped
+
+
+def _hermes_hub_storage_path(env_name: str, default_name: str) -> "Path":''',
+            "serialized hub store mutations",
+        )
+        for function_name in (
+            "_hermes_hub_patch_memory",
+            "_hermes_hub_add_state",
+            "_hermes_hub_delete_state",
+            "_hermes_hub_merge_conversations",
+            "_hermes_hub_delete_conversation",
+            "_hermes_hub_audit_event",
+            "_hermes_hub_add_notification",
+            "_hermes_hub_patch_notification",
+        ):
+            signature = f"def {function_name}("
+            text = text.replace(signature, f"@_hermes_hub_serialized_store_mutation\n{signature}")
+        changes.append("serialized hub store mutations")
+
+    if "# HERMES_HUB_ATOMIC_STORE_WRITE_V2" not in text:
+        old_write = '''    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        _json.dump(payload, handle, ensure_ascii=False, indent=2)
+    tmp.replace(path)'''
+        new_write = '''    # HERMES_HUB_ATOMIC_STORE_WRITE_V2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}-{time.time_ns()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            _json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)'''
+        if old_write in text:
+            text, _ = _replace_once(text, old_write, new_write, "atomic hub store write v2")
+            changes.append("atomic hub store write v2")
 
     if "def _hermes_hub_resolve_media_path" not in text:
         text, _ = _replace_once(
@@ -4172,6 +4497,69 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("hub notifications endpoint handlers")
 
+    if "async def _handle_hub_server_control" not in text:
+        text, _ = _replace_once(
+            text,
+            "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
+            '''    async def _handle_hub_server_control(self, request: "web.Request") -> "web.Response":
+        auth_error = self._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        query = str(request.query.get("filter", ""))[:120]
+        return web.json_response(await asyncio.to_thread(_hermes_hub_server_control_snapshot, query))
+
+    async def _handle_hub_server_action(self, request: "web.Request") -> "web.Response":
+        auth_error = self._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        result = await asyncio.to_thread(_hermes_hub_server_control_action, body if isinstance(body, dict) else {})
+        return web.json_response(result, status=403 if result.get("status") == "denied" else 200)
+
+    async def _handle_hub_server_maintenance(self, request: "web.Request") -> "web.Response":
+        auth_error = self._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        return web.json_response(await asyncio.to_thread(_hermes_hub_server_maintenance, body if isinstance(body, dict) else {}))
+
+    async def _handle_models(self, request: "web.Request") -> "web.Response":''',
+            "server control endpoint handlers",
+        )
+        changes.append("server control endpoint handlers")
+
+    if "async def _handle_get_hub_audit" not in text:
+        text, _ = _replace_once(
+            text,
+            "    async def _handle_models(self, request: \"web.Request\") -> \"web.Response\":",
+            '''    async def _handle_get_hub_audit(self, request: "web.Request") -> "web.Response":
+        auth_error = self._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        filters = {key: str(request.query.get(key, ""))[:200] for key in ("project", "run", "tool", "device", "risk", "event")}
+        return web.json_response(_hermes_hub_audit_payload(filters))
+
+    async def _handle_post_hub_audit(self, request: "web.Request") -> "web.Response":
+        auth_error = self._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        return web.json_response(_hermes_hub_audit_event(body if isinstance(body, dict) else {}))
+
+    async def _handle_models(self, request: "web.Request") -> "web.Response":''',
+            "audit endpoint handlers",
+        )
+        changes.append("audit endpoint handlers")
+
     if "async def _handle_get_hub_conversations_events" not in text and "    async def _handle_put_hub_conversation" in text:
         text, _ = _replace_once(
             text,
@@ -4861,6 +5249,29 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "router hardware endpoint",
         )
         changes.append("router hardware endpoint")
+
+    if 'add_get("/v1/hub/server/control", self._handle_hub_server_control)' not in text:
+        text, _ = _replace_regex_once(
+            text,
+            r'(^\s+self\._app\.router\.add_get\("/v1/hub/hardware", self\._handle_hub_hardware\)\n)',
+            r'\1'
+            r'            self._app.router.add_get("/v1/hub/server/control", self._handle_hub_server_control)' "\n"
+            r'            self._app.router.add_post("/v1/hub/server/action", self._handle_hub_server_action)' "\n"
+            r'            self._app.router.add_post("/v1/hub/server/maintenance", self._handle_hub_server_maintenance)' "\n",
+            "router server control endpoints",
+        )
+        changes.append("router server control endpoints")
+
+    if 'add_get("/v1/hub/audit", self._handle_get_hub_audit)' not in text:
+        text, _ = _replace_regex_once(
+            text,
+            r'(^\s+self\._app\.router\.add_get\("/v1/hub/hardware", self\._handle_hub_hardware\)\n)',
+            r'\1'
+            r'            self._app.router.add_get("/v1/hub/audit", self._handle_get_hub_audit)' "\n"
+            r'            self._app.router.add_post("/v1/hub/audit", self._handle_post_hub_audit)' "\n",
+            "router audit endpoints",
+        )
+        changes.append("router audit endpoints")
 
     if 'add_get("/v1/video/library", self._handle_video_library)' not in text:
         text, _ = _replace_regex_once(

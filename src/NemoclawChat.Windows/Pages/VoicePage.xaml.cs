@@ -10,6 +10,7 @@ using NemoclawChat_Windows.Services;
 using System.Text;
 using Windows.Media.Core;
 using Windows.Media.Playback;
+using Windows.Storage;
 using Windows.System;
 
 namespace NemoclawChat_Windows.Pages;
@@ -21,11 +22,13 @@ namespace NemoclawChat_Windows.Pages;
 public sealed partial class VoicePage : Page
 {
     private static readonly char[] SoftBreakCharacters = [',', ';', ':', ' '];
+    private static readonly string[] VoiceNames = ["if_sara", "im_nicola", "if_alba"];
     private readonly List<VoiceParticle> _particles = BuildParticles();
     private readonly ProjectedParticle[] _projectedParticles = new ProjectedParticle[520];
     private readonly List<ChatMessageRecord> _history = [];
     private readonly VoiceActivityRecorder _recorder = new();
     private CancellationTokenSource? _callCts;
+    private CancellationTokenSource? _turnCts;
     private Task? _callTask;
     private MediaPlayer? _voicePlayer;
     private MediaPlayer? _waitingPlayer;
@@ -38,6 +41,9 @@ public sealed partial class VoicePage : Page
     private volatile bool _callReady;
     private bool _callOperationInProgress;
     private string _lastTranscript = string.Empty;
+    private string _selectedVoice = "if_sara";
+    private double _voiceSpeed = 1.08;
+    private bool _wakeWordEnabled;
 
     public VoicePage()
     {
@@ -48,6 +54,7 @@ public sealed partial class VoicePage : Page
     {
         Root.Focus(FocusState.Programmatic);
         ParticleCanvas.Paused = false;
+        LoadVoiceProfile();
     }
 
     private async void Page_Unloaded(object sender, RoutedEventArgs e)
@@ -122,6 +129,7 @@ public sealed partial class VoicePage : Page
 
     private async Task StartCallSessionAsync()
     {
+        ApplyVoiceControls();
         _callCts?.Cancel();
         _callCts?.Dispose();
         _callCts = new CancellationTokenSource();
@@ -173,6 +181,7 @@ public sealed partial class VoicePage : Page
         _callCts = null;
         callCts?.Cancel();
         _recorder.Stop();
+        _turnCts?.Cancel();
         _voicePlayer?.Dispose();
         _voicePlayer = null;
         var callTask = _callTask;
@@ -190,7 +199,8 @@ public sealed partial class VoicePage : Page
         StopWaitingTone();
         if (updateVisual)
         {
-            SetPhase(VoiceCallPhase.Idle, "Chiamata chiusa.");
+            var summary = await SaveVoiceConversationAsync();
+            SetPhase(VoiceCallPhase.Idle, summary);
             SetCallVisual(false);
         }
     }
@@ -212,6 +222,11 @@ public sealed partial class VoicePage : Page
                 SetPhase(VoiceCallPhase.Transcribing, "Trascrivo...");
                 var settings = AppSettingsStore.Load();
                 var text = await SpeechGatewayService.TranscribeFileAsync(settings, path, cancellationToken).ConfigureAwait(false);
+                if (_wakeWordEnabled)
+                {
+                    if (!text.TrimStart().StartsWith("Hermes", StringComparison.OrdinalIgnoreCase)) continue;
+                    text = text.TrimStart()["Hermes".Length..].TrimStart(' ', ',', ':');
+                }
                 if (!ShouldSendTranscript(text))
                 {
                     continue;
@@ -253,6 +268,7 @@ public sealed partial class VoicePage : Page
         var speechBuffer = new StringBuilder();
         Task playbackChain = Task.CompletedTask;
         using var turnCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _turnCts = turnCts;
         var turnToken = turnCts.Token;
         SetPhase(VoiceCallPhase.Thinking, "Hermes sta pensando...");
 
@@ -294,6 +310,13 @@ public sealed partial class VoicePage : Page
             }
             await playbackChain.ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            turnCts.Cancel();
+            try { await playbackChain.ConfigureAwait(false); } catch (OperationCanceledException) { }
+            if (_callActive) SetPhase(VoiceCallPhase.Listening, "Interrotto. Ti ascolto.");
+            return;
+        }
         catch
         {
             turnCts.Cancel();
@@ -307,7 +330,9 @@ public sealed partial class VoicePage : Page
         {
             _history.Add(new ChatMessageRecord("Hermes", finalText, DateTimeOffset.Now));
             TrimHistory();
+            RefreshTranscript();
         }
+        _turnCts = null;
         if (_callActive)
         {
             SetPhase(VoiceCallPhase.Listening, "Ti ascolto.");
@@ -331,7 +356,7 @@ public sealed partial class VoicePage : Page
     {
         await previous.ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        var file = await SpeechGatewayService.SynthesizeToFileAsync(settings, text, cancellationToken).ConfigureAwait(false);
+        var file = await SpeechGatewayService.SynthesizeToFileAsync(settings, text, _selectedVoice, _voiceSpeed, cancellationToken).ConfigureAwait(false);
         try
         {
             await PlayAudioFileAsync(file, cancellationToken).ConfigureAwait(false);
@@ -557,10 +582,91 @@ public sealed partial class VoicePage : Page
         return flush ? text.Length : -1;
     }
 
+    private void Interrupt_Click(object sender, RoutedEventArgs e)
+    {
+        _turnCts?.Cancel();
+        _voicePlayer?.Dispose();
+        _voicePlayer = null;
+        SetPhase(VoiceCallPhase.Listening, "Hermes interrotto. Ti ascolto.");
+    }
+
+    private void Ptt_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_callActive) { _ = StartCallSessionAsync(); return; }
+        Interrupt_Click(sender, e);
+    }
+
+    private void ToggleTranscript_Click(object sender, RoutedEventArgs e) => TranscriptBorder.Visibility = TranscriptBorder.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    private void SwitchToText_Click(object sender, RoutedEventArgs e)
+    {
+        var transcript = string.Join("\n", _history.Select(message => $"{message.Author}: {message.Text}"));
+        Frame.Navigate(typeof(HomePage), new HomeNavigationRequest(Prompt: string.IsNullOrWhiteSpace(transcript) ? null : $"Continuiamo in testo da questa chiamata:\n\n{transcript}"));
+    }
+
+    private async void PreviewVoice_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyVoiceControls();
+        StatusText.Text = "Creo anteprima voce...";
+        var file = await SpeechGatewayService.SynthesizeToFileAsync(AppSettingsStore.Load(), "Ciao Matteo, questa è la mia voce.", _selectedVoice, _voiceSpeed);
+        try { await PlayAudioFileAsync(file, CancellationToken.None); } finally { TryDelete(file); }
+    }
+
+    private void SaveVoiceProfile_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyVoiceControls();
+        var key = $"VoiceProfile:{ProjectProfileBox.Text.Trim()}";
+        ApplicationData.Current.LocalSettings.Values[key] = $"{_selectedVoice}|{_voiceSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{_wakeWordEnabled}";
+        StatusText.Text = "Profilo voce salvato per il progetto.";
+    }
+
+    private void ApplyVoiceControls()
+    {
+        _selectedVoice = (VoiceBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "if_sara";
+        _voiceSpeed = SpeedSlider.Value;
+        _wakeWordEnabled = WakeWordSwitch.IsOn;
+    }
+
+    private void LoadVoiceProfile()
+    {
+        var key = $"VoiceProfile:{ProjectProfileBox.Text.Trim()}";
+        var parts = (ApplicationData.Current.LocalSettings.Values[key] as string ?? "if_sara|1.08|False").Split('|');
+        _selectedVoice = parts.ElementAtOrDefault(0) ?? "if_sara";
+        _voiceSpeed = double.TryParse(parts.ElementAtOrDefault(1), System.Globalization.CultureInfo.InvariantCulture, out var speed) ? speed : 1.08;
+        _wakeWordEnabled = bool.TryParse(parts.ElementAtOrDefault(2), out var wake) && wake;
+        VoiceBox.SelectedIndex = Math.Max(0, Array.IndexOf(VoiceNames, _selectedVoice));
+        SpeedSlider.Value = _voiceSpeed; WakeWordSwitch.IsOn = _wakeWordEnabled;
+    }
+
+    private void RefreshTranscript() => DispatcherQueue.TryEnqueue(() => TranscriptText.Text = string.Join("\n\n", _history.Select(message => $"{message.Author}\n{message.Text}")));
+
+    private async Task<string> SaveVoiceConversationAsync()
+    {
+        if (_history.Count == 0) return "Chiamata chiusa.";
+        var projectId = ProjectProfileBox.Text.Trim();
+        var saved = ChatArchiveStore.SaveSnapshot(null, "Chat", "Chiamata vocale", _history, "voice-call", projectId: projectId);
+        var transcript = string.Join("\n", _history.Select(message => $"{message.Author}: {message.Text}"));
+        var summary = $"Chiamata con {_history.Count} interventi. Ultimo punto: {_history.Last().Text}";
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            var builder = new StringBuilder();
+            await foreach (var ev in ChatStreamClient.StreamChatAsync(AppSettingsStore.Load(), "Chat", $"Riassumi in massimo 5 righe questa chiamata, indicando decisioni e prossimi passi.\n\n{transcript}", [], saved.Id, null, cancellationToken: timeout.Token))
+            {
+                if (ev is StreamTextDelta delta) builder.Append(delta.Delta);
+                if (ev is StreamDone done && !string.IsNullOrWhiteSpace(done.AccumulatedText)) { builder.Clear(); builder.Append(done.AccumulatedText); }
+            }
+            if (!string.IsNullOrWhiteSpace(builder.ToString())) summary = builder.ToString().Trim();
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or HttpRequestException or InvalidOperationException) { System.Diagnostics.Trace.WriteLine($"[VoicePage] summary: {ex.Message}"); }
+        ChatArchiveStore.UpdateConversationMetadata(saved.Id, "Chiamate", ["voce"], projectId, [], summary);
+        return $"Chiamata salvata. {TrimForStatus(summary)}";
+    }
+
     private void SetPhase(VoiceCallPhase phase, string? status = null)
     {
         var changed = _phase != phase;
         _phase = phase;
+        DispatcherQueue.TryEnqueue(() => InterruptButton.IsEnabled = _callActive && phase is VoiceCallPhase.Thinking or VoiceCallPhase.Speaking);
         if (changed)
         {
             SetWaitingToneEnabled(phase == VoiceCallPhase.Thinking);
@@ -624,6 +730,7 @@ public sealed partial class VoicePage : Page
         {
             _history.RemoveAt(0);
         }
+        RefreshTranscript();
     }
 
     private static List<VoiceParticle> BuildParticles()

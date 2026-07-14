@@ -124,6 +124,7 @@ public sealed partial class SettingsPage : Page
 
     private AppSettings ReadSettings()
     {
+        var existing = AppSettingsStore.Load();
         return new AppSettings
         {
             GatewayUrl = GatewayUrlBox.Text.Trim(),
@@ -137,8 +138,8 @@ public sealed partial class SettingsPage : Page
             Model = ModelBox.Text.Trim(),
             VideoLibraryPath = VideoLibraryPathBox.Text.Trim(),
             NewsLibraryPath = NewsLibraryPathBox.Text.Trim(),
-            ActiveProjectId = string.IsNullOrWhiteSpace(ActiveProjectNameBox.Text) ? string.Empty : $"project_{ActiveProjectNameBox.Text.Trim().ToLowerInvariant().Replace(' ', '_')}",
-            ActiveProjectName = ActiveProjectNameBox.Text.Trim(),
+            ActiveProjectId = existing.ActiveProjectId,
+            ActiveProjectName = existing.ActiveProjectName,
             AccessMode = SelectedComboText(AccessModeBox),
             VisualBlocksMode = SelectedComboText(VisualBlocksModeBox),
             MaxAttachmentMb = Math.Clamp(double.IsFinite(MaxAttachmentMbBox.Value) ? (int)Math.Round(MaxAttachmentMbBox.Value) : 150, 1, 150),

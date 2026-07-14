@@ -7,10 +7,13 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +23,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,6 +40,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.CancellationException
@@ -129,6 +142,13 @@ private data class VoiceConversationContext(
     var previousResponseId: String? = null
 )
 
+private object VoiceTurnController {
+    var job: Job? = null
+    var player: MediaPlayer? = null
+    fun interrupt() { job?.cancel(); job = null; runCatching { player?.stop() }; player?.release(); player = null }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
     val context = LocalContext.current
@@ -141,6 +161,12 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
     var callJob by remember { mutableStateOf<Job?>(null) }
     var startRequested by remember { mutableStateOf(false) }
     val waitingTone = remember(context) { WaitingTonePlayer(context.applicationContext) }
+    val voicePrefs = remember { context.getSharedPreferences("voice_profiles", Context.MODE_PRIVATE) }
+    var voice by remember { mutableStateOf(voicePrefs.getString("voice:${settings.activeProjectId}", "if_sara") ?: "if_sara") }
+    var speed by remember { mutableFloatStateOf(voicePrefs.getFloat("speed:${settings.activeProjectId}", 1.08f)) }
+    var wakeWord by remember { mutableStateOf(voicePrefs.getBoolean("wake:${settings.activeProjectId}", false)) }
+    var transcriptVisible by remember { mutableStateOf(false) }
+    var bluetooth by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -164,6 +190,7 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
                 phase = VoiceCallPhase.Listening
                 status = "Ti ascolto."
                 history.clear()
+                startVoiceForegroundService(context)
                 runVoiceCallLoop(
                     context = context,
                     settings = settings,
@@ -172,7 +199,10 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
                     voiceConversation = VoiceConversationContext("voice_${System.currentTimeMillis()}_${java.util.UUID.randomUUID()}"),
                     isCallActive = { callActive },
                     setPhase = { phase = it },
-                    setStatus = { status = it }
+                    setStatus = { status = it },
+                    wakeWordEnabled = { wakeWord },
+                    voice = { voice },
+                    speed = { speed.toDouble() }
                 )
             } catch (_: CancellationException) {
             } catch (ex: Exception) {
@@ -197,6 +227,8 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
         onDispose {
             callActive = false
             callJob?.cancel()
+            VoiceTurnController.interrupt()
+            stopVoiceForegroundService(context)
             waitingTone.release()
         }
     }
@@ -222,14 +254,22 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Button(onClick = { VoiceTurnController.interrupt(); phase = VoiceCallPhase.Listening; status = "Hermes interrotto. Ti ascolto." }, enabled = callActive) { Text("Interrompi") }
+                Button(onClick = { VoiceTurnController.interrupt(); status = "Premi e parla: ascolto attivo." }, enabled = callActive) { Text("PTT") }
+                Button(onClick = { transcriptVisible = !transcriptVisible }) { Text("Trascrizione") }
+                Button(onClick = { bluetooth = !bluetooth; routeVoiceBluetooth(context, bluetooth); status = if (bluetooth) "Audio Bluetooth attivo." else "Audio dispositivo attivo." }) { Text(if (bluetooth) "Bluetooth ON" else "Bluetooth") }
+            }
             Button(
                 onClick = {
                     if (callActive) {
                         callActive = false
+                        VoiceTurnController.interrupt()
                         callJob?.cancel()
                         callJob = null
+                        stopVoiceForegroundService(context)
                         phase = VoiceCallPhase.Idle
-                        status = "Chiamata chiusa."
+                        scope.launch { status = saveVoiceCall(context, settings, apiKey, history) }
                     } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         startRequested = true
                     } else {
@@ -258,8 +298,57 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf("if_sara", "im_nicola", "if_alba").forEach { candidate -> Button(onClick = { voice = candidate }, colors = ButtonDefaults.buttonColors(containerColor = if (voice == candidate) Color(0xFFFF6F12) else Color(0x55333333))) { Text(candidate) } }
+                Button(onClick = { scope.launch { val file = synthesizeVoiceFile(context, settings, apiKey, "Ciao Matteo, questa è la mia voce.", voice, speed.toDouble()); try { playVoiceFile(file) {} } finally { file.delete() } } }) { Text("Anteprima") }
+                Button(onClick = { voicePrefs.edit { putString("voice:${settings.activeProjectId}", voice); putFloat("speed:${settings.activeProjectId}", speed); putBoolean("wake:${settings.activeProjectId}", wakeWord) }; status = "Profilo voce progetto salvato." }) { Text("Salva profilo") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) { Switch(wakeWord, { wakeWord = it }); Text("Wake word Hermes", color = Color.White) }
+        }
+
+        if (transcriptVisible) {
+            Card(modifier = Modifier.align(Alignment.TopStart).padding(18.dp).fillMaxWidth(0.72f).heightIn(max = 420.dp), colors = CardDefaults.cardColors(containerColor = Color(0xDD151515))) {
+                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { items(history.size) { index -> val message = history[index]; Text("${message.author}\n${message.text}", color = Color.White) } }
+            }
         }
     }
+}
+
+private suspend fun saveVoiceCall(context: Context, settings: AppSettings, apiKey: String?, history: List<ChatMessage>): String {
+    if (history.isEmpty()) return "Chiamata chiusa."
+    val saved = saveConversationSnapshot(context, null, "Chat", "Chiamata vocale", history.toList(), "voice-call", projectId = settings.activeProjectId)
+    val transcript = history.joinToString("\n") { "${it.author}: ${it.text}" }
+    var summary = "Chiamata con ${history.size} interventi. Ultimo punto: ${history.last().text}"
+    runCatching {
+        val builder = StringBuilder()
+        streamChatRequest(settings, "Chat", "Riassumi in massimo 5 righe questa chiamata con decisioni e prossimi passi:\n\n$transcript", emptyList(), saved.id, null, emptyList(), apiKey).collect { event ->
+            when (event) { is ChatStreamEvent.TextDelta -> builder.append(event.delta); is ChatStreamEvent.TextSnapshot -> { builder.clear(); builder.append(event.text) }; else -> Unit }
+        }
+        if (builder.isNotBlank()) summary = builder.toString().trim()
+    }
+    updateLocalConversation(context, saved.id) { it.copy(folder = "Chiamate", tags = (it.tags + "voce").distinct(), summary = summary, updatedAt = System.currentTimeMillis()) }
+    return "Chiamata salvata. ${summary.take(150)}"
+}
+
+private fun routeVoiceBluetooth(context: Context, enabled: Boolean) {
+    val audio = context.getSystemService(AudioManager::class.java)
+    audio.mode = if (enabled) AudioManager.MODE_IN_COMMUNICATION else AudioManager.MODE_NORMAL
+    if (Build.VERSION.SDK_INT >= 31) {
+        val bluetooth = audio.availableCommunicationDevices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET }
+        if (enabled && bluetooth != null) audio.setCommunicationDevice(bluetooth) else audio.clearCommunicationDevice()
+    } else {
+        @Suppress("DEPRECATION")
+        if (enabled) audio.startBluetoothSco() else audio.stopBluetoothSco()
+    }
+}
+
+private fun startVoiceForegroundService(context: Context) {
+    val intent = Intent(context, VoiceCallService::class.java).setAction("start")
+    ContextCompat.startForegroundService(context, intent)
+}
+
+private fun stopVoiceForegroundService(context: Context) {
+    context.startService(Intent(context, VoiceCallService::class.java).setAction("stop"))
 }
 
 @Composable
@@ -344,7 +433,10 @@ private suspend fun runVoiceCallLoop(
     voiceConversation: VoiceConversationContext,
     isCallActive: () -> Boolean,
     setPhase: (VoiceCallPhase) -> Unit,
-    setStatus: (String) -> Unit
+    setStatus: (String) -> Unit,
+    wakeWordEnabled: () -> Boolean,
+    voice: () -> String,
+    speed: () -> Double
 ) {
     var lastTranscript = ""
     var lastTranscriptAt = 0L
@@ -360,14 +452,21 @@ private suspend fun runVoiceCallLoop(
             } finally {
                 file.delete()
             }
+            val wakeAdjusted = if (wakeWordEnabled()) {
+                if (!text.startsWith("Hermes", ignoreCase = true)) continue else text.drop("Hermes".length).trimStart(' ', ',', ':')
+            } else text
             val now = System.currentTimeMillis()
-            if (!isUsefulTranscript(text) || (text.equals(lastTranscript, ignoreCase = true) && now - lastTranscriptAt < 8_000)) {
+            if (!isUsefulTranscript(wakeAdjusted) || (wakeAdjusted.equals(lastTranscript, ignoreCase = true) && now - lastTranscriptAt < 8_000)) {
                 continue
             }
-            lastTranscript = text
+            lastTranscript = wakeAdjusted
             lastTranscriptAt = now
-            setStatus("Tu: ${text.trimForStatus()}")
-            runVoiceTurn(context, settings, apiKey, history, voiceConversation, text, setPhase, setStatus)
+            setStatus("Tu: ${wakeAdjusted.trimForStatus()}")
+            coroutineScope {
+                val turn = async { runVoiceTurn(context, settings, apiKey, history, voiceConversation, wakeAdjusted, setPhase, setStatus, voice(), speed()) }
+                VoiceTurnController.job = turn
+                try { turn.await() } catch (_: CancellationException) { if (coroutineContext.isActive) { setPhase(VoiceCallPhase.Listening); setStatus("Interrotto. Ti ascolto.") } } finally { if (VoiceTurnController.job === turn) VoiceTurnController.job = null }
+            }
         } catch (_: CancellationException) {
             break
         } catch (ex: Exception) {
@@ -477,7 +576,9 @@ private suspend fun runVoiceTurn(
     voiceConversation: VoiceConversationContext,
     prompt: String,
     setPhase: (VoiceCallPhase) -> Unit,
-    setStatus: (String) -> Unit
+    setStatus: (String) -> Unit,
+    voice: String,
+    speed: Double
 ) = coroutineScope {
     val contextHistory = history.takeLast(10)
     history += ChatMessage("Tu", prompt, fromUser = true)
@@ -506,7 +607,7 @@ private suspend fun runVoiceTurn(
                 setStatus("Hermes: ${answer.toString().trimForStatus()}")
                 val queued = drainSpeechSegments(speechBuffer, flush = false)
                 for (segment in queued) {
-                    playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this) {
+                    playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this, voice, speed) {
                         setPhase(VoiceCallPhase.Speaking)
                     }
                 }
@@ -528,7 +629,7 @@ private suspend fun runVoiceTurn(
     }
 
     for (segment in drainSpeechSegments(speechBuffer, flush = true)) {
-        playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this) {
+        playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this, voice, speed) {
             setPhase(VoiceCallPhase.Speaking)
         }
     }
@@ -548,10 +649,12 @@ private fun queueSpeechSegment(
     segment: String,
     previous: Deferred<Unit>,
     scope: CoroutineScope,
+    voice: String,
+    speed: Double,
     onPlaybackStarted: () -> Unit
 ): Deferred<Unit> = scope.async {
     previous.await()
-    val file = synthesizeVoiceFile(context, settings, apiKey, segment)
+    val file = synthesizeVoiceFile(context, settings, apiKey, segment, voice, speed)
     try {
         playVoiceFile(file, onPlaybackStarted)
     } finally {
@@ -563,13 +666,15 @@ private suspend fun synthesizeVoiceFile(
     context: Context,
     settings: AppSettings,
     apiKey: String?,
-    text: String
+    text: String,
+    voice: String = "if_sara",
+    speed: Double = 1.08
 ): File = withContext(Dispatchers.IO) {
     val payload = JSONObject()
         .put("input", text.trim())
-        .put("voice", "if_sara")
+        .put("voice", voice.ifBlank { "if_sara" })
         .put("lang", "it")
-        .put("speed", 1.08)
+        .put("speed", speed.coerceIn(0.75, 1.35))
         .put("response_format", "wav")
         .toString()
         .toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -616,11 +721,13 @@ private suspend fun synthesizeVoiceFile(
 private suspend fun playVoiceFile(file: File, onPlaybackStarted: () -> Unit): Unit = withContext(Dispatchers.Main) {
     suspendCancellableCoroutine { continuation ->
         val player = MediaPlayer()
+        VoiceTurnController.player = player
         val finished = AtomicBoolean(false)
         fun complete(error: Throwable? = null) {
             if (!finished.compareAndSet(false, true)) return
             runCatching { player.stop() }
             player.release()
+            if (VoiceTurnController.player === player) VoiceTurnController.player = null
             if (!continuation.isActive) return
             if (error == null) continuation.resume(Unit) else continuation.resumeWithException(error)
         }

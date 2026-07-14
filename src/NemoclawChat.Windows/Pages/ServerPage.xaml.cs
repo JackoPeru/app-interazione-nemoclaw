@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -6,13 +7,16 @@ using NemoclawChat_Windows.Services;
 
 namespace NemoclawChat_Windows.Pages;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "La pagina WinUI rilascia il debounce al successivo evento; il framework non consuma IDisposable.")]
 public sealed partial class ServerPage : Page
 {
     private AppSettings _settings = new();
+    private CancellationTokenSource? _logFilterDebounce;
 
     public ServerPage()
     {
         InitializeComponent();
+        Unloaded += (_, _) => { _logFilterDebounce?.Cancel(); _logFilterDebounce?.Dispose(); _logFilterDebounce = null; };
         _ = LoadServerSnapshotAsync();
     }
 
@@ -97,5 +101,66 @@ public sealed partial class ServerPage : Page
         InferenceText.Text = $"{snapshot.InferenceEndpoint}\nCartella video Hermes: {(string.IsNullOrWhiteSpace(snapshot.VideoLibraryPath) ? "in attesa di sync server" : snapshot.VideoLibraryPath)}";
         PolicyText.Text = snapshot.Policy;
         StatusText.Text = snapshot.StatusMessage;
+        await RefreshControlAsync();
+    }
+
+    private string SelectedService() => (ServiceBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "gateway";
+
+    private async void StartService_Click(object sender, RoutedEventArgs e) => await RunServiceActionAsync("start", confirm: false);
+    private async void StopService_Click(object sender, RoutedEventArgs e) => await RunServiceActionAsync("stop", confirm: true);
+    private async void RestartService_Click(object sender, RoutedEventArgs e) => await RunServiceActionAsync("restart", confirm: true);
+    private async void RefreshControl_Click(object sender, RoutedEventArgs e) => await RefreshControlAsync();
+
+    private async Task RunServiceActionAsync(string action, bool confirm)
+    {
+        var service = SelectedService();
+        if (confirm)
+        {
+            var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = $"Conferma {action}", Content = $"Vuoi eseguire {action} su {service}? Le sessioni attive possono interrompersi.", PrimaryButtonText = "Conferma", CloseButtonText = "Annulla", DefaultButton = ContentDialogButton.Close };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        }
+        ControlOutputBox.Text = $"Eseguo {action} su {service}...";
+        ControlOutputBox.Text = await GatewayService.SendHermesRequestAsync(_settings, HttpMethod.Post, "/v1/hub/server/action", JsonSerializer.Serialize(new { service, action }));
+        await RefreshControlAsync();
+    }
+
+    private async void Maintenance_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string operation }) return;
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = $"Conferma {operation}", Content = "L'operazione usa esclusivamente il comando preconfigurato sul server e può richiedere diversi minuti.", PrimaryButtonText = "Esegui", CloseButtonText = "Annulla", DefaultButton = ContentDialogButton.Close };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        ControlOutputBox.Text = $"Operazione {operation} in corso...";
+        ControlOutputBox.Text = await GatewayService.SendHermesRequestAsync(_settings, HttpMethod.Post, "/v1/hub/server/maintenance", JsonSerializer.Serialize(new { operation }));
+    }
+
+    private async void IntegrationTests_Click(object sender, RoutedEventArgs e)
+    {
+        ControlOutputBox.Text = "Test integrazioni...";
+        var capabilities = await GatewayService.SendHermesRequestAsync(_settings, HttpMethod.Get, "/v1/capabilities");
+        var media = await GatewayService.SendHermesRequestAsync(_settings, HttpMethod.Get, "/v1/video/library");
+        var tool = await GatewayService.SendHermesRequestAsync(_settings, HttpMethod.Post, "/v1/runs", JsonSerializer.Serialize(new { model = "hermes-agent", input = "Esegui un controllo innocuo: rispondi solo HERMES_HUB_TOOL_OK senza modificare dati." }));
+        ControlOutputBox.Text = $"CAPABILITIES STT/TTS\n{capabilities}\n\nMEDIA\n{media}\n\nTOOL RUN\n{tool}";
+    }
+
+    private async void LogFilterBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        _logFilterDebounce?.Cancel();
+        _logFilterDebounce?.Dispose();
+        _logFilterDebounce = new CancellationTokenSource();
+        try { await Task.Delay(350, _logFilterDebounce.Token); await RefreshControlAsync(); }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshControlAsync()
+    {
+        var filter = Uri.EscapeDataString(LogFilterBox?.Text?.Trim() ?? string.Empty);
+        var json = await GatewayService.SendHermesRequestAsync(_settings, HttpMethod.Get, $"/v1/hub/server/control?filter={filter}");
+        ControlOutputBox.Text = json;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            CompatibilityWarningText.Text = document.RootElement.TryGetProperty("compatibility_warning", out var warning) ? warning.GetString() ?? string.Empty : string.Empty;
+        }
+        catch (JsonException) { CompatibilityWarningText.Text = "Centro controllo non disponibile: applicare il gateway aggiornato."; }
     }
 }

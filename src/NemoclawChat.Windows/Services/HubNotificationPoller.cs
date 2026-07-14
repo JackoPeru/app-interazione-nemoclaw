@@ -34,11 +34,13 @@ public sealed class HubNotificationPoller
         _running = true;
         try
         {
+            if (ApplicationData.Current.LocalSettings.Values["NotificationsDnd"] as bool? == true) return;
             var settings = AppSettingsStore.Load();
             var result = await GatewayService.LoadHubNotificationsAsync(settings, unreadOnly: true);
             var seen = LoadSeen();
             foreach (var item in result.Items.OrderBy(item => item.CreatedAt))
             {
+                if (item.Archived || item.SnoozedUntil > DateTimeOffset.Now) continue;
                 if (!seen.Add(item.Id)) continue;
                 ShowToast(item);
             }

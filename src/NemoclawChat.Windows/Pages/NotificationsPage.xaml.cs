@@ -2,6 +2,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using NemoclawChat_Windows.Services;
+using Windows.Storage;
+using Windows.System;
 
 namespace NemoclawChat_Windows.Pages;
 
@@ -12,6 +14,7 @@ public sealed partial class NotificationsPage : Page
     public NotificationsPage()
     {
         InitializeComponent();
+        DoNotDisturbSwitch.IsOn = ApplicationData.Current.LocalSettings.Values["NotificationsDnd"] as bool? ?? false;
         Loaded += NotificationsPage_Loaded;
     }
 
@@ -38,7 +41,18 @@ public sealed partial class NotificationsPage : Page
     private void Render()
     {
         NotificationsPanel.Children.Clear();
-        if (_items.Count == 0)
+        var category = (CategoryFilterBox?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        var priority = (PriorityFilterBox?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        var now = DateTimeOffset.Now;
+        var visible = _items.Where(item =>
+            (ArchivedBox?.IsChecked == true ? item.Archived : !item.Archived) &&
+            (UnreadOnlyBox?.IsChecked != true || item.ReadAt is null) &&
+            (item.SnoozedUntil is null || item.SnoozedUntil <= now) &&
+            (category is null || category.StartsWith("Tutte", StringComparison.Ordinal) || item.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) &&
+            (priority is null || priority.StartsWith("Tutte", StringComparison.Ordinal) || item.Priority.Equals(priority, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(item => PriorityRank(item.Priority)).ThenByDescending(item => item.CreatedAt).ToList();
+        BadgesText.Text = $"Non lette: {_items.Count(item => item.ReadAt is null && !item.Archived)} · Critiche: {_items.Count(item => item.Priority.Equals("Critica", StringComparison.OrdinalIgnoreCase) && !item.Archived)} · Automazioni: {_items.Count(item => !string.IsNullOrWhiteSpace(item.AutomationId) && !item.Archived)}";
+        if (visible.Count == 0)
         {
             NotificationsPanel.Children.Add(new TextBlock
             {
@@ -49,8 +63,15 @@ public sealed partial class NotificationsPage : Page
             return;
         }
 
-        foreach (var item in _items)
+        string? currentGroup = null;
+        foreach (var item in visible)
         {
+            var group = string.IsNullOrWhiteSpace(item.AutomationId) ? item.Category : $"Automazione · {item.AutomationId}";
+            if (!string.Equals(group, currentGroup, StringComparison.OrdinalIgnoreCase))
+            {
+                NotificationsPanel.Children.Add(new TextBlock { Text = group, Foreground = (Brush)Application.Current.Resources["AccentGreenBrush"], FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
+                currentGroup = group;
+            }
             NotificationsPanel.Children.Add(CreateCard(item));
         }
     }
@@ -68,7 +89,7 @@ public sealed partial class NotificationsPage : Page
         };
         var meta = new TextBlock
         {
-            Text = $"{item.Source} · {item.CreatedAt.LocalDateTime:g} · {(unread ? "non letta" : "letta")}",
+            Text = $"{item.Category} · {item.Priority} · {item.Source} · {item.CreatedAt.LocalDateTime:g} · {(unread ? "non letta" : "letta")}",
             Foreground = unread ? (Brush)Application.Current.Resources["AccentGreenBrush"] : (Brush)Application.Current.Resources["MutedTextBrush"],
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap
@@ -82,6 +103,9 @@ public sealed partial class NotificationsPage : Page
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         actions.Children.Add(Button("Apri chat", item, OpenChat_Click));
         actions.Children.Add(Button("Segna letta", item, MarkRead_Click));
+        actions.Children.Add(Button("Tra 1 ora", item, Snooze_Click));
+        actions.Children.Add(Button(item.Archived ? "Ripristina" : "Archivia", item, Archive_Click));
+        if (!string.IsNullOrWhiteSpace(item.FileUrl) || !string.IsNullOrWhiteSpace(item.RunId) || !string.IsNullOrWhiteSpace(item.AutomationId) || !string.IsNullOrWhiteSpace(item.ProjectId)) actions.Children.Add(Button("Apri riferimento", item, OpenReference_Click));
 
         return new Border
         {
@@ -131,4 +155,32 @@ public sealed partial class NotificationsPage : Page
             : item.ConversationPrompt;
         Frame.Navigate(typeof(HomePage), new HomeNavigationRequest(Prompt: prompt));
     }
+
+    private async void Snooze_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: HubNotificationRecord item }) return;
+        StatusText.Text = await GatewayService.PatchHubNotificationAsync(AppSettingsStore.Load(), item.Id, new { snoozed_until = DateTimeOffset.Now.AddHours(1).ToUnixTimeSeconds() });
+        await RefreshAsync();
+    }
+
+    private async void Archive_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: HubNotificationRecord item }) return;
+        StatusText.Text = await GatewayService.PatchHubNotificationAsync(AppSettingsStore.Load(), item.Id, new { archived = !item.Archived });
+        await RefreshAsync();
+    }
+
+    private async void OpenReference_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: HubNotificationRecord item }) return;
+        if (!string.IsNullOrWhiteSpace(item.FileUrl) && Uri.TryCreate(item.FileUrl, UriKind.Absolute, out var uri)) { await Launcher.LaunchUriAsync(uri); return; }
+        if (!string.IsNullOrWhiteSpace(item.ProjectId)) { Frame.Navigate(typeof(ProjectsPage), item.ProjectId); return; }
+        if (!string.IsNullOrWhiteSpace(item.AutomationId)) { Frame.Navigate(typeof(CronPage)); return; }
+        Frame.Navigate(typeof(HomePage), new HomeNavigationRequest(Prompt: $"Controlla lo stato della run {item.RunId} e spiegami il risultato."));
+    }
+
+    private void Filter_Changed(object sender, RoutedEventArgs e) { if (NotificationsPanel is not null) Render(); }
+    private void Filter_Changed(object sender, SelectionChangedEventArgs e) { if (NotificationsPanel is not null) Render(); }
+    private void DoNotDisturbSwitch_Toggled(object sender, RoutedEventArgs e) => ApplicationData.Current.LocalSettings.Values["NotificationsDnd"] = DoNotDisturbSwitch.IsOn;
+    private static int PriorityRank(string priority) => priority.ToLowerInvariant() switch { "critica" or "critical" => 4, "alta" or "high" => 3, "normale" or "normal" => 2, _ => 1 };
 }

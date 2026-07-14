@@ -17,6 +17,8 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.net.Uri
@@ -51,6 +53,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.core.content.edit
+import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
+import androidx.core.text.htmlEncode
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -275,6 +281,7 @@ class MainActivity : ComponentActivity() {
             )
         }
         super.onCreate(savedInstanceState)
+        handleIncomingIntent(intent)
         ensureHermesNotificationChannel(this)
         requestHermesNotificationPermission()
         scheduleHermesNotificationWorker(this)
@@ -286,21 +293,56 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent == null) return
+        val uri = intent.data
+        when {
+            intent.action == Intent.ACTION_SEND -> {
+                val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+                val stream = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else @Suppress("DEPRECATION") (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
+                IncomingIntentBus.publish(prompt = text.ifBlank { if (stream != null) "Analizza il contenuto condiviso." else "" }, uri = stream?.toString().orEmpty())
+            }
+            !intent.getStringExtra("notification_reply").isNullOrBlank() -> IncomingIntentBus.publish(prompt = intent.getStringExtra("notification_reply").orEmpty())
+            uri?.scheme == "hermes-hub" -> IncomingIntentBus.publish(prompt = uri.getQueryParameter("prompt").orEmpty(), conversationId = uri.getQueryParameter("conversation").orEmpty(), tab = uri.host.orEmpty())
+        }
+    }
+
     private fun requestHermesNotificationPermission() {
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4207)
         }
+        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 4208)
+        }
     }
+}
+
+private data class IncomingIntentRequest(val version: Long = 0L, val prompt: String = "", val uri: String = "", val conversationId: String = "", val tab: String = "")
+private object IncomingIntentBus {
+    var request by mutableStateOf(IncomingIntentRequest())
+        private set
+    fun publish(prompt: String = "", uri: String = "", conversationId: String = "", tab: String = "") { request = IncomingIntentRequest(System.nanoTime(), prompt, uri, conversationId, tab) }
 }
 
 private enum class Tab(val label: String, val icon: ImageVector) {
     Chat("Chat", Icons.Rounded.ChatBubbleOutline),
     Voice("Voce", Icons.Rounded.Mic),
+    Projects("Progetti", Icons.Rounded.FolderOpen),
+    Artifacts("Artifact", Icons.Rounded.FolderOpen),
+    Search("Ricerca", Icons.AutoMirrored.Rounded.ManageSearch),
     Archive("Archivio", Icons.Rounded.FolderOpen),
     Cron("Cron", Icons.Rounded.TaskAlt),
     Notifications("Notifiche", Icons.Rounded.Notifications),
+    Continuity("Continuità", Icons.Rounded.ContentCopy),
+    Audit("Audit", Icons.Rounded.TaskAlt),
     Server("Server", Icons.Rounded.Dns),
     Hardware("Hardware", Icons.Rounded.Memory),
     Video("Video", Icons.Rounded.PlayCircle),
@@ -428,7 +470,8 @@ data class ChatMessage(
     val visualBlocks: List<VisualBlock> = emptyList(),
     val stats: ChatStreamStats? = null,
     val rawEvents: List<HermesRawEvent> = emptyList(),
-    val id: String = java.util.UUID.randomUUID().toString()
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val isBookmarked: Boolean = false
 )
 
 @androidx.compose.runtime.Immutable
@@ -532,7 +575,26 @@ data class LocalConversation(
     val messages: List<ChatMessage>,
     val previousResponseId: String? = null,
     val serverConversationId: String? = null,
-    val deletedAt: Long? = null
+    val deletedAt: Long? = null,
+    val projectId: String = "",
+    val workspacePath: String = "",
+    val repositoryUrl: String = "",
+    val projectInstructions: String = "",
+    val projectMemory: String = "",
+    val authorizedTools: List<String> = emptyList(),
+    val artifactType: String = "",
+    val artifactUrl: String = "",
+    val artifactFileName: String = "",
+    val artifactMimeType: String = "",
+    val sourceConversationId: String = "",
+    val sourceRunId: String = "",
+    val version: Int = 0,
+    val tags: List<String> = emptyList(),
+    val folder: String = "",
+    val summary: String = "",
+    val parentConversationId: String = "",
+    val branchFromMessageId: String = "",
+    val linkedConversationIds: List<String> = emptyList()
 )
 
 data class WorkspaceRequest(
@@ -611,6 +673,11 @@ data class AppSettings(
     val newsLibraryPath: String = AppDefaults.newsLibraryPath,
     val activeProjectId: String = AppDefaults.activeProjectId,
     val activeProjectName: String = AppDefaults.activeProjectName,
+    val activeProjectWorkspacePath: String = "",
+    val activeProjectRepositoryUrl: String = "",
+    val activeProjectInstructions: String = "",
+    val activeProjectMemory: String = "",
+    val activeProjectTools: String = "",
     val fontScale: Float = AppDefaults.fontScale,
     val showToolCalls: Boolean = AppDefaults.showToolCalls,
     val showMessageMetrics: Boolean = AppDefaults.showMessageMetrics,
@@ -640,12 +707,6 @@ private data class HubMemoryState(
     val responseStyle: String = "",
     val projectRules: String = "",
     val generalNotes: String = ""
-)
-
-private data class ProjectRecord(
-    val id: String,
-    val name: String,
-    val updatedAt: Long = System.currentTimeMillis()
 )
 
 private data class DiagnosticCheck(
@@ -821,6 +882,76 @@ private data class CronJob(
     val origin: String
 )
 
+private data class AutomationDefinition(
+    val taskPrompt: String,
+    val condition: String = "",
+    val timeoutSeconds: Int = 900,
+    val retryCount: Int = 0,
+    val notificationTemplate: String = "",
+    val projectId: String = "",
+    val dependencies: String = ""
+)
+
+private const val AUTOMATION_PROMPT_PREFIX = "<!-- HERMES_HUB_AUTOMATION_V1:"
+private const val AUTOMATION_PROMPT_SUFFIX = " -->"
+
+private fun encodeAutomationPrompt(definition: AutomationDefinition): String {
+    val normalized = definition.copy(
+        taskPrompt = definition.taskPrompt.trim().take(12_000),
+        condition = definition.condition.trim().take(2_000),
+        timeoutSeconds = definition.timeoutSeconds.coerceIn(10, 86_400),
+        retryCount = definition.retryCount.coerceIn(0, 10),
+        notificationTemplate = definition.notificationTemplate.trim().take(2_000),
+        projectId = definition.projectId.trim().take(200),
+        dependencies = definition.dependencies.trim().take(2_000)
+    )
+    val json = JSONObject()
+        .put("taskPrompt", normalized.taskPrompt)
+        .put("condition", normalized.condition)
+        .put("timeoutSeconds", normalized.timeoutSeconds)
+        .put("retryCount", normalized.retryCount)
+        .put("notificationTemplate", normalized.notificationTemplate)
+        .put("projectId", normalized.projectId)
+        .put("dependencies", normalized.dependencies)
+    val metadata = Base64.encodeToString(json.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+    return """
+        $AUTOMATION_PROMPT_PREFIX$metadata$AUTOMATION_PROMPT_SUFFIX
+        Regole Automation Studio Hermes Hub:
+        - Condizione: ${normalized.condition.ifBlank { "sempre" }}
+        - Timeout massimo: ${normalized.timeoutSeconds} secondi
+        - Retry massimi: ${normalized.retryCount}
+        - Progetto: ${normalized.projectId.ifBlank { "nessuno" }}
+        - Dipendenze job: ${normalized.dependencies.ifBlank { "nessuna" }}
+        - Notifica finale: ${normalized.notificationTemplate.ifBlank { "riepilogo standard" }}
+        Valuta condizione prima di agire. Se falsa, termina senza mutazioni e registra skipped. Rispetta timeout, retry, dipendenze e invia notifica tramite /v1/hub/notifications.
+
+        Attività:
+        ${normalized.taskPrompt}
+    """.trimIndent()
+}
+
+private fun decodeAutomationPrompt(prompt: String): AutomationDefinition {
+    if (prompt.startsWith(AUTOMATION_PROMPT_PREFIX)) {
+        val end = prompt.indexOf(AUTOMATION_PROMPT_SUFFIX, AUTOMATION_PROMPT_PREFIX.length)
+        if (end > AUTOMATION_PROMPT_PREFIX.length) {
+            runCatching {
+                val encoded = prompt.substring(AUTOMATION_PROMPT_PREFIX.length, end)
+                val obj = JSONObject(String(Base64.decode(encoded, Base64.NO_WRAP), Charsets.UTF_8))
+                return AutomationDefinition(
+                    taskPrompt = obj.optString("taskPrompt"),
+                    condition = obj.optString("condition"),
+                    timeoutSeconds = obj.optInt("timeoutSeconds", 900),
+                    retryCount = obj.optInt("retryCount", 0),
+                    notificationTemplate = obj.optString("notificationTemplate"),
+                    projectId = obj.optString("projectId"),
+                    dependencies = obj.optString("dependencies")
+                )
+            }
+        }
+    }
+    return AutomationDefinition(prompt)
+}
+
 private data class HubNotification(
     val id: String,
     val title: String,
@@ -830,7 +961,15 @@ private data class HubNotification(
     val source: String,
     val conversationPrompt: String,
     val createdAt: Long,
-    val readAt: Long
+    val readAt: Long,
+    val category: String = "Generale",
+    val priority: String = "Normale",
+    val archived: Boolean = false,
+    val snoozedUntil: Long = 0L,
+    val automationId: String = "",
+    val runId: String = "",
+    val fileUrl: String = "",
+    val projectId: String = ""
 )
 
 private data class WorkspaceRunResult(
@@ -878,6 +1017,16 @@ private fun ChatApp() {
     var sidebarOpen by rememberSaveable { mutableStateOf(false) }
     var savedDraft by rememberSaveable { mutableStateOf("") }
     val chatState = remember { ChatStateHolder().apply { draft = savedDraft } }
+    val incoming = IncomingIntentBus.request
+    LaunchedEffect(incoming.version) {
+        if (incoming.version == 0L) return@LaunchedEffect
+        pendingConversationId = incoming.conversationId.ifBlank { null }
+        pendingPrompt = incoming.prompt
+        if (incoming.uri.isNotBlank()) {
+            createAttachmentFromUri(context, incoming.uri.toUri(), settings.maxAttachmentMb)?.let { attachment -> chatState.pendingAttachments.add(attachment) }
+        }
+        setSelectedTab(if (incoming.tab.equals("voice", true)) Tab.Voice else if (incoming.tab.equals("projects", true)) Tab.Projects else Tab.Chat)
+    }
     LaunchedEffect(chatState.activeStreams.size) {
         while (chatState.activeStreams.isNotEmpty()) {
             chatState.streamUiTickNs = System.nanoTime()
@@ -953,6 +1102,40 @@ private fun ChatApp() {
                         onSwitchTab = { tab -> setSelectedTab(tab) }
                     )
                     Tab.Voice -> VoiceModeScreen(settings, loadGatewaySecret(context))
+                    Tab.Projects -> ProjectsScreen(
+                        context = context,
+                        settings = settings,
+                        onSettingsChanged = { updated ->
+                            settings = updated
+                            saveSettings(context, updated)
+                        },
+                        onNewChat = {
+                            pendingConversationId = null
+                            pendingPrompt = ""
+                            setSelectedTab(Tab.Chat)
+                        },
+                        onOpenConversation = { id ->
+                            pendingConversationId = id
+                            pendingPrompt = ""
+                            setSelectedTab(Tab.Chat)
+                        }
+                    )
+                    Tab.Artifacts -> ArtifactLibraryScreen(
+                        context = context,
+                        settings = settings,
+                        onOpenConversation = { id -> pendingConversationId = id; pendingPrompt = ""; setSelectedTab(Tab.Chat) },
+                        onRegenerate = { prompt -> pendingConversationId = null; pendingPrompt = prompt; setSelectedTab(Tab.Chat) }
+                    )
+                    Tab.Search -> UniversalSearchScreen(context, settings) { kind, id ->
+                        when (kind) {
+                            "Chat", "Task" -> { pendingConversationId = id; pendingPrompt = ""; setSelectedTab(Tab.Chat) }
+                            "Progetto" -> setSelectedTab(Tab.Projects)
+                            "Artifact" -> setSelectedTab(Tab.Artifacts)
+                            "Cron" -> setSelectedTab(Tab.Cron)
+                            "Notifica" -> setSelectedTab(Tab.Notifications)
+                            "Memoria" -> setSelectedTab(Tab.Profile)
+                        }
+                    }
                     Tab.Archive -> ArchiveScreen(
                         context = context,
                         onOpenConversation = { id, _ ->
@@ -966,6 +1149,8 @@ private fun ChatApp() {
                         pendingPrompt = prompt
                         setSelectedTab(Tab.Chat)
                     }
+                    Tab.Continuity -> ContinuityScreen(context, settings) { id -> pendingConversationId = id; pendingPrompt = ""; setSelectedTab(Tab.Chat) }
+                    Tab.Audit -> AuditScreen(context, settings)
                     Tab.Server -> ServerScreen(context, settings)
                     Tab.Hardware -> HardwareScreen(context, settings)
                     Tab.Video -> VideoScreen(context, settings) { prompt ->
@@ -994,10 +1179,6 @@ private fun ChatApp() {
                     Tab.Profile -> ProfileScreen(
                         context = context,
                         settings = settings,
-                        onSettingsChanged = { updated ->
-                            settings = updated
-                            saveSettings(context, updated)
-                        },
                         onOpenTab = { tab -> setSelectedTab(tab) }
                     )
                     }
@@ -1144,12 +1325,21 @@ private fun HermesSidebar(
                 SidebarTabRow(Tab.Voice, selectedTab == Tab.Voice, onOpenTab)
             }
             item {
+                SidebarTabRow(Tab.Projects, selectedTab == Tab.Projects, onOpenTab)
+            }
+            item {
+                SidebarTabRow(Tab.Artifacts, selectedTab == Tab.Artifacts, onOpenTab)
+            }
+            item {
+                SidebarTabRow(Tab.Search, selectedTab == Tab.Search, onOpenTab)
+            }
+            item {
                 SidebarTabRow(Tab.Archive, selectedTab == Tab.Archive, onOpenTab)
             }
             item {
                 SidebarSectionLabel("CONTROLLO")
             }
-            items(listOf(Tab.Server, Tab.Hardware, Tab.Cron, Tab.Notifications), key = { "control-${it.name}" }) { tab ->
+            items(listOf(Tab.Server, Tab.Hardware, Tab.Cron, Tab.Notifications, Tab.Continuity, Tab.Audit), key = { "control-${it.name}" }) { tab ->
                 SidebarTabRow(tab, selectedTab == tab, onOpenTab)
             }
             item {
@@ -1247,7 +1437,12 @@ private fun SidebarTabRow(tab: Tab, selected: Boolean, onOpenTab: (Tab) -> Unit)
     val subtitle = when (tab) {
         Tab.Chat -> "Conversazione principale"
         Tab.Voice -> "Interazione vocale continua"
+        Tab.Projects -> "Workspace e contesto operativo"
+        Tab.Artifacts -> "Output persistenti e versioni"
+        Tab.Search -> "Ricerca su tutto Hermes Hub"
         Tab.Archive -> "Chat e progetti salvati"
+        Tab.Continuity -> "Handoff, clipboard e file"
+        Tab.Audit -> "Timeline operazioni e rischio"
         Tab.Server -> "Gateway e diagnostica"
         Tab.Hardware -> "Metriche del server"
         Tab.Cron -> "Automazioni programmate"
@@ -1319,6 +1514,11 @@ private fun ChatScreen(
                 }
             }
         }
+    }
+    var scanUri by remember { mutableStateOf<Uri?>(null) }
+    val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val uri = scanUri
+        if (ok && uri != null) scope.launch { createAttachmentFromUri(context, uri, settings.maxAttachmentMb)?.let { attachment -> state.pendingAttachments.add(attachment.copy(filename = "scansione-${System.currentTimeMillis()}.jpg")); state.messages.add(ChatMessage("Scanner", "Documento acquisito e allegato.", false, isAction = true)) } }
     }
     LaunchedEffect(isStreaming) {
         if (!isStreaming && state.messages.isNotEmpty()) {
@@ -1515,6 +1715,19 @@ private fun ChatScreen(
                     }
                 }
             },
+            onScanDocument = {
+                val directory = File(context.cacheDir, "attachments").apply { mkdirs() }
+                val file = File(directory, "scan-${System.currentTimeMillis()}.jpg")
+                scanUri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                scanUri?.let { scanLauncher.launch(it) }
+            },
+            onCaptureScreenshot = {
+                scope.launch {
+                    val attachment = captureHermesAppScreenshot(context, settings.maxAttachmentMb)
+                    if (attachment != null) { state.pendingAttachments.add(attachment); state.messages.add(ChatMessage("Screenshot", "Screenshot reale dell'app acquisito e allegato automaticamente.", false, isAction = true)) }
+                    else state.messages.add(ChatMessage("Screenshot", "Cattura screenshot non riuscita.", false, isAction = true))
+                }
+            },
             onRemoveAttachment = { state.pendingAttachments.remove(it) },
             onAction = { title, text, prompt ->
                 state.messages.add(ChatMessage(title, text, fromUser = false, isAction = true))
@@ -1561,6 +1774,7 @@ private fun ChatScreen(
                                 messages = localHistory.toList(),
                                 source = "Hermes in corso",
                                 responseId = prevId,
+                                projectId = settings.activeProjectId,
                                 syncAfterSave = false
                             )
                         }
@@ -2971,6 +3185,8 @@ private fun Composer(
     onValueChange: (String) -> Unit,
     onAttachImage: () -> Unit,
     onPasteImage: () -> Unit,
+    onScanDocument: () -> Unit,
+    onCaptureScreenshot: () -> Unit,
     onRemoveAttachment: (ChatInputAttachment) -> Unit,
     onAction: (String, String, String) -> Unit,
     onModeChange: (String) -> Unit,
@@ -3035,12 +3251,13 @@ private fun Composer(
                     leadingIcon = { Icon(Icons.Rounded.CropFree, null, tint = Color.White) },
                     onClick = {
                         expanded = false
-                        queueAction(
-                            "Screenshot",
-                            "Richiesta screenshot aggiunta. Usa la cattura schermo del telefono, poi allega l'immagine dal menu file.",
-                            "Usa uno screenshot come contesto visivo per capire app o server."
-                        )
+                        onCaptureScreenshot()
                     }
+                )
+                DropdownMenuItem(
+                    text = { Text("Scansiona documento", color = Color.White) },
+                    leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, tint = Color.White) },
+                    onClick = { expanded = false; onScanDocument() }
                 )
                 DropdownMenuItem(
                     text = { Text("Scatta foto", color = Color.White) },
@@ -3285,6 +3502,349 @@ private fun Composer(
 }
 
 @Composable
+private fun ProjectsScreen(
+    context: Context,
+    settings: AppSettings,
+    onSettingsChanged: (AppSettings) -> Unit,
+    onNewChat: () -> Unit,
+    onOpenConversation: (String) -> Unit
+) {
+    var refreshKey by remember { mutableIntStateOf(0) }
+    val projects = remember(refreshKey) {
+        loadConversations(context).filter { it.kind == "Progetto" }.sortedByDescending { it.updatedAt }
+    }
+    var selectedId by rememberSaveable { mutableStateOf(settings.activeProjectId.takeIf { id -> projects.any { it.id == id } } ?: projects.firstOrNull()?.id.orEmpty()) }
+    val selected = projects.firstOrNull { it.id == selectedId }
+    var title by rememberSaveable { mutableStateOf(selected?.title.orEmpty()) }
+    var description by rememberSaveable { mutableStateOf(selected?.description.orEmpty()) }
+    var workspacePath by rememberSaveable { mutableStateOf(selected?.workspacePath.orEmpty()) }
+    var repositoryUrl by rememberSaveable { mutableStateOf(selected?.repositoryUrl.orEmpty()) }
+    var instructions by rememberSaveable { mutableStateOf(selected?.projectInstructions.orEmpty()) }
+    var memory by rememberSaveable { mutableStateOf(selected?.projectMemory.orEmpty()) }
+    var tools by rememberSaveable { mutableStateOf(selected?.authorizedTools?.joinToString("\n").orEmpty()) }
+    var status by remember { mutableStateOf("Pronto.") }
+
+    fun edit(project: LocalConversation?) {
+        selectedId = project?.id.orEmpty()
+        title = project?.title.orEmpty()
+        description = project?.description.orEmpty()
+        workspacePath = project?.workspacePath.orEmpty()
+        repositoryUrl = project?.repositoryUrl.orEmpty()
+        instructions = project?.projectInstructions.orEmpty()
+        memory = project?.projectMemory.orEmpty()
+        tools = project?.authorizedTools?.joinToString("\n").orEmpty()
+    }
+
+    val conversations = remember(refreshKey, selectedId) {
+        loadConversations(context).filter { it.kind in setOf("Chat", "Task") && it.projectId == selectedId }.sortedByDescending { it.updatedAt }
+    }
+    val artifacts = remember(conversations) {
+        conversations.flatMap { conversation -> conversation.messages.flatMap { it.visualBlocks } }
+            .filter { it.type in setOf("media_file", "image_gallery", "code", "diagram", "markdown", "table", "chart") }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("Progetti", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(6.dp))
+            Text("Workspace operativi con chat, contesto e artifact collegati.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Workspace", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Button(onClick = { edit(null); status = "Inserisci dati progetto." }) { Text("Nuovo") }
+                    }
+                    if (projects.isEmpty()) {
+                        Text("Nessun progetto.", color = AppColors.Muted)
+                    } else {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            projects.forEach { project ->
+                                VideoFeedChip(project.title, selected = project.id == selectedId) { edit(project) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (selected != null) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ProjectMetric("${conversations.size}", "Chat", Modifier.weight(1f))
+                    ProjectMetric("${artifacts.size}", "Artifact", Modifier.weight(1f))
+                    ProjectMetric("${conversations.sumOf { it.messages.size }}", "Attività", Modifier.weight(1f))
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (selected == null) "Nuovo progetto" else selected.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    if (selected?.id == settings.activeProjectId) Text("PROGETTO ATTIVO", color = AppColors.Success, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    SettingsField("Nome", title, { title = it })
+                    SettingsField("Descrizione", description, { description = it })
+                    SettingsField("Cartella o workspace server", workspacePath, { workspacePath = it })
+                    SettingsField("Repository", repositoryUrl, { repositoryUrl = it })
+                    SettingsField("Istruzioni specifiche", instructions, { instructions = it })
+                    SettingsField("Memoria progetto", memory, { memory = it })
+                    SettingsField("Tool autorizzati, uno per riga", tools, { tools = it })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            runCatching {
+                                saveProjectWorkspace(
+                                    context, selectedId.ifBlank { null }, title, description, workspacePath,
+                                    repositoryUrl, instructions, memory,
+                                    tools.split(',', ';', '\n', '\r').map { it.trim() }.filter { it.isNotBlank() }
+                                )
+                            }.onSuccess { saved ->
+                                selectedId = saved.id
+                                refreshKey++
+                                if (settings.activeProjectId == saved.id) {
+                                    onSettingsChanged(settings.withActiveProject(saved))
+                                }
+                                status = "Progetto salvato. Sync gateway in coda."
+                            }.onFailure { status = it.message ?: "Salvataggio progetto fallito." }
+                        }) { Text("Salva") }
+                        Button(enabled = selected != null, onClick = {
+                            selected?.let {
+                                onSettingsChanged(settings.withActiveProject(it))
+                                status = "Progetto attivo. Nuove chat ricevono contesto automatico."
+                            }
+                        }) { Text("Attiva") }
+                        Button(enabled = selected != null, onClick = {
+                            selected?.let {
+                                onSettingsChanged(settings.withActiveProject(it))
+                                onNewChat()
+                            }
+                        }) { Text("Nuova chat") }
+                        Button(onClick = {
+                            onSettingsChanged(settings.clearActiveProject())
+                            status = "Nessun progetto attivo."
+                        }) { Text("Disattiva") }
+                    }
+                    Text(status, color = AppColors.Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        if (selected != null) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Chat associate", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        if (conversations.isEmpty()) Text("Nessuna chat associata.", color = AppColors.Muted)
+                        conversations.take(12).forEach { conversation ->
+                            Text(
+                                conversation.title,
+                                color = Color.White,
+                                modifier = Modifier.fillMaxWidth().clickable { onOpenConversation(conversation.id) }.padding(vertical = 7.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Artifact recenti", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        if (artifacts.isEmpty()) Text("Nessun artifact prodotto nelle chat del progetto.", color = AppColors.Muted)
+                        artifacts.take(12).forEach { artifact ->
+                            Text("${artifact.type} · ${artifact.title.ifBlank { artifact.filename.ifBlank { artifact.id } }}", color = Color.White, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectMetric(value: String, label: String, modifier: Modifier = Modifier) {
+    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(16.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(value, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text(label, color = AppColors.Muted, fontSize = 12.sp)
+        }
+    }
+}
+
+private fun AppSettings.withActiveProject(project: LocalConversation): AppSettings = copy(
+    activeProjectId = project.id,
+    activeProjectName = project.title,
+    activeProjectWorkspacePath = project.workspacePath,
+    activeProjectRepositoryUrl = project.repositoryUrl,
+    activeProjectInstructions = project.projectInstructions,
+    activeProjectMemory = project.projectMemory,
+    activeProjectTools = project.authorizedTools.joinToString("\n")
+)
+
+private fun AppSettings.clearActiveProject(): AppSettings = copy(
+    activeProjectId = "",
+    activeProjectName = "",
+    activeProjectWorkspacePath = "",
+    activeProjectRepositoryUrl = "",
+    activeProjectInstructions = "",
+    activeProjectMemory = "",
+    activeProjectTools = ""
+)
+
+@Composable
+private fun UniversalSearchScreen(context: Context, settings: AppSettings, onOpen: (String, String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var query by rememberSaveable { mutableStateOf("") }
+    var status by remember { mutableStateOf("Inserisci almeno 2 caratteri.") }
+    var results by remember { mutableStateOf<List<Triple<String, String, Pair<String, String>>>>(emptyList()) }
+
+    fun runSearch() {
+        val needle = query.trim()
+        if (needle.length < 2) { status = "Inserisci almeno 2 caratteri."; return }
+        status = "Ricerca in corso..."
+        scope.launch {
+            val found = withContext(Dispatchers.IO) {
+                val list = mutableListOf<Triple<String, String, Pair<String, String>>>()
+                loadConversations(context).forEach { item ->
+                    val body = buildString {
+                        append(item.title).append(' ').append(item.description).append(' ').append(item.prompt).append(' ')
+                        append(item.projectMemory).append(' ').append(item.projectInstructions).append(' ').append(item.artifactFileName).append(' ').append(item.tags.joinToString(" "))
+                        item.messages.forEach { message ->
+                            append(' ').append(message.text)
+                            message.rawEvents.forEach { append(' ').append(it.json) }
+                            message.visualBlocks.forEach { append(' ').append(it.title).append(' ').append(it.caption).append(' ').append(it.text).append(' ').append(it.code).append(' ').append(it.filename) }
+                        }
+                    }
+                    if (body.contains(needle, true)) list += Triple(item.kind, item.id, item.title to body.replace('\n', ' ').take(260))
+                }
+                val apiKey = loadGatewaySecret(context)
+                loadCronJobs(settings, apiKey).first.filter { "${it.name} ${it.prompt} ${it.lastStatus}".contains(needle, true) }
+                    .forEach { list += Triple("Cron", it.id, it.name to "${it.prompt} ${it.lastStatus}".take(260)) }
+                loadHubNotifications(settings, apiKey, false).first.filter { "${it.title} ${it.message}".contains(needle, true) }
+                    .forEach { list += Triple("Notifica", it.id, it.title to it.message.take(260)) }
+                val memory = loadHubMemory(settings, apiKey).first
+                val memoryText = "${memory.videoPreferences} ${memory.newsPreferences} ${memory.responseStyle} ${memory.projectRules} ${memory.generalNotes}"
+                if (memoryText.contains(needle, true)) list += Triple("Memoria", "hub-memory", "Memoria Hermes" to memoryText.take(260))
+                list
+            }
+            results = found
+            status = "${found.size} risultati."
+        }
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("Ricerca universale", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold); Text("Chat, tool call, artifact, progetti, memoria, cron e notifiche.", color = AppColors.Muted) }
+        item { Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) { Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { SettingsField("Cerca ovunque", query, { query = it }); Button(onClick = { runSearch() }) { Text("Cerca") }; Text(status, color = AppColors.Muted, fontSize = 12.sp) } } }
+        items(results, key = { "${it.first}-${it.second}" }) { result ->
+            Card(modifier = Modifier.fillMaxWidth().clickable { onOpen(result.first, result.second) }, colors = CardDefaults.cardColors(containerColor = AppColors.AssistantBubble), shape = RoundedCornerShape(18.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("${result.first} · ${result.third.first}", color = Color.White, fontWeight = FontWeight.SemiBold); Text(result.third.second, color = AppColors.Muted, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtifactLibraryScreen(
+    context: Context,
+    settings: AppSettings,
+    onOpenConversation: (String) -> Unit,
+    onRegenerate: (String) -> Unit
+) {
+    var refresh by remember { mutableIntStateOf(0) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var projectFilter by rememberSaveable { mutableStateOf("") }
+    var selectedId by rememberSaveable { mutableStateOf("") }
+    var rename by rememberSaveable { mutableStateOf("") }
+    var tags by rememberSaveable { mutableStateOf("") }
+    var status by remember { mutableStateOf("Pronto.") }
+    val artifacts = remember(refresh, query, projectFilter) {
+        loadConversations(context).filter { item ->
+            item.kind == "Artifact" &&
+                (projectFilter.isBlank() || item.projectId.contains(projectFilter, true)) &&
+                (query.isBlank() || item.title.contains(query, true) || item.artifactFileName.contains(query, true) || item.tags.any { it.contains(query, true) })
+        }.sortedByDescending { it.updatedAt }
+    }
+    val selected = artifacts.firstOrNull { it.id == selectedId }
+
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Text("Artifact", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Text("Output persistenti prodotti da chat, run e automazioni.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsField("Cerca nome, file o tag", query, { query = it })
+                    SettingsField("Filtra progetto", projectFilter, { projectFilter = it })
+                    Text("${artifacts.size} artifact", color = AppColors.Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        items(artifacts, key = { it.id }) { artifact ->
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable {
+                    selectedId = artifact.id; rename = artifact.title; tags = artifact.tags.joinToString(", ")
+                },
+                colors = CardDefaults.cardColors(containerColor = if (artifact.id == selectedId) AppColors.Elevated else AppColors.AssistantBubble),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(artifact.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("${artifact.artifactType} · v${artifact.version} · ${artifact.projectId}", color = AppColors.Muted, fontSize = 12.sp)
+                    Text(artifact.description, color = Color.White, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        if (selected != null) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Dettaglio · v${selected.version}", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text("File: ${selected.artifactFileName}\nMIME: ${selected.artifactMimeType}\nChat: ${selected.sourceConversationId}\nRun: ${selected.sourceRunId}", color = AppColors.Muted, fontSize = 12.sp)
+                        SettingsField("Nome", rename, { rename = it })
+                        SettingsField("Tag", tags, { tags = it })
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                saveArtifactMetadata(context, selected.id, rename, tags.split(',', ';').map { it.trim() }.filter { it.isNotBlank() })
+                                refresh++; status = "Metadata salvati; sync gateway in coda."
+                            }) { Text("Salva") }
+                            Button(onClick = { if (selected.sourceConversationId.isNotBlank()) onOpenConversation(selected.sourceConversationId) }) { Text("Anteprima origine") }
+                            Button(onClick = {
+                                if (selected.artifactUrl.isBlank()) status = "Artifact senza URL apribile." else runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, resolveHermesUrl(settings, selected.artifactUrl).toUri()))
+                                }.onFailure { status = "Apertura fallita: ${it.message}" }
+                            }) { Text("Apri / scarica") }
+                            Button(onClick = { onRegenerate("Rigenera artifact '${selected.title}' versione ${selected.version}, progetto ${selected.projectId}, sorgente chat ${selected.sourceConversationId}.") }) { Text("Rigenera") }
+                        }
+                        Text("Versioni", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        val key = selected.artifactFileName.ifBlank { selected.title }
+                        loadConversations(context).filter { it.kind == "Artifact" && it.artifactFileName.ifBlank { it.title }.equals(key, true) }
+                            .sortedByDescending { it.version }.forEach { version ->
+                                Text("v${version.version} · ${formatDateTime(version.updatedAt)} · ${version.description}", color = AppColors.Muted, fontSize = 12.sp)
+                            }
+                        Text(status, color = AppColors.Muted, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun saveArtifactMetadata(context: Context, id: String, title: String, tags: List<String>) {
+    synchronized(localArchiveLock) {
+        val items = loadConversations(context, includeDeleted = true).toMutableList()
+        val index = items.indexOfFirst { it.id == id && it.kind == "Artifact" && it.deletedAt == null }
+        if (index < 0) return
+        items[index] = items[index].copy(
+            title = title.trim().take(180).ifBlank { items[index].title },
+            tags = tags.map { it.take(80) }.distinctBy { it.lowercase() }.take(30),
+            updatedAt = System.currentTimeMillis()
+        )
+        saveConversations(context, items)
+    }
+}
+
+@Composable
 private fun ArchiveScreen(
     context: Context,
     onOpenConversation: (String?, String) -> Unit
@@ -3295,6 +3855,7 @@ private fun ArchiveScreen(
     var filter by remember { mutableStateOf("Tutto") }
     var status by remember { mutableStateOf("Pronto.") }
     var pendingDelete by remember { mutableStateOf<ArchiveItem?>(null) }
+    var managingConversationId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val savedConversations = remember(refreshKey) { loadConversations(context) }
     val savedProjects = savedConversations.count { it.kind == "Progetto" }
@@ -3437,6 +3998,7 @@ private fun ArchiveScreen(
                         status = "Elemento non trovato."
                     }
                 },
+                onManage = { if (item.id != null) managingConversationId = item.id },
                 onDelete = {
                     if (item.id == null) {
                         status = "Template non eliminabile."
@@ -3500,6 +4062,15 @@ private fun ArchiveScreen(
             }
         )
     }
+
+    managingConversationId?.let { id ->
+        ConversationManagerDialog(
+            context = context,
+            conversationId = id,
+            onClose = { managingConversationId = null; refreshKey++ },
+            onContinue = { branchId, prompt -> managingConversationId = null; onOpenConversation(branchId, prompt) }
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -3509,6 +4080,7 @@ private fun ArchiveCard(
     onOpen: () -> Unit,
     onPin: () -> Unit,
     onRename: (String) -> Unit,
+    onManage: () -> Unit,
     onDelete: () -> Unit
 ) {
     var renameText by remember(item.id, item.title) { mutableStateOf(item.title) }
@@ -3540,6 +4112,7 @@ private fun ArchiveCard(
                 Button(onClick = onOpen) { Text("Apri") }
                 Button(onClick = onPin) { Text("Segna") }
                 if (item.id != null) {
+                    Button(onClick = onManage) { Text("Gestisci") }
                     Button(onClick = { onRename(renameText.trim()) }) { Text("Rinomina") }
                     Button(onClick = onDelete) { Text("Elimina") }
                 }
@@ -3549,11 +4122,246 @@ private fun ArchiveCard(
 }
 
 @Composable
+private fun ConversationManagerDialog(
+    context: Context,
+    conversationId: String,
+    onClose: () -> Unit,
+    onContinue: (String?, String) -> Unit
+) {
+    var refresh by remember { mutableIntStateOf(0) }
+    val conversation = remember(conversationId, refresh) { loadConversation(context, conversationId) }
+    if (conversation == null) { onClose(); return }
+    var folder by remember(conversationId, refresh) { mutableStateOf(conversation.folder) }
+    var tags by remember(conversationId, refresh) { mutableStateOf(conversation.tags.joinToString(", ")) }
+    var project by remember(conversationId, refresh) { mutableStateOf(conversation.projectId) }
+    var links by remember(conversationId, refresh) { mutableStateOf(conversation.linkedConversationIds.joinToString(", ")) }
+    var summary by remember(conversationId, refresh) { mutableStateOf(conversation.summary) }
+    val selected = remember(conversationId) { mutableStateListOf<String>() }
+    var status by remember { mutableStateOf("Modifica, ramifica o esporta la chat.") }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        containerColor = AppColors.Surface,
+        title = { Text("Gestisci · ${conversation.title}", color = Color.White) },
+        text = {
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsField("Cartella", folder, { folder = it })
+                        SettingsField("Tag", tags, { tags = it })
+                        SettingsField("Progetto", project, { project = it })
+                        SettingsField("Chat collegate (ID)", links, { links = it })
+                        SettingsField("Riepilogo", summary, { summary = it })
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                updateLocalConversation(context, conversationId) { item -> item.copy(folder = folder.trim(), tags = splitMetadata(tags), projectId = project.trim(), linkedConversationIds = splitMetadata(links).filter { it != conversationId }, summary = summary.trim(), updatedAt = System.currentTimeMillis()) }
+                                status = "Metadata salvati."; refresh++
+                            }) { Text("Salva") }
+                            Button(onClick = {
+                                val transcript = conversation.messages.takeLast(40).joinToString("\n") { "${it.author}: ${it.text}" }
+                                onContinue(conversation.id, "Riassumi questa conversazione con decisioni e attività aperte:\n\n$transcript")
+                            }) { Text("Riassumi") }
+                            listOf("md", "json", "html", "pdf").forEach { format -> Button(onClick = { shareConversationExport(context, conversation, format) }) { Text(format.uppercase()) } }
+                        }
+                        Text(status, color = AppColors.Muted, fontSize = 12.sp)
+                    }
+                }
+                items(conversation.messages, key = { it.id }) { message ->
+                    var text by remember(message.id, refresh) { mutableStateOf(message.text) }
+                    Card(colors = CardDefaults.cardColors(containerColor = AppColors.AssistantBubble)) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Text("${message.author}${if (message.isBookmarked) " · ★" else ""}", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            SettingsField("Testo", text, { text = it })
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Switch(checked = selected.contains(message.id), onCheckedChange = { checked -> if (checked) selected.add(message.id) else selected.remove(message.id) })
+                                Text("Seleziona", color = AppColors.Muted)
+                            }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Button(onClick = { updateLocalConversation(context, conversationId) { item -> item.copy(messages = item.messages.map { if (it.id == message.id) it.copy(text = text) else it }, updatedAt = System.currentTimeMillis()) }; refresh++ }) { Text("Modifica") }
+                                Button(onClick = { updateLocalConversation(context, conversationId) { item -> item.copy(messages = item.messages.map { if (it.id == message.id) it.copy(isBookmarked = !it.isBookmarked) else it }, updatedAt = System.currentTimeMillis()) }; refresh++ }) { Text("Segnalibro") }
+                                Button(onClick = { val branch = createLocalBranch(context, conversation, message.id); status = "Ramo ${branch.title} creato."; refresh++ }) { Text("Ramo") }
+                                Button(onClick = { val branch = createLocalBranch(context, conversation, message.id, "${conversation.title} · alternativa"); onContinue(branch.id, "Rigenera una risposta alternativa all'ultimo messaggio.") }) { Text("Alternativa") }
+                                Button(onClick = { onContinue(null, "Continua da questo messaggio:\n\n${message.text}") }) { Text("Nuova chat") }
+                                Button(onClick = { saveProjectConversation(context, "Progetto da ${conversation.title}", message.text, message.text); status = "Nuovo progetto creato." }) { Text("Progetto") }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Button(onClick = {
+                        updateLocalConversation(context, conversationId) { item -> item.copy(messages = item.messages.filterNot { selected.contains(it.id) }, updatedAt = System.currentTimeMillis()) }
+                        selected.clear(); status = "Porzione eliminata."; refresh++
+                    }, enabled = selected.isNotEmpty()) { Text("Elimina messaggi selezionati") }
+                    val branches = loadConversations(context).filter { it.parentConversationId == conversation.id || conversation.linkedConversationIds.contains(it.id) }
+                    branches.forEach { branch -> Text("Ramo: ${branch.title} · ${branch.messages.size} messaggi", color = AppColors.Muted, modifier = Modifier.clickable { onContinue(branch.id, "") }.padding(6.dp)) }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onClose) { Text("Chiudi") } }
+    )
+}
+
+internal fun updateLocalConversation(context: Context, id: String, transform: (LocalConversation) -> LocalConversation): Boolean {
+    val items = loadConversations(context, includeDeleted = true).toMutableList()
+    val index = items.indexOfFirst { it.id == id && it.deletedAt == null }
+    if (index < 0) return false
+    items[index] = transform(items[index])
+    saveConversations(context, items)
+    return true
+}
+
+private fun createLocalBranch(context: Context, source: LocalConversation, messageId: String, title: String = "${source.title} · ramo"): LocalConversation {
+    val index = source.messages.indexOfFirst { it.id == messageId }.coerceAtLeast(0)
+    val branch = source.copy(id = "branch_${java.util.UUID.randomUUID()}", title = title, messages = source.messages.take(index + 1), previousResponseId = null, serverConversationId = null, parentConversationId = source.id, branchFromMessageId = messageId, linkedConversationIds = emptyList(), updatedAt = System.currentTimeMillis())
+    val items = loadConversations(context, includeDeleted = true).toMutableList()
+    val sourceIndex = items.indexOfFirst { it.id == source.id }
+    if (sourceIndex >= 0) items[sourceIndex] = items[sourceIndex].copy(linkedConversationIds = (items[sourceIndex].linkedConversationIds + branch.id).distinct(), updatedAt = System.currentTimeMillis())
+    items.add(0, branch)
+    saveConversations(context, items)
+    return branch
+}
+
+private fun splitMetadata(value: String): List<String> = value.split(',', ';', '\n').map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.take(50)
+
+private fun shareConversationExport(context: Context, conversation: LocalConversation, format: String) {
+    val markdown = buildString { append("# ${conversation.title}\n\n${conversation.summary}\n\n"); conversation.messages.forEach { append("## ${it.author}\n\n${it.text}\n\n") } }
+    val normalized = format.lowercase()
+    val extension = when (normalized) { "json" -> "json"; "html" -> "html"; "pdf" -> "pdf"; else -> "md" }
+    val mime = when (normalized) { "json" -> "application/json"; "html" -> "text/html"; "pdf" -> "application/pdf"; else -> "text/markdown" }
+    val safeTitle = conversation.title.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-').ifBlank { "conversazione-hermes" }.take(80)
+    val directory = File(context.cacheDir, "exports").apply { mkdirs() }
+    val file = File(directory, "$safeTitle-${System.currentTimeMillis()}.$extension")
+    runCatching {
+        when (normalized) {
+            "json" -> file.writeText(conversationsToJsonArray(listOf(conversation)).getJSONObject(0).toString(2), Charsets.UTF_8)
+            "html" -> file.writeText("<!doctype html><html><meta charset=\"utf-8\"><title>${conversation.title.htmlEncode()}</title><h1>${conversation.title.htmlEncode()}</h1><pre>${markdown.htmlEncode()}</pre></html>", Charsets.UTF_8)
+            "pdf" -> writeConversationPdf(file, conversation)
+            else -> file.writeText(markdown, Charsets.UTF_8)
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_SUBJECT, conversation.title)
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri(conversation.title, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(share, "Esporta ${normalized.uppercase()}"))
+    }.onFailure {
+        file.delete()
+        Toast.makeText(context, "Esportazione fallita: ${it.message}", Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun writeConversationPdf(file: File, conversation: LocalConversation) {
+    val document = PdfDocument()
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.BLACK; textSize = 12f }
+    val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.BLACK; textSize = 20f; isFakeBoldText = true }
+    val pageWidth = 595
+    val pageHeight = 842
+    val margin = 44f
+    var pageNumber = 0
+    var page: PdfDocument.Page? = null
+    var y = margin
+
+    fun startPage() {
+        page?.let(document::finishPage)
+        pageNumber++
+        page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create())
+        y = margin
+    }
+
+    fun drawWrapped(text: String, sourcePaint: Paint, gapAfter: Float = 8f) {
+        val available = pageWidth - margin * 2
+        for (paragraph in text.replace("\r", "").split('\n')) {
+            val words = paragraph.split(Regex("\\s+")).filter { it.isNotBlank() }
+            val lines = mutableListOf<String>()
+            var current = ""
+            for (word in words) {
+                val candidate = if (current.isBlank()) word else "$current $word"
+                if (sourcePaint.measureText(candidate) <= available || current.isBlank()) current = candidate
+                else { lines += current; current = word }
+            }
+            if (current.isNotBlank()) lines += current
+            if (lines.isEmpty()) lines += " "
+            for (line in lines) {
+                if (page == null || y > pageHeight - margin) startPage()
+                page!!.canvas.drawText(line, margin, y, sourcePaint)
+                y += sourcePaint.textSize * 1.35f
+            }
+        }
+        y += gapAfter
+    }
+
+    try {
+        startPage()
+        drawWrapped(conversation.title, titlePaint, 16f)
+        if (conversation.summary.isNotBlank()) drawWrapped(conversation.summary, paint, 16f)
+        conversation.messages.forEach { message ->
+            val authorPaint = Paint(paint).apply { isFakeBoldText = true }
+            drawWrapped(message.author, authorPaint, 4f)
+            drawWrapped(message.text, paint, 12f)
+        }
+        page?.let(document::finishPage)
+        page = null
+        file.outputStream().use { output -> document.writeTo(output) }
+    } finally {
+        page?.let { openPage -> runCatching { document.finishPage(openPage) } }
+        document.close()
+    }
+}
+
+@Composable
 private fun CronScreen(context: Context, settings: AppSettings) {
     val scope = rememberCoroutineScope()
     var jobs by remember { mutableStateOf<List<CronJob>>(emptyList()) }
     var status by remember { mutableStateOf("Carico cron Hermes...") }
     var refreshNonce by remember { mutableIntStateOf(0) }
+    var editingId by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var taskPrompt by rememberSaveable { mutableStateOf("") }
+    var frequency by rememberSaveable { mutableStateOf("Giornaliera") }
+    var time by rememberSaveable { mutableStateOf("08:00") }
+    var days by rememberSaveable { mutableStateOf("1,2,3,4,5") }
+    var advancedCron by rememberSaveable { mutableStateOf("") }
+    var condition by rememberSaveable { mutableStateOf("") }
+    var deliver by rememberSaveable { mutableStateOf("local") }
+    var timeout by rememberSaveable { mutableStateOf("900") }
+    var retry by rememberSaveable { mutableStateOf("0") }
+    var notificationTemplate by rememberSaveable { mutableStateOf("") }
+    var projectId by rememberSaveable { mutableStateOf(settings.activeProjectId) }
+    var dependencies by rememberSaveable { mutableStateOf("") }
+
+    fun schedule(): String {
+        if (frequency == "Ogni ora") return "0 * * * *"
+        if (frequency == "Cron avanzato") return advancedCron.trim()
+        val parts = time.trim().split(':')
+        val hour = parts.getOrNull(0)?.toIntOrNull()?.takeIf { it in 0..23 } ?: return ""
+        val minute = parts.getOrNull(1)?.toIntOrNull()?.takeIf { it in 0..59 } ?: return ""
+        return if (frequency == "Settimanale") "$minute $hour * * ${days.trim()}" else "$minute $hour * * *"
+    }
+
+    fun definition() = AutomationDefinition(
+        taskPrompt, condition, timeout.toIntOrNull() ?: 900, retry.toIntOrNull() ?: 0,
+        notificationTemplate, projectId, dependencies
+    )
+
+    fun clearEditor() {
+        editingId = ""; name = ""; taskPrompt = ""; frequency = "Giornaliera"; time = "08:00"
+        days = "1,2,3,4,5"; advancedCron = ""; condition = ""; deliver = "local"; timeout = "900"
+        retry = "0"; notificationTemplate = ""; projectId = settings.activeProjectId; dependencies = ""
+    }
+
+    fun edit(job: CronJob, duplicate: Boolean = false) {
+        val decoded = decodeAutomationPrompt(job.prompt)
+        editingId = if (duplicate) "" else job.id
+        name = if (duplicate) "${job.name} copia" else job.name
+        taskPrompt = decoded.taskPrompt; condition = decoded.condition; timeout = decoded.timeoutSeconds.toString()
+        retry = decoded.retryCount.toString(); notificationTemplate = decoded.notificationTemplate
+        projectId = decoded.projectId; dependencies = decoded.dependencies; deliver = job.deliver.ifBlank { "local" }
+        frequency = "Cron avanzato"; advancedCron = job.schedule
+        status = if (duplicate) "Copia pronta: modifica e salva." else "Modifica ${job.name}."
+    }
 
     LaunchedEffect(settings.gatewayUrl, refreshNonce) {
         val result = loadCronJobs(settings, loadGatewaySecret(context))
@@ -3568,9 +4376,56 @@ private fun CronScreen(context: Context, settings: AppSettings) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("Cron", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Text("Automation Studio", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Automazioni Hermes realmente programmate sul gateway. Per crearne una nuova, chiedilo in chat.", color = AppColors.Muted)
+            Text("Crea, modifica, prova e controlla automazioni Hermes sul gateway.", color = AppColors.Muted)
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (editingId.isBlank()) "Nuova automazione" else "Modifica automazione", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        Button(onClick = { clearEditor() }) { Text("Nuova") }
+                    }
+                    SettingsField("Nome", name, { name = it })
+                    SettingsField("Attività", taskPrompt, { taskPrompt = it })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Ogni ora", "Giornaliera", "Settimanale", "Cron avanzato").forEach { option ->
+                            VideoFeedChip(option, selected = frequency == option) { frequency = option }
+                        }
+                    }
+                    if (frequency == "Giornaliera" || frequency == "Settimanale") SettingsField("Ora HH:mm", time, { time = it })
+                    if (frequency == "Settimanale") SettingsField("Giorni cron", days, { days = it })
+                    if (frequency == "Cron avanzato") SettingsField("Espressione cron", advancedCron, { advancedCron = it })
+                    Text("Espressione: ${schedule().ifBlank { "non valida" }}", color = AppColors.Muted, fontSize = 12.sp)
+                    SettingsField("Condizione opzionale", condition, { condition = it })
+                    SettingsField("Destinazione", deliver, { deliver = it })
+                    SettingsField("Timeout secondi", timeout, { timeout = it })
+                    SettingsField("Retry", retry, { retry = it })
+                    SettingsField("Modello notifica", notificationTemplate, { notificationTemplate = it })
+                    SettingsField("Progetto associato", projectId, { projectId = it })
+                    SettingsField("Dipendenze job", dependencies, { dependencies = it })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            val cron = schedule()
+                            if (name.isBlank() || taskPrompt.isBlank() || cron.isBlank()) {
+                                status = "Nome, attività e programmazione obbligatori."
+                            } else scope.launch {
+                                status = saveCronJob(settings, editingId.ifBlank { null }, name, cron, encodeAutomationPrompt(definition()), deliver, loadGatewaySecret(context))
+                                if (!status.startsWith("Automazione non")) { clearEditor(); refreshNonce++ }
+                            }
+                        }) { Text("Salva") }
+                        Button(onClick = {
+                            if (taskPrompt.isBlank()) status = "Attività obbligatoria per prova." else scope.launch {
+                                status = "Prova in corso, job non salvato..."
+                                val result = sendWorkspaceRunRequest(settings, "Automation", encodeAutomationPrompt(definition()), loadGatewaySecret(context))
+                                status = "${result.status} ${result.result}".trim()
+                            }
+                        }) { Text("Prova senza salvare") }
+                        Button(onClick = { editingId = ""; name = if (name.isBlank()) "" else "$name copia"; status = "Copia pronta." }) { Text("Duplica") }
+                    }
+                }
+            }
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
@@ -3597,6 +4452,8 @@ private fun CronScreen(context: Context, settings: AppSettings) {
         items(jobs, key = { it.id.ifBlank { it.name } }) { job ->
             CronCard(
                 job = job,
+                onEdit = { edit(job) },
+                onDuplicate = { edit(job, duplicate = true) },
                 onRun = {
                     scope.launch {
                         status = cronAction(settings, job.id, "run", loadGatewaySecret(context))
@@ -3623,6 +4480,8 @@ private fun CronScreen(context: Context, settings: AppSettings) {
 @Composable
 private fun CronCard(
     job: CronJob,
+    onEdit: () -> Unit,
+    onDuplicate: () -> Unit,
     onRun: () -> Unit,
     onPauseResume: () -> Unit,
     onDelete: () -> Unit
@@ -3640,11 +4499,14 @@ private fun CronCard(
             CronDetail("Stato", job.state)
             CronDetail("Consegna", job.deliver)
             CronDetail("Origine", job.origin)
+            CronDetail("Ultimo output", job.lastStatus)
             Text(job.prompt.ifBlank { "Prompt non disponibile." }, color = Color.White)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Button(onClick = onEdit) { Text("Modifica") }
+                Button(onClick = onDuplicate) { Text("Duplica") }
                 Button(onClick = onRun) { Text("Esegui ora") }
                 Button(onClick = onPauseResume) { Text(if (job.enabled) "Pausa" else "Riprendi") }
                 Button(onClick = onDelete) { Text("Elimina") }
@@ -3666,6 +4528,11 @@ private fun NotificationsScreen(context: Context, settings: AppSettings, onOpenC
     var items by remember { mutableStateOf<List<HubNotification>>(emptyList()) }
     var status by remember { mutableStateOf("Carico notifiche Hermes...") }
     var refreshNonce by remember { mutableIntStateOf(0) }
+    var categoryFilter by rememberSaveable { mutableStateOf("Tutte") }
+    var priorityFilter by rememberSaveable { mutableStateOf("Tutte") }
+    var unreadOnly by rememberSaveable { mutableStateOf(false) }
+    var showArchived by rememberSaveable { mutableStateOf(false) }
+    var dnd by rememberSaveable { mutableStateOf(context.getSharedPreferences("notification_settings", Context.MODE_PRIVATE).getBoolean("dnd", false)) }
 
     LaunchedEffect(settings.gatewayUrl, refreshNonce) {
         val result = loadHubNotifications(settings, loadGatewaySecret(context), unreadOnly = false)
@@ -3701,6 +4568,18 @@ private fun NotificationsScreen(context: Context, settings: AppSettings, onOpenC
                         }) { Text("Segna tutto") }
                         Button(onClick = { refreshNonce++ }) { Text("Aggiorna") }
                     }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("Tutte", "Automazioni", "Run", "Sistema", "File", "Progetti").forEach { value -> VideoFeedChip(value, categoryFilter == value) { categoryFilter = value } }
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("Tutte", "Critica", "Alta", "Normale", "Bassa").forEach { value -> VideoFeedChip(value, priorityFilter == value) { priorityFilter = value } }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Switch(unreadOnly, { unreadOnly = it }); Text("Solo non lette", color = AppColors.Muted)
+                        Switch(showArchived, { showArchived = it }); Text("Archiviate", color = AppColors.Muted)
+                        Switch(dnd, { dnd = it; context.getSharedPreferences("notification_settings", Context.MODE_PRIVATE).edit { putBoolean("dnd", it) } }); Text("Non disturbare", color = AppColors.Muted)
+                    }
+                    Text("Badge: ${items.count { it.readAt <= 0 && !it.archived }} non lette · ${items.count { it.priority.equals("Critica", true) && !it.archived }} critiche", color = AppColors.Muted, fontSize = 12.sp)
                 }
             }
         }
@@ -3714,7 +4593,12 @@ private fun NotificationsScreen(context: Context, settings: AppSettings, onOpenC
                 }
             }
         }
-        items(items, key = { it.id }) { item ->
+        val visibleItems = items.filter { item ->
+            item.archived == showArchived && (!unreadOnly || item.readAt <= 0L) && item.snoozedUntil <= System.currentTimeMillis() &&
+                (categoryFilter == "Tutte" || item.category.equals(categoryFilter, true)) &&
+                (priorityFilter == "Tutte" || item.priority.equals(priorityFilter, true))
+        }.sortedWith(compareByDescending<HubNotification> { notificationPriorityRank(it.priority) }.thenByDescending { it.createdAt })
+        items(visibleItems, key = { it.id }) { item ->
             NotificationCard(
                 item = item,
                 onRead = {
@@ -3726,6 +4610,16 @@ private fun NotificationsScreen(context: Context, settings: AppSettings, onOpenC
                 onOpenChat = {
                     scope.launch { markHubNotificationRead(settings, item.id, loadGatewaySecret(context)) }
                     onOpenChatPrompt(notificationChatPrompt(item))
+                },
+                onSnooze = { scope.launch { status = patchHubNotification(settings, item.id, JSONObject().put("snoozed_until", (System.currentTimeMillis() + 3_600_000L) / 1000.0), loadGatewaySecret(context)); refreshNonce++ } },
+                onArchive = { scope.launch { status = patchHubNotification(settings, item.id, JSONObject().put("archived", !item.archived), loadGatewaySecret(context)); refreshNonce++ } },
+                onReference = {
+                    when {
+                        item.fileUrl.isNotBlank() -> context.startActivity(Intent(Intent.ACTION_VIEW, item.fileUrl.toUri()))
+                        item.projectId.isNotBlank() -> onOpenChatPrompt("Apri e riepiloga il progetto ${item.projectId} collegato alla notifica.")
+                        item.automationId.isNotBlank() -> onOpenChatPrompt("Controlla l'automazione ${item.automationId} collegata alla notifica.")
+                        item.runId.isNotBlank() -> onOpenChatPrompt("Controlla la run ${item.runId} collegata alla notifica.")
+                    }
                 }
             )
         }
@@ -3733,7 +4627,7 @@ private fun NotificationsScreen(context: Context, settings: AppSettings, onOpenC
 }
 
 @Composable
-private fun NotificationCard(item: HubNotification, onRead: () -> Unit, onOpenChat: () -> Unit) {
+private fun NotificationCard(item: HubNotification, onRead: () -> Unit, onOpenChat: () -> Unit, onSnooze: () -> Unit, onArchive: () -> Unit, onReference: () -> Unit) {
     val unread = item.readAt <= 0L
     Card(
         colors = CardDefaults.cardColors(containerColor = AppColors.AssistantBubble),
@@ -3744,14 +4638,103 @@ private fun NotificationCard(item: HubNotification, onRead: () -> Unit, onOpenCh
                 Text(item.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Text(if (unread) "Nuova" else "Letta", color = if (unread) AppColors.Accent else AppColors.Muted, fontSize = 12.sp)
             }
-            Text("${item.source} · ${formatDateTime(item.createdAt)}", color = AppColors.Muted, fontSize = 12.sp)
+            Text("${item.category} · ${item.priority} · ${item.source} · ${formatDateTime(item.createdAt)}", color = AppColors.Muted, fontSize = 12.sp)
             Text(item.message, color = Color.White)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onOpenChat) { Text("Apri chat") }
                 Button(onClick = onRead) { Text("Segna letta") }
+                Button(onClick = onSnooze) { Text("Tra 1 ora") }
+                Button(onClick = onArchive) { Text(if (item.archived) "Ripristina" else "Archivia") }
+                if (item.fileUrl.isNotBlank() || item.projectId.isNotBlank() || item.automationId.isNotBlank() || item.runId.isNotBlank()) Button(onClick = onReference) { Text("Riferimento") }
             }
         }
     }
+}
+
+private fun notificationPriorityRank(value: String): Int = when (value.lowercase()) { "critica", "critical" -> 4; "alta", "high" -> 3; "normale", "normal" -> 2; else -> 1 }
+
+private data class ContinuityItem(val id: String, val type: String, val device: String, val value: String, val conversationId: String, val projectId: String, val fileUrl: String, val fileName: String, val updatedAt: Long, val status: String)
+
+@Composable
+private fun ContinuityScreen(context: Context, settings: AppSettings, onOpenConversation: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<ContinuityItem>>(emptyList()) }
+    var status by remember { mutableStateOf("Carico continuità...") }
+    var clipboardText by rememberSaveable { mutableStateOf("") }
+    var refresh by remember { mutableIntStateOf(0) }
+    val deviceId = remember { "android-${Build.MODEL}-${Build.ID}".lowercase().replace(' ', '-') }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch { status = uploadContinuityFile(context, settings, uri, deviceId, loadGatewaySecret(context)); refresh++ }
+    }
+    LaunchedEffect(settings.gatewayUrl, refresh) { val loaded = loadContinuityItems(settings, loadGatewaySecret(context)); items = loaded.first; status = loaded.second }
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item { Text("Continuità dispositivi", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold); Text("Presenza, ripresa chat, handoff voce, clipboard, file, coda offline e conflitti.", color = AppColors.Muted) }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("$deviceId · Android", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { scope.launch { status = publishContinuity(context, settings, deviceId, "continuity.presence", statusValue = "online", apiKey = loadGatewaySecret(context)); refresh++ } }) { Text("Presenza") }
+                        Button(onClick = { val latest = loadConversations(context).firstOrNull { it.kind in setOf("Chat", "Task") }; if (latest != null) { scope.launch { publishContinuity(context, settings, deviceId, "continuity.chat", latest.title, latest.id, latest.projectId, apiKey = loadGatewaySecret(context)); onOpenConversation(latest.id) } } }) { Text("Riprendi chat") }
+                        Button(onClick = { scope.launch { status = publishContinuity(context, settings, deviceId, "continuity.voice", "handoff_requested", statusValue = "ringing", apiKey = loadGatewaySecret(context)); refresh++ } }) { Text("Trasferisci voce") }
+                        Button(onClick = { scope.launch { status = flushContinuityQueue(context, settings, loadGatewaySecret(context)); refresh++ } }) { Text("Sincronizza") }
+                    }
+                    SettingsField("Clipboard condivisa", clipboardText, { clipboardText = it })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { val clipboard = context.getSystemService(ClipboardManager::class.java); val value = clipboardText.ifBlank { clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty() }; scope.launch { status = publishContinuity(context, settings, deviceId, "continuity.clipboard", value, apiKey = loadGatewaySecret(context)); refresh++ } }) { Text("Invia clipboard") }
+                        Button(onClick = { val remote = items.firstOrNull { it.type == "continuity.clipboard" && it.device != deviceId }; if (remote != null) { clipboardText = remote.value; context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Hermes Hub", remote.value)); status = "Clipboard ricevuta." } }) { Text("Ricevi") }
+                        Button(onClick = { filePicker.launch(arrayOf("*/*")) }) { Text("Invia file") }
+                    }
+                    Text(status, color = AppColors.Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        items(items.take(80), key = { it.id + it.updatedAt }) { item ->
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.AssistantBubble)) { Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("${item.type} · ${item.device}", color = AppColors.Accent); Text(item.value.ifBlank { item.fileName }, color = Color.White); FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { if (item.conversationId.isNotBlank()) Button(onClick = { onOpenConversation(item.conversationId) }) { Text("Apri chat") }; if (item.type == "continuity.clipboard") Button(onClick = { context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Hermes Hub", item.value)) }) { Text("Copia") }; if (item.fileUrl.isNotBlank()) Button(onClick = { resolveMediaUrl(settings, item.fileUrl, allowExternalMedia = true)?.let { url -> context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) } }) { Text("Apri file") } } } }
+        }
+        item {
+            val conflicts = items.groupBy { it.type }.filterValues { values -> values.map { it.device }.distinct().size > 1 && (values.maxOfOrNull { it.updatedAt } ?: 0L) - (values.minOfOrNull { it.updatedAt } ?: 0L) < 300_000L }
+            Text("Conflitti", color = Color.White, fontWeight = FontWeight.SemiBold)
+            if (conflicts.isEmpty()) Text("Nessun conflitto.", color = AppColors.Muted) else conflicts.forEach { (type, values) -> Text("$type: modifiche concorrenti da ${values.map { it.device }.distinct().joinToString()}; prevale la più recente.", color = AppColors.Muted) }
+        }
+    }
+}
+
+private suspend fun loadContinuityItems(settings: AppSettings, apiKey: String?): Pair<List<ContinuityItem>, String> = withContext(Dispatchers.IO) {
+    try { val response = httpGetResponse(resolveHermesUrl(settings, "/v1/hub/state"), apiKey); if (response.first !in 200..299) return@withContext emptyList<ContinuityItem>() to "Offline: HTTP ${response.first}"; val array = JSONObject(response.second).optJSONArray("items") ?: JSONArray(); val items = buildList { for (index in 0 until array.length()) { val item = array.optJSONObject(index) ?: continue; val type = item.optString("type"); if (!type.startsWith("continuity.")) continue; add(ContinuityItem(item.optString("id"), type, item.optString("device"), item.optString("value"), item.optString("conversation_id"), item.optString("project_id"), item.optString("file_url"), item.optString("file_name"), (item.optDouble("updated_at", item.optDouble("created_at", 0.0)) * 1000).toLong(), item.optString("status"))) } }.sortedByDescending { it.updatedAt }; items to "Sincronizzato: ${items.size} stati." } catch (ex: Exception) { emptyList<ContinuityItem>() to "Offline: ${ex.message}" }
+}
+
+private suspend fun publishContinuity(context: Context, settings: AppSettings, device: String, type: String, value: String = "", conversationId: String = "", projectId: String = "", fileUrl: String = "", fileName: String = "", statusValue: String = "available", apiKey: String?): String = withContext(Dispatchers.IO) {
+    val payload = JSONObject().put("id", "$type:$device").put("type", type).put("device", device).put("value", value).put("conversation_id", conversationId).put("project_id", projectId).put("file_url", fileUrl).put("file_name", fileName).put("status", statusValue).put("updated_at", System.currentTimeMillis() / 1000.0)
+    try { val result = postJson(resolveHermesUrl(settings, "/v1/hub/state"), payload, apiKey); if (result.first in 200..299) "Stato pubblicato." else { enqueueContinuity(context, payload.toString()); "Offline: operazione accodata." } } catch (ex: Exception) { enqueueContinuity(context, payload.toString()); "Offline: operazione accodata (${ex.message})." }
+}
+
+private fun enqueueContinuity(context: Context, payload: String) { val prefs = context.getSharedPreferences("continuity_queue", Context.MODE_PRIVATE); val array = runCatching { JSONArray(prefs.getString("items", "[]")) }.getOrElse { JSONArray() }; array.put(payload); while (array.length() > 100) array.remove(0); prefs.edit { putString("items", array.toString()) } }
+
+private suspend fun flushContinuityQueue(context: Context, settings: AppSettings, apiKey: String?): String = withContext(Dispatchers.IO) { val prefs = context.getSharedPreferences("continuity_queue", Context.MODE_PRIVATE); val array = runCatching { JSONArray(prefs.getString("items", "[]")) }.getOrElse { JSONArray() }; val remaining = JSONArray(); for (index in 0 until array.length()) { val raw = array.optString(index); val response = runCatching { postJson(resolveHermesUrl(settings, "/v1/hub/state"), JSONObject(raw), apiKey) }.getOrNull(); if (response == null || response.first !in 200..299) remaining.put(raw) }; prefs.edit { putString("items", remaining.toString()) }; if (remaining.length() == 0) "Coda offline sincronizzata." else "${remaining.length()} operazioni ancora in coda." }
+
+private suspend fun uploadContinuityFile(context: Context, settings: AppSettings, uri: Uri, device: String, apiKey: String?): String = withContext(Dispatchers.IO) {
+    val name = continuityDisplayName(context, uri); val temp = File(context.cacheDir, "continuity-${System.currentTimeMillis()}-${name.replace('/', '_')}")
+    try { context.contentResolver.openInputStream(uri)?.use { input -> temp.outputStream().use { output -> input.copyTo(output) } } ?: return@withContext "File non leggibile."; if (temp.length() > 100L * 1024 * 1024) return@withContext "File oltre 100 MB."; val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM).addFormDataPart("file", name, temp.asRequestBody("application/octet-stream".toMediaTypeOrNull())).build(); val request = Request.Builder().url(resolveHermesUrl(settings, "/v1/media/upload")).post(body).apply { if (!apiKey.isNullOrBlank()) header("Authorization", "Bearer $apiKey") }.build(); val response = apiHttpClient.newCall(request).execute(); response.use { val text = it.body.string(); if (!it.isSuccessful) return@withContext "Upload HTTP ${it.code}: ${extractHumanError(text)}"; val root = JSONObject(text); val url = root.optString("media_url", root.optString("url", root.optString("file_url"))); if (url.isBlank()) return@withContext "URL file mancante."; publishContinuity(context, settings, device, "continuity.file", name, fileUrl = url, fileName = name, apiKey = apiKey) } } finally { temp.delete() }
+}
+
+private fun continuityDisplayName(context: Context, uri: Uri): String = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }?.takeIf { it.isNotBlank() } ?: "file"
+
+private data class AuditItem(val id: String, val timestamp: Long, val event: String, val summary: String, val project: String, val run: String, val tool: String, val device: String, val risk: String, val status: String)
+
+@Composable
+private fun AuditScreen(context: Context, settings: AppSettings) {
+    var project by rememberSaveable { mutableStateOf("") }; var run by rememberSaveable { mutableStateOf("") }; var tool by rememberSaveable { mutableStateOf("") }; var device by rememberSaveable { mutableStateOf("") }; var risk by rememberSaveable { mutableStateOf("") }; var refresh by remember { mutableIntStateOf(0) }; var items by remember { mutableStateOf<List<AuditItem>>(emptyList()) }; var status by remember { mutableStateOf("Carico audit...") }
+    LaunchedEffect(settings.gatewayUrl, refresh) { val loaded = loadAuditItems(settings, project, run, tool, device, risk, loadGatewaySecret(context)); items = loaded.first; status = loaded.second }
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("Timeline audit", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold); Text("Chat, run, tool, automazioni, dispositivi e operazioni server in una cronologia filtrabile.", color = AppColors.Muted) }
+        item { Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface)) { Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { SettingsField("Progetto", project, { project = it }); SettingsField("Run", run, { run = it }); SettingsField("Tool", tool, { tool = it }); SettingsField("Dispositivo", device, { device = it }); FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) { listOf("", "low", "medium", "high", "critical").forEach { value -> VideoFeedChip(value.ifBlank { "Tutti i rischi" }, risk == value) { risk = value } }; Button(onClick = { refresh++ }) { Text("Applica") } }; Text(status, color = AppColors.Muted) } } }
+        items(items, key = { it.id }) { item -> Surface(color = AppColors.AssistantBubble, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, if (item.risk in setOf("high", "critical")) Color(0xFFFF6F3D) else AppColors.Border)) { Column(modifier = Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("${formatDateTime(item.timestamp)} · ${item.event} · rischio ${item.risk}", color = AppColors.Accent, fontWeight = FontWeight.SemiBold); Text(item.summary, color = Color.White); Text("Progetto ${item.project} · Run ${item.run} · Tool ${item.tool} · Device ${item.device} · ${item.status}", color = AppColors.Muted, fontSize = 11.sp) } } }
+    }
+}
+
+private suspend fun loadAuditItems(settings: AppSettings, project: String, run: String, tool: String, device: String, risk: String, apiKey: String?): Pair<List<AuditItem>, String> = withContext(Dispatchers.IO) {
+    try { val query = "?project=${URLEncoder.encode(project, "UTF-8")}&run=${URLEncoder.encode(run, "UTF-8")}&tool=${URLEncoder.encode(tool, "UTF-8")}&device=${URLEncoder.encode(device, "UTF-8")}&risk=${URLEncoder.encode(risk, "UTF-8")}"; val response = httpGetResponse(resolveHermesUrl(settings, "/v1/hub/audit$query"), apiKey); if (response.first !in 200..299) return@withContext emptyList<AuditItem>() to "Audit HTTP ${response.first}"; val array = JSONObject(response.second).optJSONArray("items") ?: JSONArray(); val result = buildList { for (index in 0 until array.length()) { val item = array.optJSONObject(index) ?: continue; add(AuditItem(item.optString("id"), (item.optDouble("timestamp") * 1000).toLong(), item.optString("event"), item.optString("summary"), item.optString("project"), item.optString("run"), item.optString("tool"), item.optString("device"), item.optString("risk", "low"), item.optString("status"))) } }; result to "${result.size} eventi." } catch (ex: Exception) { emptyList<AuditItem>() to "Audit non disponibile: ${ex.message}" }
 }
 
 @Composable
@@ -3808,6 +4791,10 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
         )
     }
     var diagnostics by remember { mutableStateOf<List<DiagnosticCheck>>(emptyList()) }
+    var controlService by rememberSaveable { mutableStateOf("gateway") }
+    var controlOutput by remember { mutableStateOf("Centro controllo non ancora interrogato.") }
+    var logFilter by rememberSaveable { mutableStateOf("") }
+    var pendingControlAction by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     LaunchedEffect(settings) {
         snapshot = loadServerSnapshot(context, settings, loadGatewaySecret(context))
@@ -3886,6 +4873,28 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Centro controllo server", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Azioni tipizzate per Hermes, gateway, llama.cpp e Tailscale; nessuna shell arbitraria.", color = AppColors.Muted)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("hermes", "gateway", "llama", "tailscale").forEach { service -> Button(onClick = { controlService = service }, colors = ButtonDefaults.buttonColors(containerColor = if (controlService == service) AppColors.Accent else AppColors.AssistantBubble)) { Text(service) } }
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { pendingControlAction = controlService to "start" }) { Text("Avvia") }
+                        Button(onClick = { pendingControlAction = controlService to "stop" }) { Text("Ferma") }
+                        Button(onClick = { pendingControlAction = controlService to "restart" }) { Text("Riavvia") }
+                        Button(onClick = { scope.launch { controlOutput = runCatching { httpGet("${settings.gatewayUrl.trimEnd('/')}/hub/server/control?filter=${java.net.URLEncoder.encode(logFilter, "UTF-8")}", loadGatewaySecret(context)) }.getOrElse { it.message ?: "Errore" } } }) { Text("Aggiorna") }
+                    }
+                    SettingsField("Filtro log", logFilter, { logFilter = it })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("update", "rollback", "backup", "restore", "diagnostic").forEach { operation -> Button(onClick = { scope.launch { controlOutput = runCatching { postJson("${settings.gatewayUrl.trimEnd('/')}/hub/server/maintenance", JSONObject().put("operation", operation), loadGatewaySecret(context), allowCompatAuth = false).second }.getOrElse { it.message ?: "Errore" } } }) { Text(operation) } }
+                    }
+                    SelectionContainer { Text(controlOutput, color = AppColors.Muted, fontSize = 11.sp) }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Diagnostica gateway", color = Color.White, fontWeight = FontWeight.SemiBold)
                     if (diagnostics.isEmpty()) {
                         Text("Nessuna diagnostica eseguita.", color = AppColors.Muted)
@@ -3935,6 +4944,17 @@ private fun ServerScreen(context: Context, settings: AppSettings) {
                 }
             }
         }
+    }
+
+    pendingControlAction?.let { (service, action) ->
+        AlertDialog(
+            onDismissRequest = { pendingControlAction = null },
+            containerColor = AppColors.Surface,
+            title = { Text("Conferma $action", color = Color.White) },
+            text = { Text("Eseguire $action su $service? Le sessioni attive possono interrompersi.", color = AppColors.Muted) },
+            confirmButton = { Button(onClick = { pendingControlAction = null; scope.launch { controlOutput = runCatching { postJson("${settings.gatewayUrl.trimEnd('/')}/hub/server/action", JSONObject().put("service", service).put("action", action), loadGatewaySecret(context), allowCompatAuth = false).second }.getOrElse { it.message ?: "Errore" } } }) { Text("Conferma") } },
+            dismissButton = { Button(onClick = { pendingControlAction = null }) { Text("Annulla") } }
+        )
     }
 }
 
@@ -5659,7 +6679,6 @@ private fun runOperatorRpc(
 private fun ProfileScreen(
     context: Context,
     settings: AppSettings,
-    onSettingsChanged: (AppSettings) -> Unit,
     onOpenTab: (Tab) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
@@ -5668,9 +6687,6 @@ private fun ProfileScreen(
     var updateState by remember { mutableStateOf(UpdateDownloadState()) }
     var memory by remember { mutableStateOf(HubMemoryState()) }
     var memoryStatus by remember { mutableStateOf("Memoria gateway non ancora letta.") }
-    var projects by remember { mutableStateOf(loadProjects(context)) }
-    var projectName by remember { mutableStateOf("") }
-    var activeProjectId by remember(settings.activeProjectId) { mutableStateOf(settings.activeProjectId) }
 
     LaunchedEffect(settings.gatewayUrl) {
         val loaded = loadHubMemory(settings, loadGatewaySecret(context))
@@ -5735,6 +6751,7 @@ private fun ProfileScreen(
                         Button(onClick = { onOpenTab(Tab.Hardware) }) { Text("Prestazioni") }
                         Button(onClick = { onOpenTab(Tab.News) }) { Text("News") }
                         Button(onClick = { onOpenTab(Tab.Settings) }) { Text("Impostazioni") }
+                        Button(onClick = { onOpenTab(Tab.Projects) }) { Text("Progetti") }
                         Button(onClick = { onOpenTab(Tab.Archive) }) { Text("Archivio") }
                     }
                 }
@@ -5744,38 +6761,8 @@ private fun ProfileScreen(
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Progetto attivo", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text(if (activeProjectId.isBlank()) "Nessun progetto selezionato." else "Attivo: ${projects.firstOrNull { it.id == activeProjectId }?.name ?: settings.activeProjectName}", color = AppColors.Muted)
-                    SettingsField("Nuovo progetto", projectName, { projectName = it })
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            val name = projectName.trim()
-                            if (name.isBlank()) return@Button
-                            val project = ProjectRecord("project_${System.currentTimeMillis()}", name)
-                            projects = (listOf(project) + projects).distinctBy { it.id }.take(50)
-                            saveProjects(context, projects)
-                            activeProjectId = project.id
-                            projectName = ""
-                            val updated = settings.copy(activeProjectId = project.id, activeProjectName = project.name)
-                            onSettingsChanged(updated)
-                            scope.launch { postHubState(settings, "project_active", project.id, JSONObject().put("name", project.name), loadGatewaySecret(context)) }
-                        }) { Text("Crea e attiva") }
-                        Button(onClick = {
-                            activeProjectId = ""
-                            val updated = settings.copy(activeProjectId = "", activeProjectName = "")
-                            onSettingsChanged(updated)
-                            scope.launch { postHubState(settings, "project_active", "none", JSONObject().put("name", ""), loadGatewaySecret(context)) }
-                        }) { Text("Nessuno") }
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        projects.forEach { project ->
-                            VideoFeedChip(project.name, selected = project.id == activeProjectId) {
-                                activeProjectId = project.id
-                                val updated = settings.copy(activeProjectId = project.id, activeProjectName = project.name)
-                                onSettingsChanged(updated)
-                                scope.launch { postHubState(settings, "project_active", project.id, JSONObject().put("name", project.name), loadGatewaySecret(context)) }
-                            }
-                        }
-                    }
+                    Text(if (settings.activeProjectId.isBlank()) "Nessun progetto selezionato." else "Attivo: ${settings.activeProjectName}", color = AppColors.Muted)
+                    Button(onClick = { onOpenTab(Tab.Projects) }) { Text("Apri Progetti") }
                 }
             }
         }
@@ -6414,6 +7401,23 @@ internal fun hermesNativeInstructions(mode: String): String {
     return "Hermes Hub media contract: never answer with a local filesystem path, file:// URL, or bracketed media address. For each file requested by Matteo return a visual_blocks media_file card using /v1/media/...; use image_gallery for multiple images. For a browser screenshot, capture it, copy it to HERMES_HUB_UPLOAD_PATH (default ~/.hermes/hub_uploads), and return a media_file image card with media_url /v1/media/<filename>. Do not claim a screenshot was shared unless that image card is present."
 }
 
+internal fun projectContextInstructions(settings: AppSettings): String {
+    if (settings.activeProjectId.isBlank()) return ""
+    val tools = settings.activeProjectTools.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.joinToString(", ").ifBlank { "nessuno specificato" }
+    return """
+
+        Contesto progetto attivo Hermes Hub:
+        - ID: ${settings.activeProjectId}
+        - Nome: ${settings.activeProjectName}
+        - Workspace: ${settings.activeProjectWorkspacePath}
+        - Repository: ${settings.activeProjectRepositoryUrl}
+        - Tool autorizzati: $tools
+        - Istruzioni progetto: ${settings.activeProjectInstructions}
+        - Memoria progetto: ${settings.activeProjectMemory}
+        Usa automaticamente questo contesto. Se lista tool non vuota, chiedi approvazione prima di usarne altri.
+    """.trimIndent()
+}
+
 private suspend fun sendChatRequest(
     settings: AppSettings,
     mode: String,
@@ -6437,11 +7441,11 @@ private suspend fun sendChatRequest(
                 .put("metadata", visualBlocksMetadata(settings, conversationId))
             payload.put(
                 "instructions",
-                if (isHermesNative(settings)) hermesNativeInstructions(mode) else if (mode.equals("Agente", ignoreCase = true)) {
+                (if (isHermesNative(settings)) hermesNativeInstructions(mode) else if (mode.equals("Agente", ignoreCase = true)) {
                     hermesHubAgentInstructions()
                 } else {
                     hermesHubChatInstructions()
-                }
+                }) + projectContextInstructions(settings)
             )
             val response = postJson("${settings.gatewayUrl.trimEnd('/')}/responses", payload, apiKey, allowCompatAuth = !(isHermesNative(settings) && settings.strictNativeMode))
             if (response.first in 200..299) {
@@ -6486,7 +7490,7 @@ private suspend fun sendChatRequest(
                     put(
                         JSONObject()
                             .put("role", "system")
-                            .put("content", if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions())
+                            .put("content", (if (mode.equals("Agente", ignoreCase = true)) hermesHubAgentInstructions() else hermesHubChatInstructions()) + projectContextInstructions(settings))
                     )
                 }
                 val compatHistory = if (isHermesNative(settings)) emptyList() else history
@@ -6553,6 +7557,17 @@ private fun visualBlocksMetadata(settings: AppSettings, conversationId: String?)
         .put("project_id", settings.activeProjectId)
         .put("project_name", settings.activeProjectName)
         .put("workspace", settings.activeProjectName.ifBlank { "default" })
+        .put(
+            "project_context",
+            if (settings.activeProjectId.isBlank()) JSONObject.NULL else JSONObject()
+                .put("id", settings.activeProjectId)
+                .put("name", settings.activeProjectName)
+                .put("workspace_path", settings.activeProjectWorkspacePath)
+                .put("repository_url", settings.activeProjectRepositoryUrl)
+                .put("instructions", settings.activeProjectInstructions)
+                .put("memory", settings.activeProjectMemory)
+                .put("authorized_tools", JSONArray(settings.activeProjectTools.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()))
+        )
         .put(
             "hub_conversation",
             JSONObject()
@@ -7375,7 +8390,15 @@ private suspend fun loadHubNotifications(settings: AppSettings, apiKey: String?,
                         source = obj.optString("source", "hermes-agent"),
                         conversationPrompt = obj.optString("conversation_prompt", obj.optString("message", obj.optString("body", obj.optString("text", "")))),
                         createdAt = (obj.optDouble("created_at", 0.0) * 1000).toLong().let { if (it > 0) it else System.currentTimeMillis() },
-                        readAt = (obj.optDouble("read_at", 0.0) * 1000).toLong().let { if (it == 0L && obj.optBoolean("read", false)) System.currentTimeMillis() else if (it == 0L) 0L else it }
+                        readAt = (obj.optDouble("read_at", 0.0) * 1000).toLong().let { if (it == 0L && obj.optBoolean("read", false)) System.currentTimeMillis() else if (it == 0L) 0L else it },
+                        category = obj.optString("category", obj.optString("kind", "Generale")),
+                        priority = obj.optString("priority", obj.optString("severity", "Normale")),
+                        archived = obj.optBoolean("archived", false),
+                        snoozedUntil = (obj.optDouble("snoozed_until", 0.0) * 1000).toLong(),
+                        automationId = obj.optString("automation_id", obj.optString("cron_id")),
+                        runId = obj.optString("run_id"),
+                        fileUrl = obj.optString("file_url", obj.optString("url")),
+                        projectId = obj.optString("project_id")
                     )
                 )
             }
@@ -7394,6 +8417,13 @@ private suspend fun markHubNotificationRead(settings: AppSettings, id: String, a
     } catch (ex: Exception) {
         "Notifica non aggiornata: ${ex.message ?: ex.javaClass.simpleName}"
     }
+}
+
+private suspend fun patchHubNotification(settings: AppSettings, id: String, patch: JSONObject, apiKey: String?): String = withContext(Dispatchers.IO) {
+    return@withContext try {
+        val response = postJson(resolveHermesUrl(settings, "/v1/hub/notifications/${URLEncoder.encode(id, "UTF-8")}"), patch, apiKey, "PATCH")
+        if (response.first in 200..299) "Notifica aggiornata." else "Notifica non aggiornata: HTTP ${response.first}: ${extractHumanError(response.second)}"
+    } catch (ex: Exception) { "Notifica non aggiornata: ${ex.message ?: ex.javaClass.simpleName}" }
 }
 
 private suspend fun loadCronJobs(settings: AppSettings, apiKey: String?): Pair<List<CronJob>, String> = withContext(Dispatchers.IO) {
@@ -7433,6 +8463,34 @@ private suspend fun cronAction(settings: AppSettings, id: String, action: String
         }
     } catch (ex: Exception) {
         "Azione cron fallita: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+}
+
+private suspend fun saveCronJob(
+    settings: AppSettings,
+    id: String?,
+    name: String,
+    schedule: String,
+    prompt: String,
+    deliver: String,
+    apiKey: String?
+): String = withContext(Dispatchers.IO) {
+    return@withContext try {
+        val creating = id.isNullOrBlank()
+        val path = if (creating) "/api/jobs" else "/api/jobs/${URLEncoder.encode(id, "UTF-8")}"
+        val payload = JSONObject()
+            .put("name", name.trim())
+            .put("schedule", schedule.trim())
+            .put("prompt", prompt)
+            .put("deliver", deliver.trim().ifBlank { "local" })
+        val response = postJson(resolveHermesUrl(settings, path), payload, apiKey, if (creating) "POST" else "PATCH")
+        if (response.first in 200..299) {
+            if (creating) "Automazione creata." else "Automazione aggiornata."
+        } else {
+            "Automazione non salvata: HTTP ${response.first}: ${extractHumanError(response.second)}"
+        }
+    } catch (ex: Exception) {
+        "Automazione non salvata: ${ex.message ?: ex.javaClass.simpleName}"
     }
 }
 
@@ -7796,6 +8854,20 @@ private fun createAttachmentFromUri(context: Context, uri: Uri, maxAttachmentMb:
         sizeBytes = total,
         localFilePath = cached.absolutePath
     )
+}
+
+private suspend fun captureHermesAppScreenshot(context: Context, maxAttachmentMb: Int): ChatInputAttachment? = withContext(Dispatchers.Main) {
+    val activity = context as? Activity ?: return@withContext null
+    val view = activity.window.decorView.rootView
+    if (view.width <= 0 || view.height <= 0) return@withContext null
+    val bitmap = createBitmap(view.width, view.height)
+    view.draw(android.graphics.Canvas(bitmap))
+    val directory = File(context.cacheDir, "attachments").apply { mkdirs() }
+    val file = File(directory, "screenshot-${System.currentTimeMillis()}.png")
+    val ok = withContext(Dispatchers.IO) { file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; file.length() in 1..(maxAttachmentMb.coerceIn(1, 150).toLong() * 1024 * 1024) }
+    bitmap.recycle()
+    if (!ok) { file.delete(); return@withContext null }
+    ChatInputAttachment(filename = file.name, mimeType = "image/png", sizeBytes = file.length(), localFilePath = file.absolutePath)
 }
 
 private fun pruneAttachmentCache(directory: File) {
@@ -8693,6 +9765,13 @@ private fun JSONObject.optLongOrNull(key: String): Long? {
     return try { getLong(key) } catch (_: Exception) { null }
 }
 
+private fun JSONArray.toStringList(limit: Int = 100): List<String> = buildList {
+    for (index in 0 until minOf(length(), limit)) {
+        val value = optString(index).trim()
+        if (value.isNotBlank() && none { it.equals(value, ignoreCase = true) }) add(value)
+    }
+}
+
 private fun buildFallbackReply(settings: AppSettings, mode: String, reason: String): String {
     val prefix = if (mode == "Agente") {
         "Hermes assente: preparo un job locale e tengo il contesto pronto."
@@ -9096,6 +10175,11 @@ private fun loadSettings(context: Context): AppSettings {
             .let { if (it.isBlank() || it.endsWith("/.hermes/media/news")) AppDefaults.newsLibraryPath else it },
         activeProjectId = prefs.getString("activeProjectId", AppDefaults.activeProjectId) ?: AppDefaults.activeProjectId,
         activeProjectName = prefs.getString("activeProjectName", AppDefaults.activeProjectName) ?: AppDefaults.activeProjectName,
+        activeProjectWorkspacePath = prefs.getString("activeProjectWorkspacePath", "") ?: "",
+        activeProjectRepositoryUrl = prefs.getString("activeProjectRepositoryUrl", "") ?: "",
+        activeProjectInstructions = prefs.getString("activeProjectInstructions", "") ?: "",
+        activeProjectMemory = prefs.getString("activeProjectMemory", "") ?: "",
+        activeProjectTools = prefs.getString("activeProjectTools", "") ?: "",
         fontScale = prefs.getFloat("fontScale", AppDefaults.fontScale).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE),
         showToolCalls = prefs.getBoolean("showToolCalls", AppDefaults.showToolCalls),
         showMessageMetrics = prefs.getBoolean("showMessageMetrics", AppDefaults.showMessageMetrics),
@@ -9169,6 +10253,11 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         putString("newsLibraryPath", settings.newsLibraryPath.trim())
         putString("activeProjectId", settings.activeProjectId.trim())
         putString("activeProjectName", settings.activeProjectName.trim())
+        putString("activeProjectWorkspacePath", settings.activeProjectWorkspacePath.trim())
+        putString("activeProjectRepositoryUrl", settings.activeProjectRepositoryUrl.trim())
+        putString("activeProjectInstructions", settings.activeProjectInstructions.trim())
+        putString("activeProjectMemory", settings.activeProjectMemory.trim())
+        putString("activeProjectTools", settings.activeProjectTools.trim())
         putFloat("fontScale", settings.fontScale.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE))
         putBoolean("showToolCalls", settings.showToolCalls)
         putBoolean("showMessageMetrics", settings.showMessageMetrics)
@@ -9181,35 +10270,6 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         putInt("maxAttachmentMb", settings.maxAttachmentMb.coerceIn(1, 150))
         putBoolean("strictNativeMode", settings.strictNativeMode)
         putBoolean("demoMode", settings.demoMode)
-    }
-}
-
-private fun loadProjects(context: Context): List<ProjectRecord> {
-    val raw = context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE).getString("projects", "[]") ?: "[]"
-    return try {
-        val array = JSONArray(raw)
-        buildList {
-            for (i in 0 until array.length()) {
-                val obj = array.optJSONObject(i) ?: continue
-                val id = obj.optString("id")
-                val name = obj.optString("name")
-                if (id.isNotBlank() && name.isNotBlank()) {
-                    add(ProjectRecord(id, name, obj.optLong("updatedAt", System.currentTimeMillis())))
-                }
-            }
-        }.sortedByDescending { it.updatedAt }
-    } catch (_: Exception) {
-        emptyList()
-    }
-}
-
-private fun saveProjects(context: Context, projects: List<ProjectRecord>) {
-    val array = JSONArray()
-    projects.take(50).forEach { project ->
-        array.put(JSONObject().put("id", project.id).put("name", project.name).put("updatedAt", project.updatedAt))
-    }
-    context.getSharedPreferences(CURRENT_WORKSPACE_PREFS, Context.MODE_PRIVATE).edit {
-        putString("projects", array.toString())
     }
 }
 
@@ -9551,7 +10611,7 @@ private suspend fun sendVideoLibraryFeedback(settings: AppSettings, item: VideoL
             .put(
                 "messages",
                 JSONArray()
-                    .put(JSONObject().put("role", "system").put("content", hermesHubAgentInstructions()))
+                    .put(JSONObject().put("role", "system").put("content", hermesHubAgentInstructions() + projectContextInstructions(settings)))
                     .put(JSONObject().put("role", "user").put("content", instructions))
             )
             .put("stream", false)
@@ -9639,7 +10699,7 @@ private fun saveConversationExchange(
     }
 }
 
-private fun saveConversationSnapshot(
+internal fun saveConversationSnapshot(
     context: Context,
     conversationId: String?,
     mode: String,
@@ -9647,6 +10707,7 @@ private fun saveConversationSnapshot(
     messages: List<ChatMessage>,
     source: String,
     responseId: String? = null,
+    projectId: String? = null,
     syncAfterSave: Boolean = true
 ): LocalConversation {
     synchronized(localArchiveLock) {
@@ -9663,7 +10724,8 @@ private fun saveConversationSnapshot(
                 updatedAt = now,
                 messages = messages,
                 previousResponseId = responseId ?: current.previousResponseId,
-                serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, current.id)
+                serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, current.id),
+                projectId = current.projectId.ifBlank { projectId.orEmpty() }
             )
         } else {
             LocalConversation(
@@ -9675,7 +10737,8 @@ private fun saveConversationSnapshot(
                 updatedAt = now,
                 messages = messages,
                 previousResponseId = responseId,
-                serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, newConversationId)
+                serverConversationId = hermesHubServerConversationId(HERMES_HUB_ANDROID_SURFACE, newConversationId),
+                projectId = projectId.orEmpty()
             )
         }
 
@@ -9684,8 +10747,41 @@ private fun saveConversationSnapshot(
         } else {
             conversations.add(0, conversation)
         }
+        materializeArtifacts(conversations, conversation)
         saveConversations(context, conversations, syncAfterSave = syncAfterSave)
         return conversation
+    }
+}
+
+private fun materializeArtifacts(items: MutableList<LocalConversation>, conversation: LocalConversation) {
+    if (conversation.kind == "Artifact") return
+    val types = setOf("media_file", "image_gallery", "code", "diagram", "markdown", "table", "chart")
+    conversation.messages.forEach { message ->
+        message.visualBlocks.filter { it.type in types }.forEach { block ->
+            val blockKey = block.id.ifBlank { block.rawJson.hashCode().toUInt().toString(16) }
+            val id = "artifact_${conversation.id}_${message.id}_$blockKey"
+            if (items.any { it.id == id }) return@forEach
+            val title = block.title.ifBlank { block.filename.ifBlank { "${block.type} · ${conversation.title}" } }
+            val grouping = block.filename.ifBlank { title }
+            val version = items.count { it.kind == "Artifact" && it.projectId == conversation.projectId && (it.artifactFileName.equals(grouping, true) || it.title.equals(grouping, true)) } + 1
+            items.add(0, LocalConversation(
+                id = id,
+                title = title,
+                kind = "Artifact",
+                description = block.caption.ifBlank { block.summary },
+                prompt = "",
+                updatedAt = conversation.updatedAt,
+                messages = emptyList(),
+                projectId = conversation.projectId,
+                artifactType = block.type,
+                artifactUrl = block.mediaUrl.ifBlank { block.renderedMediaUrl },
+                artifactFileName = block.filename,
+                artifactMimeType = block.mimeType,
+                sourceConversationId = conversation.id,
+                sourceRunId = message.rawEvents.firstOrNull { it.json.contains("run_id", true) }?.json.orEmpty(),
+                version = version
+            ))
+        }
     }
 }
 
@@ -9700,7 +10796,7 @@ private fun saveProjectConversation(
         val now = System.currentTimeMillis()
         val index = conversations.indexOfFirst { it.deletedAt == null && it.kind == "Progetto" && it.title.equals(title, ignoreCase = true) }
         val project = if (index >= 0) {
-            conversations[index].copy(description = description, prompt = prompt, updatedAt = now)
+            conversations[index].copy(description = description, prompt = prompt, projectId = conversations[index].id, updatedAt = now)
         } else {
             LocalConversation(
                 id = "project_$now",
@@ -9709,7 +10805,8 @@ private fun saveProjectConversation(
                 description = description,
                 prompt = prompt,
                 updatedAt = now,
-                messages = emptyList()
+                messages = emptyList(),
+                projectId = "project_$now"
             )
         }
 
@@ -9718,6 +10815,48 @@ private fun saveProjectConversation(
         } else {
             conversations.add(0, project)
         }
+        saveConversations(context, conversations)
+        return project
+    }
+}
+
+private fun saveProjectWorkspace(
+    context: Context,
+    projectId: String?,
+    title: String,
+    description: String,
+    workspacePath: String,
+    repositoryUrl: String,
+    instructions: String,
+    memory: String,
+    authorizedTools: List<String>
+): LocalConversation {
+    synchronized(localArchiveLock) {
+        val normalizedTitle = title.trim().take(180)
+        require(normalizedTitle.isNotBlank()) { "Nome progetto obbligatorio." }
+        val conversations = loadConversations(context, includeDeleted = true).toMutableList()
+        var index = projectId?.let { id -> conversations.indexOfFirst { it.deletedAt == null && it.kind == "Progetto" && it.id == id } } ?: -1
+        if (index < 0) {
+            index = conversations.indexOfFirst { it.deletedAt == null && it.kind == "Progetto" && it.title.equals(normalizedTitle, ignoreCase = true) }
+        }
+        val id = if (index >= 0) conversations[index].id else "project_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(8)}"
+        val existing = if (index >= 0) conversations[index] else null
+        val project = LocalConversation(
+            id = id,
+            title = normalizedTitle,
+            kind = "Progetto",
+            description = description.trim().take(4_000),
+            prompt = instructions.trim().take(20_000),
+            updatedAt = System.currentTimeMillis(),
+            messages = existing?.messages ?: emptyList(),
+            projectId = id,
+            workspacePath = workspacePath.trim().take(1_024),
+            repositoryUrl = repositoryUrl.trim().take(2_048),
+            projectInstructions = instructions.trim().take(20_000),
+            projectMemory = memory.trim().take(20_000),
+            authorizedTools = authorizedTools.map { it.trim().take(100) }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.take(100)
+        )
+        if (index >= 0) conversations[index] = project else conversations.add(0, project)
         saveConversations(context, conversations)
         return project
     }
@@ -9881,6 +11020,29 @@ private fun loadConversations(context: Context, includeDeleted: Boolean = false)
                             messages = readMessages(obj.optJSONArray("messages") ?: JSONArray()),
                             previousResponseId = obj.optString("previousResponseId").takeIf { it.isNotBlank() },
                             serverConversationId = obj.optString("serverConversationId").takeIf { it.isNotBlank() },
+                            projectId = obj.optString("projectId", obj.optString("project_id")),
+                            workspacePath = obj.optString("workspacePath", obj.optString("workspace_path")),
+                            repositoryUrl = obj.optString("repositoryUrl", obj.optString("repository_url")),
+                            projectInstructions = obj.optString("projectInstructions", obj.optString("project_instructions")),
+                            projectMemory = obj.optString("projectMemory", obj.optString("project_memory")),
+                            authorizedTools = obj.optJSONArray("authorizedTools")?.toStringList()
+                                ?: obj.optJSONArray("authorized_tools")?.toStringList()
+                                ?: emptyList(),
+                            artifactType = obj.optString("artifactType", obj.optString("artifact_type")),
+                            artifactUrl = obj.optString("artifactUrl", obj.optString("artifact_url")),
+                            artifactFileName = obj.optString("artifactFileName", obj.optString("artifact_file_name")),
+                            artifactMimeType = obj.optString("artifactMimeType", obj.optString("artifact_mime_type")),
+                            sourceConversationId = obj.optString("sourceConversationId", obj.optString("source_conversation_id")),
+                            sourceRunId = obj.optString("sourceRunId", obj.optString("source_run_id")),
+                            version = obj.optInt("version", 0),
+                            tags = obj.optJSONArray("tags")?.toStringList() ?: emptyList(),
+                            folder = obj.optString("folder"),
+                            summary = obj.optString("summary"),
+                            parentConversationId = obj.optString("parentConversationId", obj.optString("parent_conversation_id")),
+                            branchFromMessageId = obj.optString("branchFromMessageId", obj.optString("branch_from_message_id")),
+                            linkedConversationIds = obj.optJSONArray("linkedConversationIds")?.toStringList()
+                                ?: obj.optJSONArray("linked_conversation_ids")?.toStringList()
+                                ?: emptyList(),
                             deletedAt = obj.optLong("deletedAt").takeIf { it > 0 }
                                 ?: obj.optLong("deleted_at").takeIf { it > 0 }
                         )
@@ -9927,6 +11089,25 @@ private fun conversationsToJsonArray(conversations: List<LocalConversation>): JS
                     .put("deletedAt", conversation.deletedAt ?: JSONObject.NULL)
                     .put("previousResponseId", conversation.previousResponseId ?: JSONObject.NULL)
                     .put("serverConversationId", conversation.serverConversationId ?: JSONObject.NULL)
+                    .put("projectId", conversation.projectId.ifBlank { JSONObject.NULL })
+                    .put("workspacePath", conversation.workspacePath.ifBlank { JSONObject.NULL })
+                    .put("repositoryUrl", conversation.repositoryUrl.ifBlank { JSONObject.NULL })
+                    .put("projectInstructions", conversation.projectInstructions.ifBlank { JSONObject.NULL })
+                    .put("projectMemory", conversation.projectMemory.ifBlank { JSONObject.NULL })
+                    .put("authorizedTools", JSONArray(conversation.authorizedTools))
+                    .put("artifactType", conversation.artifactType.ifBlank { JSONObject.NULL })
+                    .put("artifactUrl", conversation.artifactUrl.ifBlank { JSONObject.NULL })
+                    .put("artifactFileName", conversation.artifactFileName.ifBlank { JSONObject.NULL })
+                    .put("artifactMimeType", conversation.artifactMimeType.ifBlank { JSONObject.NULL })
+                    .put("sourceConversationId", conversation.sourceConversationId.ifBlank { JSONObject.NULL })
+                    .put("sourceRunId", conversation.sourceRunId.ifBlank { JSONObject.NULL })
+                    .put("version", conversation.version)
+                    .put("tags", JSONArray(conversation.tags))
+                    .put("folder", conversation.folder.ifBlank { JSONObject.NULL })
+                    .put("summary", conversation.summary.ifBlank { JSONObject.NULL })
+                    .put("parentConversationId", conversation.parentConversationId.ifBlank { JSONObject.NULL })
+                    .put("branchFromMessageId", conversation.branchFromMessageId.ifBlank { JSONObject.NULL })
+                    .put("linkedConversationIds", JSONArray(conversation.linkedConversationIds))
                     .put("messages", writeMessages(conversation.messages))
             )
         }
@@ -9949,6 +11130,29 @@ private fun readConversationsFromJsonArray(array: JSONArray): List<LocalConversa
                     messages = readMessages(obj.optJSONArray("messages") ?: JSONArray()),
                     previousResponseId = obj.optString("previousResponseId").takeIf { it.isNotBlank() },
                     serverConversationId = obj.optString("serverConversationId").takeIf { it.isNotBlank() },
+                    projectId = obj.optString("projectId", obj.optString("project_id")),
+                    workspacePath = obj.optString("workspacePath", obj.optString("workspace_path")),
+                    repositoryUrl = obj.optString("repositoryUrl", obj.optString("repository_url")),
+                    projectInstructions = obj.optString("projectInstructions", obj.optString("project_instructions")),
+                    projectMemory = obj.optString("projectMemory", obj.optString("project_memory")),
+                    authorizedTools = obj.optJSONArray("authorizedTools")?.toStringList()
+                        ?: obj.optJSONArray("authorized_tools")?.toStringList()
+                        ?: emptyList(),
+                    artifactType = obj.optString("artifactType", obj.optString("artifact_type")),
+                    artifactUrl = obj.optString("artifactUrl", obj.optString("artifact_url")),
+                    artifactFileName = obj.optString("artifactFileName", obj.optString("artifact_file_name")),
+                    artifactMimeType = obj.optString("artifactMimeType", obj.optString("artifact_mime_type")),
+                    sourceConversationId = obj.optString("sourceConversationId", obj.optString("source_conversation_id")),
+                    sourceRunId = obj.optString("sourceRunId", obj.optString("source_run_id")),
+                    version = obj.optInt("version", 0),
+                    tags = obj.optJSONArray("tags")?.toStringList() ?: emptyList(),
+                    folder = obj.optString("folder"),
+                    summary = obj.optString("summary"),
+                    parentConversationId = obj.optString("parentConversationId", obj.optString("parent_conversation_id")),
+                    branchFromMessageId = obj.optString("branchFromMessageId", obj.optString("branch_from_message_id")),
+                    linkedConversationIds = obj.optJSONArray("linkedConversationIds")?.toStringList()
+                        ?: obj.optJSONArray("linked_conversation_ids")?.toStringList()
+                        ?: emptyList(),
                     deletedAt = obj.optLong("deletedAt").takeIf { it > 0 }
                         ?: obj.optLong("deleted_at").takeIf { it > 0 }
                 )
@@ -10028,7 +11232,8 @@ private fun readMessages(array: JSONArray): List<ChatMessage> {
                     visualBlocks = readVisualBlocks(obj.optJSONArray("visualBlocks") ?: JSONArray()),
                     stats = readChatStats(obj.optJSONObject("stats")),
                     rawEvents = readRawEvents(obj.optJSONArray("rawEvents") ?: JSONArray()),
-                    id = storedId ?: java.util.UUID.randomUUID().toString()
+                    id = storedId ?: java.util.UUID.randomUUID().toString(),
+                    isBookmarked = obj.optBoolean("bookmarked", obj.optBoolean("isBookmarked", false))
                 )
             )
         }
@@ -10050,6 +11255,7 @@ private fun writeMessages(messages: List<ChatMessage>): JSONArray {
                 .put("visualBlocks", writeVisualBlocks(message.visualBlocks))
                 .put("stats", writeChatStats(message.stats) ?: JSONObject.NULL)
                 .put("rawEvents", writeRawEvents(message.rawEvents))
+                .put("bookmarked", message.isBookmarked)
         )
     }
     return array
@@ -10227,6 +11433,7 @@ private fun ensureHermesNotificationChannel(context: Context) {
 class HermesNotificationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         return try {
+            if (applicationContext.getSharedPreferences("notification_settings", Context.MODE_PRIVATE).getBoolean("dnd", false)) return Result.success()
             ensureHermesNotificationChannel(applicationContext)
             val settings = loadSettings(applicationContext)
             val apiKey = loadGatewaySecret(applicationContext)
@@ -10235,6 +11442,7 @@ class HermesNotificationWorker(context: Context, params: WorkerParameters) : Cor
             val seen = prefs.getStringSet("seenHubNotifications", emptySet())?.toMutableSet() ?: mutableSetOf()
             var changed = false
             result.first.sortedBy { it.createdAt }.forEach { item ->
+                if (item.archived || item.snoozedUntil > System.currentTimeMillis()) return@forEach
                 if (!seen.contains(item.id) && showHermesSystemNotification(applicationContext, item)) {
                     seen.add(item.id)
                     changed = true
@@ -10263,14 +11471,21 @@ private fun showHermesSystemNotification(context: Context, item: HubNotification
         intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
+    val replyIntent = Intent(context, HermesNotificationReplyReceiver::class.java).putExtra("notification_id", item.id)
+    val replyPending = PendingIntent.getBroadcast(context, item.id.hashCode() xor 0x4862, replyIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+    val remoteInput = androidx.core.app.RemoteInput.Builder("hermes_reply").setLabel("Rispondi a Hermes").build()
+    val replyAction = NotificationCompat.Action.Builder(R.drawable.ic_launcher_monochrome, "Rispondi", replyPending).addRemoteInput(remoteInput).build()
     val notification = NotificationCompat.Builder(context, HERMES_NOTIFICATION_CHANNEL)
         .setSmallIcon(R.drawable.ic_launcher_monochrome)
         .setContentTitle(item.title.ifBlank { "Hermes" })
         .setContentText(item.message.take(180))
         .setStyle(NotificationCompat.BigTextStyle().bigText(item.message.take(1200)))
         .setContentIntent(pending)
+        .addAction(replyAction)
         .setAutoCancel(true)
-        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setGroup(item.automationId.ifBlank { "hermes-${item.category}" })
+        .setOngoing(item.kind.equals("long_run", true) && item.readAt <= 0L)
+        .setPriority(when (notificationPriorityRank(item.priority)) { 4 -> NotificationCompat.PRIORITY_MAX; 3 -> NotificationCompat.PRIORITY_HIGH; 1 -> NotificationCompat.PRIORITY_LOW; else -> NotificationCompat.PRIORITY_DEFAULT })
         .build()
     NotificationManagerCompat.from(context).notify(item.id.hashCode(), notification)
     return true

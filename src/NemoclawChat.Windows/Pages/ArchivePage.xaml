@@ -104,6 +104,7 @@
                         Content="Elimina"
                         Foreground="White"
                         IsEnabled="False" />
+                    <Button x:Name="ManageButton" Click="ManageSelected_Click" Content="Gestisci conversazione" IsEnabled="False" />
                     <Button
                         Click="UploadServer_Click"
                         Content="Carica server" />

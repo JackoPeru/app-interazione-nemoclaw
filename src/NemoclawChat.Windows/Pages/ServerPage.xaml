@@ -140,6 +140,31 @@
                         <StackPanel x:Name="DiagnosticsPanel" Spacing="10" />
                     </StackPanel>
                 </Border>
+
+                <Border Padding="22" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="18">
+                    <StackPanel Spacing="12">
+                        <TextBlock Foreground="White" FontSize="20" FontWeight="SemiBold" Text="Centro controllo server" />
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Azioni tipizzate e allowlist: Hermes, gateway, llama.cpp e Tailscale. Stop e restart richiedono conferma." TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="ServiceBox" Width="180" SelectedIndex="0"><ComboBoxItem Content="hermes" /><ComboBoxItem Content="gateway" /><ComboBoxItem Content="llama" /><ComboBoxItem Content="tailscale" /></ComboBox>
+                            <Button Click="StartService_Click" Content="Avvia" />
+                            <Button Click="StopService_Click" Content="Ferma" />
+                            <Button Click="RestartService_Click" Content="Riavvia" />
+                            <Button Click="RefreshControl_Click" Content="Aggiorna" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Click="Maintenance_Click" Tag="update" Content="Aggiorna server" />
+                            <Button Click="Maintenance_Click" Tag="rollback" Content="Rollback" />
+                            <Button Click="Maintenance_Click" Tag="backup" Content="Backup" />
+                            <Button Click="Maintenance_Click" Tag="restore" Content="Ripristina" />
+                            <Button Click="Maintenance_Click" Tag="diagnostic" Content="Pacchetto diagnostico" />
+                            <Button Click="IntegrationTests_Click" Content="Test STT/TTS/media/tool" />
+                        </StackPanel>
+                        <TextBox x:Name="LogFilterBox" Header="Filtro log live" TextChanged="LogFilterBox_TextChanged" />
+                        <TextBox x:Name="ControlOutputBox" Header="Servizi · coda · run · GPU · log" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="340" FontFamily="Consolas" />
+                        <TextBlock x:Name="CompatibilityWarningText" Foreground="#FFFFB86B" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </Grid>
     </ScrollViewer>
