@@ -2,6 +2,10 @@
 
 Le modifiche rilevanti di Hermes Hub sono documentate qui. Le release GitHub restano la fonte per asset e note complete.
 
+## Non rilasciato
+
+- Preparati updater Windows, Android e Linux, documentazione e metadati systemd per il futuro repository `JackoPeru/HermesHub`; l'override Linux `HERMES_HUB_REPO` resta disponibile.
+
 ## 0.6.159 - 2026-07-14
 
 - Gateway TTS: pronuncia mista italiano/inglese per termini tecnici, con segmenti inglesi `en-us` e fallback sicuro alla voce italiana.
@@ -51,4 +55,4 @@ Le modifiche rilevanti di Hermes Hub sono documentate qui. Le release GitHub res
 - VAD PCM, pipeline STT/chat/TTS e cleanup unificati.
 - Kokoro ONNX accelerato su GPU nel gateway, con fallback CPU.
 
-Per le release precedenti consultare la [pagina Releases](https://github.com/JackoPeru/app-interazione-nemoclaw/releases).
+Per le release precedenti consultare la [pagina Releases](https://github.com/JackoPeru/HermesHub/releases).

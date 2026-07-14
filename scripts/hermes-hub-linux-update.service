@@ -1,6 +1,6 @@
 [Unit]
 Description=Update Hermes Hub Linux gateway helper
-Documentation=https://github.com/JackoPeru/app-interazione-nemoclaw
+Documentation=https://github.com/JackoPeru/HermesHub
 
 [Service]
 Type=oneshot
