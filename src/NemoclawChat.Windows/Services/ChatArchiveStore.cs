@@ -136,7 +136,7 @@ public static class ChatArchiveStore
                 conversation = new ConversationRecord
                 {
                     Id = Guid.NewGuid().ToString("N"),
-                    Title = MakeTitle(prompt),
+                    Title = "Nuova chat",
                     Kind = mode == "Agente" ? "Task" : "Chat"
                 };
                 items.Insert(0, conversation);
@@ -658,17 +658,6 @@ public static class ChatArchiveStore
         item.DeletedAt,
         item.Messages
     });
-
-    private static string MakeTitle(string prompt)
-    {
-        var oneLine = prompt.ReplaceLineEndings(" ").Trim();
-        if (oneLine.Length <= 46)
-        {
-            return oneLine;
-        }
-
-        return oneLine[..46].TrimEnd() + "...";
-    }
 
     private static string NormalizeText(string? value, int maxLength)
     {

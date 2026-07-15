@@ -2,17 +2,27 @@ using System.Net.Http;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml;
 using NemoclawChat_Windows.Services;
+using Windows.Media.Core;
+using Windows.Media.Playback;
+using Windows.Storage;
 
 namespace NemoclawChat_Windows.Pages;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage(
+    "Design",
+    "CA1001:Types that own disposable fields should be disposable",
+    Justification = "La pagina WinUI rilascia il player di anteprima in Unloaded; il framework non consuma IDisposable.")]
 public sealed partial class SettingsPage : Page
 {
     private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private MediaPlayer? _voicePreviewPlayer;
+    private string? _voicePreviewPath;
 
     public SettingsPage()
     {
         InitializeComponent();
         LoadSettings();
+        Unloaded += (_, _) => CleanupVoicePreview();
     }
 
     private void LoadSettings()
@@ -43,6 +53,15 @@ public sealed partial class SettingsPage : Page
         SelectComboItem(PreferredApiBox, settings.PreferredApi);
         SelectComboItem(AccessModeBox, settings.AccessMode);
         SelectComboItem(VisualBlocksModeBox, settings.VisualBlocksMode);
+        var voice = VoicePreferencesStore.Load(settings.ActiveProjectId);
+        SelectComboItem(VoiceNameBox, voice.Voice);
+        VoiceSpeedSlider.Value = voice.Speed;
+        VoiceWakeWordSwitch.IsOn = voice.WakeWord;
+        VoicePushToTalkSwitch.IsOn = voice.PushToTalk;
+        VoiceTranscriptSwitch.IsOn = voice.ShowTranscript;
+        VoiceProjectText.Text = string.IsNullOrWhiteSpace(settings.ActiveProjectName)
+            ? "Profilo voce generale"
+            : $"Profilo progetto: {settings.ActiveProjectName}";
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -56,6 +75,7 @@ public sealed partial class SettingsPage : Page
         }
 
         AppSettingsStore.Save(settings);
+        VoicePreferencesStore.Save(settings.ActiveProjectId, ReadVoicePreferences());
         var credentialSaved = GatewayCredentialStore.SaveSecret(ApiKeyBox.Password);
 
         StatusText.Text = credentialSaved
@@ -97,6 +117,7 @@ public sealed partial class SettingsPage : Page
     private void Reset_Click(object sender, RoutedEventArgs e)
     {
         AppSettingsStore.Reset();
+        VoicePreferencesStore.Save(string.Empty, new VoicePreferences());
         GatewayCredentialStore.SaveSecret(GatewayCredentialStore.DefaultApiKey);
         LoadSettings();
         StatusText.Text = "Default ripristinati.";
@@ -236,6 +257,53 @@ public sealed partial class SettingsPage : Page
                 comboBox.SelectedItem = item;
                 return;
             }
+        }
+    }
+
+    private VoicePreferences ReadVoicePreferences() => new(
+        SelectedComboText(VoiceNameBox),
+        VoiceSpeedSlider.Value,
+        VoiceWakeWordSwitch.IsOn,
+        VoicePushToTalkSwitch.IsOn,
+        VoiceTranscriptSwitch.IsOn);
+
+    private async void PreviewVoice_Click(object sender, RoutedEventArgs e)
+    {
+        CleanupVoicePreview();
+        var preferences = ReadVoicePreferences();
+        var voice = VoicePreferencesStore.SupportedVoices.Contains(preferences.Voice, StringComparer.OrdinalIgnoreCase)
+            ? preferences.Voice
+            : "if_sara";
+        StatusText.Text = "Creo anteprima voce...";
+        try
+        {
+            _voicePreviewPath = await SpeechGatewayService.SynthesizeToFileAsync(ReadSettings(), "Ciao Matteo, questa è la mia voce.", voice, preferences.Speed);
+            var file = await StorageFile.GetFileFromPathAsync(_voicePreviewPath);
+            _voicePreviewPlayer = new MediaPlayer { Source = MediaSource.CreateFromStorageFile(file) };
+            _voicePreviewPlayer.MediaEnded += (_, _) => DispatcherQueue.TryEnqueue(CleanupVoicePreview);
+            _voicePreviewPlayer.MediaFailed += (_, args) => DispatcherQueue.TryEnqueue(() =>
+            {
+                StatusText.Text = $"Anteprima non riuscita: {args.ErrorMessage}";
+                CleanupVoicePreview();
+            });
+            _voicePreviewPlayer.Play();
+            StatusText.Text = $"Anteprima {voice}.";
+        }
+        catch (Exception ex)
+        {
+            CleanupVoicePreview();
+            StatusText.Text = $"Anteprima non riuscita: {ex.Message}";
+        }
+    }
+
+    private void CleanupVoicePreview()
+    {
+        _voicePreviewPlayer?.Dispose();
+        _voicePreviewPlayer = null;
+        if (!string.IsNullOrWhiteSpace(_voicePreviewPath))
+        {
+            try { File.Delete(_voicePreviewPath); } catch (IOException) { }
+            _voicePreviewPath = null;
         }
     }
 

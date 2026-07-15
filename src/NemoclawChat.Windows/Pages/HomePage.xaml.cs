@@ -218,19 +218,22 @@ public sealed partial class HomePage : Page
         }
     }
 
-    private void PromptSetup_Click(object sender, RoutedEventArgs e)
+    private async void PromptSetup_Click(object sender, RoutedEventArgs e)
     {
         PromptBox.Text = "Preparami i passaggi per avviare Hermes Agent API Server su Tailscale/LAN.";
+        await SendCurrentPromptAsync();
     }
 
-    private void PromptHealth_Click(object sender, RoutedEventArgs e)
+    private async void PromptHealth_Click(object sender, RoutedEventArgs e)
     {
         PromptBox.Text = "Controlla stato Hermes, modello disponibile e capabilities API.";
+        await SendCurrentPromptAsync();
     }
 
-    private void PromptAgent_Click(object sender, RoutedEventArgs e)
+    private async void PromptAgent_Click(object sender, RoutedEventArgs e)
     {
         PromptBox.Text = "Crea un task agente sicuro con richiesta approve/deny prima di ogni azione rischiosa.";
+        await SendCurrentPromptAsync();
     }
 
     private async void AttachFile_Click(object sender, RoutedEventArgs e)
@@ -661,6 +664,8 @@ public sealed partial class HomePage : Page
         StreamingBubble? bubble = null;
         var sendMode = _mode;
         var conversationId = _conversationId;
+        var shouldGenerateTitle = string.IsNullOrWhiteSpace(conversationId) ||
+                                  string.Equals(ChatArchiveStore.Find(conversationId)?.Title, "Nuova chat", StringComparison.Ordinal);
         var previousResponseId = _previousResponseId;
         var localHistory = _messageHistory.ToList();
         var attachments = _pendingAttachments.ToList();
@@ -954,6 +959,13 @@ public sealed partial class HomePage : Page
                 _conversationId = conversationId;
                 _previousResponseId = previousResponseId;
                 UpdateContextMeter();
+            }
+
+            if (shouldGenerateTitle && !wasCancelled && !usedFallback && !source.Contains("Errore", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(finalText))
+            {
+                var generatedTitle = await ChatStreamClient.GenerateConversationTitleAsync(settings, displayPrompt, finalText, streamCts.Token);
+                await Task.Run(() => ChatArchiveStore.Rename(saved.Id, generatedTitle));
+                shouldGenerateTitle = false;
             }
 
             if (IsComposerRunCurrent(composerRunId) && (usedFallback || source.Contains("Errore", StringComparison.OrdinalIgnoreCase)))

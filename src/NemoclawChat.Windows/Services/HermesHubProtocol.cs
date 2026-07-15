@@ -97,11 +97,7 @@ public static class HermesHubProtocol
             {
                 id = project.Id,
                 name = project.Title,
-                workspace_path = project.WorkspacePath,
-                repository_url = project.RepositoryUrl,
-                instructions = project.ProjectInstructions,
-                memory = project.ProjectMemory,
-                authorized_tools = project.AuthorizedTools
+                system_prompt = project.ProjectInstructions
             },
             source,
             hub_conversation = new
@@ -211,18 +207,13 @@ public static class HermesHubProtocol
             return string.Empty;
         }
 
-        var tools = project.AuthorizedTools.Count == 0 ? "nessuno specificato" : string.Join(", ", project.AuthorizedTools);
         return $"""
 
             Contesto progetto attivo Hermes Hub:
             - ID: {project.Id}
             - Nome: {project.Title}
-            - Workspace: {project.WorkspacePath}
-            - Repository: {project.RepositoryUrl}
-            - Tool autorizzati: {tools}
-            - Istruzioni progetto: {project.ProjectInstructions}
-            - Memoria progetto: {project.ProjectMemory}
-            Usa automaticamente questo contesto per la richiesta corrente. Non usare tool fuori dalla lista autorizzata quando la lista non e' vuota; chiedi approvazione per ampliarli.
+            - System prompt personalizzato: {project.ProjectInstructions}
+            Applica automaticamente il system prompt a tutte le chat del progetto.
             """;
     }
 }

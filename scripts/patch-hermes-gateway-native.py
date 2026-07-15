@@ -3773,6 +3773,32 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("hermes hub transparent request detector")
 
+    if "def _hermes_hub_project_system_prompt" not in text:
+        text, _ = _replace_once(
+            text,
+            "def _multimodal_validation_error(exc: ValueError, *, param: str) -> \"web.Response\":",
+            'def _hermes_hub_project_system_prompt(body: Optional[Dict[str, Any]]) -> Optional[str]:\n'
+            '    """Return only the explicit, bounded project prompt from Hermes Hub metadata."""\n'
+            '    if not isinstance(body, dict):\n'
+            '        return None\n'
+            '    metadata = body.get("metadata")\n'
+            '    if not isinstance(metadata, dict):\n'
+            '        return None\n'
+            '    project = metadata.get("project_context")\n'
+            '    if not isinstance(project, dict):\n'
+            '        return None\n'
+            '    prompt = project.get("system_prompt")\n'
+            '    if not isinstance(prompt, str):\n'
+            '        return None\n'
+            '    prompt = prompt.strip()\n'
+            '    return prompt[:20000] or None\n'
+            '\n'
+            '\n'
+            "def _multimodal_validation_error(exc: ValueError, *, param: str) -> \"web.Response\":",
+            "hermes hub project system prompt helper",
+        )
+        changes.append("hermes hub project system prompt helper")
+
     if "accepted_api_keys = _hermes_hub_api_keys(self._api_key)" not in text:
         text, _ = _replace_once(
             text,
@@ -3814,12 +3840,17 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             )
             changes.append("startup auth accepts hermes hub key aliases")
 
-    if 'system_prompt = None if _is_hermes_hub_request(request, body) else (body.get("system_message") or body.get("instructions"))' not in text:
+    project_session_prompt = 'system_prompt = _hermes_hub_project_system_prompt(body) if _is_hermes_hub_request(request, body) else (body.get("system_message") or body.get("instructions"))'
+    if project_session_prompt not in text:
+        text = text.replace(
+            'system_prompt = None if _is_hermes_hub_request(request, body) else (body.get("system_message") or body.get("instructions"))',
+            project_session_prompt,
+        )
         text = text.replace(
             'system_prompt = body.get("system_message") or body.get("instructions")',
-            'system_prompt = None if _is_hermes_hub_request(request, body) else (body.get("system_message") or body.get("instructions"))',
+            project_session_prompt,
         )
-        changes.append("session chat ignore hermes hub system prompts")
+        changes.append("session chat allow bounded hermes hub project prompt")
 
     if "allow_client_system_prompt = not _is_hermes_hub_request(request, body)" not in text:
         text, _ = _replace_once(
@@ -3828,7 +3859,7 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             '        system_prompt = None\n'
             '        conversation_messages: List[Dict[str, str]] = []',
             '        # Extract system message (becomes ephemeral system prompt layered ON TOP of core)\n'
-            '        system_prompt = None\n'
+            '        system_prompt = _hermes_hub_project_system_prompt(body) if _is_hermes_hub_request(request, body) else None\n'
             '        allow_client_system_prompt = not _is_hermes_hub_request(request, body)\n'
             '        conversation_messages: List[Dict[str, str]] = []',
             "chat completions hermes hub system gate",
@@ -3844,14 +3875,28 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
             "chat completions ignore hermes hub system prompts",
         )
         changes.append("chat completions ignore hermes hub system prompts")
-
-    if 'instructions = None if _is_hermes_hub_request(request, body) else body.get("instructions")' not in text:
+    else:
         text = text.replace(
-            'instructions = body.get("instructions")',
-            'instructions = None if _is_hermes_hub_request(request, body) else body.get("instructions")',
+            '        system_prompt = None\n'
+            '        allow_client_system_prompt = not _is_hermes_hub_request(request, body)',
+            '        system_prompt = _hermes_hub_project_system_prompt(body) if _is_hermes_hub_request(request, body) else None\n'
+            '        allow_client_system_prompt = not _is_hermes_hub_request(request, body)',
             1,
         )
-        changes.append("responses ignore hermes hub instructions")
+
+    project_response_prompt = 'instructions = _hermes_hub_project_system_prompt(body) if _is_hermes_hub_request(request, body) else body.get("instructions")'
+    if project_response_prompt not in text:
+        text = text.replace(
+            'instructions = None if _is_hermes_hub_request(request, body) else body.get("instructions")',
+            project_response_prompt,
+            1,
+        )
+        text = text.replace(
+            'instructions = body.get("instructions")',
+            project_response_prompt,
+            1,
+        )
+        changes.append("responses allow bounded hermes hub project prompt")
 
     if '"native_protocol": {' not in text:
         native_protocol_block = (
@@ -5125,7 +5170,7 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
 
     if (
         'def _on_tool_progress(event_type, name, preview, args, **kwargs):\n                """Forward real llama.cpp processing/timing events to Chat Completions SSE."""' not in text
-        and '"""Pass through Hermes-native tool/progress metadata."""' not in text
+        and '"""Pass through Hermes-native tool/progress metadata' not in text
     ):
         text, _ = _replace_once(
             text,
@@ -5161,20 +5206,23 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         )
         changes.append("chat completions processing progress callback")
 
-    progress_passthrough = '"""Pass through Hermes-native tool/progress metadata."""'
+    progress_passthrough = '"""Pass through Hermes-native tool/progress metadata including reasoning."""'
     if progress_passthrough not in text:
         text, count = re.subn(
             r'(?m)^            def _on_tool_progress\(event_type, name, preview, args, \*\*kwargs\):\n'
             r'(?:^ {16,}.*\n|^[ \t]*\n)*',
             '            def _on_tool_progress(event_type, name, preview, args, **kwargs):\n'
-            '                """Pass through Hermes-native tool/progress metadata."""\n'
-            '                if str(name).startswith("_"):\n'
+            '                """Pass through Hermes-native tool/progress metadata including reasoning."""\n'
+            '                event_name = str(event_type or "hermes.tool.progress")\n'
+            '                is_reasoning = "reasoning" in event_name.lower()\n'
+            '                if str(name).startswith("_") and not is_reasoning:\n'
             "                    return\n"
             "                payload = {\n"
-            '                    "type": str(event_type or "hermes.tool.progress"),\n'
-            '                    "event": str(event_type or "hermes.tool.progress"),\n'
+            '                    "type": "hermes.reasoning.available" if is_reasoning else event_name,\n'
+            '                    "event": "reasoning.available" if is_reasoning else event_name,\n'
             '                    "tool": name,\n'
             '                    "label": preview,\n'
+            '                    "reasoning": (preview or "") if is_reasoning else None,\n'
             '                    "arguments": args or {},\n'
             "                }\n"
             "                payload.update(kwargs or {})\n"
@@ -5185,6 +5233,38 @@ def _hermes_hub_transcode_mp4(source: "Path") -> "Path":
         if count != 1:
             raise RuntimeError("Patch anchor not found: responses tool_progress callback")
         changes.append("responses tool_progress raw passthrough")
+
+    responses_reasoning_passthrough = '"""Forward Responses progress metadata and reasoning."""'
+    if responses_reasoning_passthrough not in text:
+        text, _ = _replace_once(
+            text,
+            '            def _on_tool_progress(event_type, name, preview, args, **kwargs):\n'
+            '                """Queue non-start tool progress events if needed in future.\n'
+            '\n'
+            '                The structured Responses stream uses ``tool_start_callback``\n'
+            '                and ``tool_complete_callback`` for exact call-id correlation,\n'
+            '                so progress events are currently ignored here.\n'
+            '                """\n'
+            '                return\n',
+            '            def _on_tool_progress(event_type, name, preview, args, **kwargs):\n'
+            '                """Forward Responses progress metadata and reasoning."""\n'
+            '                event_name = str(event_type or "hermes.tool.progress")\n'
+            '                is_reasoning = "reasoning" in event_name.lower()\n'
+            '                if str(name).startswith("_") and not is_reasoning:\n'
+            '                    return\n'
+            '                payload = {\n'
+            '                    "type": "hermes.reasoning.available" if is_reasoning else event_name,\n'
+            '                    "event": "reasoning.available" if is_reasoning else event_name,\n'
+            '                    "tool": name,\n'
+            '                    "label": preview,\n'
+            '                    "reasoning": (preview or "") if is_reasoning else None,\n'
+            '                    "arguments": args or {},\n'
+            '                }\n'
+            '                payload.update(kwargs or {})\n'
+            '                _stream_q.put(("__hermes_raw_event__", payload))\n',
+            "responses reasoning passthrough callback",
+        )
+        changes.append("responses reasoning passthrough callback")
 
     if '"event": "tool.started",' not in text:
         text, _ = _replace_once(

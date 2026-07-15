@@ -56,6 +56,75 @@ public static class ChatStreamClient
         Timeout = TimeSpan.FromMinutes(60)
     };
 
+    public static async Task<string> GenerateConversationTitleAsync(
+        AppSettings settings,
+        string firstPrompt,
+        string firstAnswer,
+        CancellationToken cancellationToken = default)
+    {
+        var fallback = NormalizeConversationTitle(firstAnswer, "Conversazione Hermes");
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            var payload = JsonSerializer.Serialize(new
+            {
+                model = settings.Model,
+                input = $"""
+                    Genera un titolo breve per questa conversazione.
+                    Argomento iniziale dell'utente:
+                    {firstPrompt}
+
+                    Prima risposta di Hermes:
+                    {firstAnswer}
+
+                    Rispondi solo con il titolo, massimo 7 parole. Niente virgolette, prefissi o punteggiatura finale.
+                    """,
+                instructions = "Crea esclusivamente un titolo descrittivo dell'argomento della chat. Non rispondere alla domanda originale.",
+                store = false,
+                stream = false
+            });
+            var response = await SendJsonAsync(
+                HttpMethod.Post,
+                $"{settings.GatewayUrl.TrimEnd('/')}/responses",
+                payload,
+                allowCompatAuth: true,
+                timeout.Token);
+            if (response.StatusCode is < 200 or > 299)
+            {
+                return fallback;
+            }
+
+            using var document = JsonDocument.Parse(response.Body);
+            return NormalizeConversationTitle(ExtractText(document.RootElement), fallback);
+        }
+        catch (OperationCanceledException)
+        {
+            return fallback;
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"[ChatStream] Titolo automatico non disponibile: {ex.Message}");
+            return fallback;
+        }
+    }
+
+    internal static string NormalizeConversationTitle(string? value, string fallback)
+    {
+        var firstLine = (value ?? string.Empty)
+            .ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? string.Empty;
+        firstLine = Regex.Replace(firstLine, @"^\s*(?:titolo|title)\s*:\s*", string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            .Trim(' ', '\t', '"', '\'', '`', '#', '*', '.', ':', ';', '-', '–', '—');
+        if (string.IsNullOrWhiteSpace(firstLine))
+        {
+            firstLine = fallback;
+        }
+        firstLine = Regex.Replace(firstLine, @"\s+", " ").Trim();
+        return firstLine.Length <= 70 ? firstLine : firstLine[..70].TrimEnd() + "…";
+    }
+
     public static async IAsyncEnumerable<ChatStreamEvent> StreamChatAsync(
         AppSettings settings,
         string mode,

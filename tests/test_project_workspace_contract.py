@@ -43,6 +43,56 @@ class ProjectWorkspaceContractTests(unittest.TestCase):
         self.assertIn("projectContextInstructions(settings)", android_stream)
         self.assertIn("projectId = settings.activeProjectId", android_main)
 
+    def test_project_editor_only_exposes_name_and_optional_system_prompt(self):
+        windows_xaml = self.read("src/NemoclawChat.Windows/Pages/ProjectsPage.xaml")
+        android = self.read("src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt")
+        android_editor = android[android.index("private fun ProjectsScreen("):android.index("private fun AppSettings.withActiveProject")]
+
+        self.assertIn('x:Name="TitleBox"', windows_xaml)
+        self.assertIn('x:Name="SystemPromptBox"', windows_xaml)
+        for removed in ("DescriptionBox", "WorkspacePathBox", "RepositoryUrlBox", "MemoryBox", "ToolsBox"):
+            self.assertNotIn(removed, windows_xaml)
+
+        self.assertIn('SettingsField("Nome progetto"', android_editor)
+        self.assertIn('SettingsField("System prompt (facoltativo)"', android_editor)
+        for removed in ("SettingsField(\"Descrizione\"", "SettingsField(\"Repository\"", "SettingsField(\"Memoria progetto\"", "Tool autorizzati, uno per riga"):
+            self.assertNotIn(removed, android_editor)
+
+    def test_project_prompt_is_the_only_user_authored_context(self):
+        windows_protocol = self.read("src/NemoclawChat.Windows/Services/HermesHubProtocol.cs")
+        android = self.read("src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt")
+        gateway_patch = self.read("scripts/patch-hermes-gateway-native.py")
+        self.assertIn("system_prompt = project.ProjectInstructions", windows_protocol)
+        self.assertIn('.put("system_prompt", settings.activeProjectInstructions)', android)
+        self.assertIn("Applica automaticamente il system prompt", windows_protocol)
+        self.assertIn("Applica automaticamente il system prompt", android)
+        self.assertIn("def _hermes_hub_project_system_prompt", gateway_patch)
+        self.assertIn('project.get("system_prompt")', gateway_patch)
+        self.assertIn("prompt[:20000]", gateway_patch)
+
+    def test_quick_actions_send_instead_of_only_filling_composer(self):
+        windows = self.read("src/NemoclawChat.Windows/Pages/HomePage.xaml.cs")
+        android = self.read("src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt")
+        for handler in ("PromptSetup_Click", "PromptHealth_Click", "PromptAgent_Click"):
+            start = windows.index(f"void {handler}")
+            body = windows[start:windows.index("\n    }", start)]
+            self.assertIn("await SendCurrentPromptAsync();", body)
+        self.assertIn("LaunchedEffect(quickPrompt)", android)
+        self.assertIn("onValueChange(prompt)\n        onSend()", android)
+
+    def test_chat_title_is_generated_once_by_hermes_after_first_answer(self):
+        windows_stream = self.read("src/NemoclawChat.Windows/Services/ChatStream.cs")
+        windows_store = self.read("src/NemoclawChat.Windows/Services/ChatArchiveStore.cs")
+        android = self.read("src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt")
+        self.assertIn("GenerateConversationTitleAsync", windows_stream)
+        self.assertIn("store = false", windows_stream)
+        self.assertIn('Title = "Nuova chat"', windows_store)
+        self.assertNotIn("Title = MakeTitle(prompt)", windows_store)
+        self.assertIn("generateConversationTitle(", android)
+        self.assertIn('.put("store", false)', android)
+        self.assertIn("title = UNTITLED_CHAT_TITLE", android)
+        self.assertIn("initialConversation.title == UNTITLED_CHAT_TITLE", android)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,9 +23,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.items
@@ -40,7 +37,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.Composable
@@ -148,7 +144,68 @@ private object VoiceTurnController {
     fun interrupt() { job?.cancel(); job = null; runCatching { player?.stop() }; player?.release(); player = null }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+internal val SupportedVoiceNames = listOf("if_sara", "im_nicola")
+
+internal data class VoiceProfile(
+    val voice: String = "if_sara",
+    val speed: Float = 1.08f,
+    val wakeWord: Boolean = false,
+    val pushToTalk: Boolean = false,
+    val showTranscript: Boolean = false,
+    val bluetooth: Boolean = false
+)
+
+internal fun loadVoiceProfile(context: Context, projectId: String): VoiceProfile {
+    val preferences = context.getSharedPreferences("voice_profiles", Context.MODE_PRIVATE)
+    val keySuffix = projectId.ifBlank { "general" }
+    val storedVoice = preferences.getString("voice:$keySuffix", "if_sara").orEmpty()
+    val safeVoice = storedVoice.takeIf { it in SupportedVoiceNames } ?: "if_sara"
+    if (safeVoice != storedVoice) preferences.edit { putString("voice:$keySuffix", safeVoice) }
+    return VoiceProfile(
+        voice = safeVoice,
+        speed = preferences.getFloat("speed:$keySuffix", 1.08f).coerceIn(0.75f, 1.35f),
+        wakeWord = preferences.getBoolean("wake:$keySuffix", false),
+        pushToTalk = preferences.getBoolean("ptt:$keySuffix", false),
+        showTranscript = preferences.getBoolean("transcript:$keySuffix", false),
+        bluetooth = preferences.getBoolean("bluetooth:$keySuffix", false)
+    )
+}
+
+internal fun saveVoiceProfile(context: Context, projectId: String, profile: VoiceProfile) {
+    val keySuffix = projectId.ifBlank { "general" }
+    val safeVoice = profile.voice.takeIf { it in SupportedVoiceNames } ?: "if_sara"
+    context.getSharedPreferences("voice_profiles", Context.MODE_PRIVATE).edit {
+        putString("voice:$keySuffix", safeVoice)
+        putFloat("speed:$keySuffix", profile.speed.coerceIn(0.75f, 1.35f))
+        putBoolean("wake:$keySuffix", profile.wakeWord)
+        putBoolean("ptt:$keySuffix", profile.pushToTalk)
+        putBoolean("transcript:$keySuffix", profile.showTranscript)
+        putBoolean("bluetooth:$keySuffix", profile.bluetooth)
+    }
+}
+
+internal suspend fun previewVoiceProfile(
+    context: Context,
+    settings: AppSettings,
+    apiKey: String?,
+    voice: String,
+    speed: Float
+) {
+    val file = synthesizeVoiceFile(
+        context,
+        settings,
+        apiKey,
+        "Ciao Matteo, questa e la mia voce.",
+        voice.takeIf { it in SupportedVoiceNames } ?: "if_sara",
+        speed.coerceIn(0.75f, 1.35f).toDouble()
+    )
+    try {
+        playVoiceFile(file) {}
+    } finally {
+        file.delete()
+    }
+}
+
 @Composable
 internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
     val context = LocalContext.current
@@ -161,12 +218,9 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
     var callJob by remember { mutableStateOf<Job?>(null) }
     var startRequested by remember { mutableStateOf(false) }
     val waitingTone = remember(context) { WaitingTonePlayer(context.applicationContext) }
-    val voicePrefs = remember { context.getSharedPreferences("voice_profiles", Context.MODE_PRIVATE) }
-    var voice by remember { mutableStateOf(voicePrefs.getString("voice:${settings.activeProjectId}", "if_sara") ?: "if_sara") }
-    var speed by remember { mutableFloatStateOf(voicePrefs.getFloat("speed:${settings.activeProjectId}", 1.08f)) }
-    var wakeWord by remember { mutableStateOf(voicePrefs.getBoolean("wake:${settings.activeProjectId}", false)) }
-    var transcriptVisible by remember { mutableStateOf(false) }
-    var bluetooth by remember { mutableStateOf(false) }
+    val voiceProfile = remember(settings.activeProjectId) {
+        loadVoiceProfile(context, settings.activeProjectId)
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -183,6 +237,7 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
         callActive = true
         phase = VoiceCallPhase.Connecting
         status = "Connessione a Hermes..."
+        if (voiceProfile.bluetooth) routeVoiceBluetooth(context, true)
         callJob = scope.launch {
             try {
                 verifyVoiceGateway(settings, apiKey)
@@ -200,9 +255,9 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
                     isCallActive = { callActive },
                     setPhase = { phase = it },
                     setStatus = { status = it },
-                    wakeWordEnabled = { wakeWord },
-                    voice = { voice },
-                    speed = { speed.toDouble() }
+                    wakeWordEnabled = { voiceProfile.wakeWord },
+                    voice = { voiceProfile.voice },
+                    speed = { voiceProfile.speed.toDouble() }
                 )
             } catch (_: CancellationException) {
             } catch (ex: Exception) {
@@ -229,6 +284,7 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
             callJob?.cancel()
             VoiceTurnController.interrupt()
             stopVoiceForegroundService(context)
+            if (voiceProfile.bluetooth) routeVoiceBluetooth(context, false)
             waitingTone.release()
         }
     }
@@ -254,22 +310,23 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Button(onClick = { VoiceTurnController.interrupt(); phase = VoiceCallPhase.Listening; status = "Hermes interrotto. Ti ascolto." }, enabled = callActive) { Text("Interrompi") }
-                Button(onClick = { VoiceTurnController.interrupt(); status = "Premi e parla: ascolto attivo." }, enabled = callActive) { Text("PTT") }
-                Button(onClick = { transcriptVisible = !transcriptVisible }) { Text("Trascrizione") }
-                Button(onClick = { bluetooth = !bluetooth; routeVoiceBluetooth(context, bluetooth); status = if (bluetooth) "Audio Bluetooth attivo." else "Audio dispositivo attivo." }) { Text(if (bluetooth) "Bluetooth ON" else "Bluetooth") }
-            }
             Button(
                 onClick = {
                     if (callActive) {
-                        callActive = false
-                        VoiceTurnController.interrupt()
-                        callJob?.cancel()
-                        callJob = null
-                        stopVoiceForegroundService(context)
-                        phase = VoiceCallPhase.Idle
-                        scope.launch { status = saveVoiceCall(context, settings, apiKey, history) }
+                        if (voiceProfile.pushToTalk && (phase == VoiceCallPhase.Thinking || phase == VoiceCallPhase.Speaking)) {
+                            VoiceTurnController.interrupt()
+                            phase = VoiceCallPhase.Listening
+                            status = "Hermes interrotto. Ti ascolto."
+                        } else {
+                            callActive = false
+                            VoiceTurnController.interrupt()
+                            callJob?.cancel()
+                            callJob = null
+                            stopVoiceForegroundService(context)
+                            if (voiceProfile.bluetooth) routeVoiceBluetooth(context, false)
+                            phase = VoiceCallPhase.Idle
+                            scope.launch { status = saveVoiceCall(context, settings, apiKey, history) }
+                        }
                     } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         startRequested = true
                     } else {
@@ -298,15 +355,9 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                listOf("if_sara", "im_nicola", "if_alba").forEach { candidate -> Button(onClick = { voice = candidate }, colors = ButtonDefaults.buttonColors(containerColor = if (voice == candidate) Color(0xFFFF6F12) else Color(0x55333333))) { Text(candidate) } }
-                Button(onClick = { scope.launch { val file = synthesizeVoiceFile(context, settings, apiKey, "Ciao Matteo, questa è la mia voce.", voice, speed.toDouble()); try { playVoiceFile(file) {} } finally { file.delete() } } }) { Text("Anteprima") }
-                Button(onClick = { voicePrefs.edit { putString("voice:${settings.activeProjectId}", voice); putFloat("speed:${settings.activeProjectId}", speed); putBoolean("wake:${settings.activeProjectId}", wakeWord) }; status = "Profilo voce progetto salvato." }) { Text("Salva profilo") }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) { Switch(wakeWord, { wakeWord = it }); Text("Wake word Hermes", color = Color.White) }
         }
 
-        if (transcriptVisible) {
+        if (voiceProfile.showTranscript) {
             Card(modifier = Modifier.align(Alignment.TopStart).padding(18.dp).fillMaxWidth(0.72f).heightIn(max = 420.dp), colors = CardDefaults.cardColors(containerColor = Color(0xDD151515))) {
                 androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { items(history.size) { index -> val message = history[index]; Text("${message.author}\n${message.text}", color = Color.White) } }
             }
@@ -672,7 +723,7 @@ private suspend fun synthesizeVoiceFile(
 ): File = withContext(Dispatchers.IO) {
     val payload = JSONObject()
         .put("input", text.trim())
-        .put("voice", voice.ifBlank { "if_sara" })
+        .put("voice", voice.takeIf { it in SupportedVoiceNames } ?: "if_sara")
         .put("lang", "it")
         .put("speed", speed.coerceIn(0.75, 1.35))
         .put("response_format", "wav")

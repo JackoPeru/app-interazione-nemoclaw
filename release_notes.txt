@@ -1,13 +1,16 @@
-Hermes Hub 0.6.159 (TTS italiano/inglese misto)
+Hermes Hub 0.6.161 (Voce, chat e Progetti semplificati)
 
-- TTS gateway: le frasi italiane mantengono la voce italiana; termini inglesi riconosciuti sono sintetizzati come segmenti `en-us`.
-- Affidabilita: micro-pause WAV tra cambi lingua, timeout e fallback CPU esistenti preservati; se la voce inglese non e disponibile la risposta resta riproducibile in italiano.
-- Patcher Linux: aggiornamento idempotente e copertura automatica per segmentazione, fallback e coerenza della release.
-- Repository: migrazione completata in `JackoPeru/HermesHub`; riferimenti GitHub API/Releases e updater Windows, Android e Linux aggiornati.
-- Continuita': redirect del vecchio slug verificato; override Linux `HERMES_HUB_REPO`, nomi systemd e percorsi dati storici preservati.
-- Compatibilita': `applicationId com.nemoclaw.chat`, firma Android, package identity Windows, archivio e impostazioni storiche preservati.
-- Versioni: Windows/AdminBridge `0.6.159`; Android `versionName 0.6.159`, `versionCode 163`.
-- Asset: `HermesHub-0.6.159-android.apk`, `NemoclawChat.Windows_0.6.159.0_x64.msix`, `HermesHub-0.6.159-linux-gateway.tar.gz`.
-- SHA-256 Android: `28193E4C720A7CFA609FF4D1242893CFB452CF399FC3A61C2DA63FD12DE71454`.
-- SHA-256 Windows: `387201F4EBD4AB8B20F3B45315F8E9773FD36FEF2971AAF68B476D4D70C9B674`.
-- SHA-256 gateway Linux: `B081BACE3A1B30B3696AD550D1EFC4BAF88654F9066C7D2315C14E0A71267E37`.
+- Voce: schermata chiamata pulita su Windows e Android; profilo, velocita, wake word, PTT, trascrizione e Bluetooth spostati nelle Impostazioni.
+- Kokoro: disponibili solo `if_sara` e `im_nicola`; preferenze vecchie o non supportate vengono sanificate senza crash.
+- Chat Android: eliminata la tripla risposta causata dalla concatenazione di delta e snapshot terminali; risposta finale unica.
+- Ragionamento: reasoning separato dalla risposta, persistente e apribile nella tendina dedicata; gateway pronto a inoltrare gli eventi reasoning.
+- Progetti: interfaccia ridotta a nome e system prompt facoltativo; selezione, attivazione e associazione chat automatiche.
+- Titoli chat: Hermes genera una sola volta il titolo in base all'argomento dopo la prima risposta; nessuna copia automatica del primo prompt.
+- Azioni rapide: `Prepara setup Hermes`, `Controlla server` e `Crea ordine agente` ora inviano immediatamente la richiesta.
+- Gateway: accetta solo il system prompt progetto dedicato da metadata, con limite 20.000 caratteri; i system prompt generici del client restano filtrati.
+- Compatibilita: `applicationId com.nemoclaw.chat`, firma Android, package identity Windows, archivio e impostazioni esistenti preservati.
+- Versioni: Windows/AdminBridge `0.6.161`; Android `versionName 0.6.161`, `versionCode 165`.
+- Asset: `HermesHub-0.6.161-android.apk`, `NemoclawChat.Windows_0.6.161.0_x64.msix`, `HermesHub-0.6.161-linux-gateway.tar.gz`.
+- SHA-256 Android: `B217EEB177751CA0102EB69BBFD79EA96A213D649A262B2A9BC10E56F29D1C7A`.
+- SHA-256 Windows: `D5A937586BED9F36D6C2FE3973F352B0CF439E93BC8722ACC019821BF1B6F9D0`.
+- SHA-256 gateway Linux: `F70F4822E58A27E482D9500B07DD049328388AC42A52288FD1AB14D28FFA5991`.

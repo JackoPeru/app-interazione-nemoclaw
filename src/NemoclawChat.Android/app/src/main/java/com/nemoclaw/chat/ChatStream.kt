@@ -200,6 +200,18 @@ data class StreamingState(
             promptProgressTimeMs = null,
             status = "Hermes sta ragionando..."
         ).withActivity(if (!hasThinking) "Reasoning ricevuto." else null)
+        is ChatStreamEvent.ThinkingSnapshot -> copy(
+            thinking = mergeTextSnapshot(thinking, event.text),
+            hasThinking = true,
+            thinkingFrozen = false,
+            promptProgressPercent = null,
+            promptProgressEstimated = false,
+            promptProgressProcessedTokens = null,
+            promptProgressTotalTokens = null,
+            promptProgressCachedTokens = null,
+            promptProgressTimeMs = null,
+            status = "Hermes sta ragionando..."
+        ).withActivity(if (!hasThinking) "Reasoning ricevuto." else null)
         is ChatStreamEvent.ToolCallStart -> copy(
             status = "Tool in esecuzione: ${event.name}",
             toolCalls = if (toolCalls.any { it.id == event.id }) toolCalls
@@ -308,7 +320,7 @@ internal fun mergeTextSnapshot(current: String, snapshot: String): String {
     if (snapshot.isEmpty()) return current
     if (current.isEmpty() || snapshot.startsWith(current)) return snapshot
     if (current.startsWith(snapshot) || current == snapshot) return current
-    return current + snapshot
+    return snapshot
 }
 
 private fun inferToolPendingStatus(tool: ToolCallState): Boolean {
@@ -320,6 +332,7 @@ sealed class ChatStreamEvent {
     data class TextDelta(val delta: String) : ChatStreamEvent()
     data class TextSnapshot(val text: String) : ChatStreamEvent()
     data class ThinkingDelta(val delta: String) : ChatStreamEvent()
+    data class ThinkingSnapshot(val text: String) : ChatStreamEvent()
     data class ToolCallStart(val id: String, val name: String) : ChatStreamEvent()
     data class ToolCallArgs(val id: String, val delta: String) : ChatStreamEvent()
     data class ToolCallEnd(val id: String) : ChatStreamEvent()
@@ -468,6 +481,18 @@ fun streamChatRequest(
                 ) {
                     flushDeltaBatches()
                 }
+                return false
+            }
+            is ChatStreamEvent.ThinkingSnapshot -> {
+                if (!sawActivity) {
+                    ttftMs = (System.nanoTime() - start) / 1_000_000.0
+                }
+                sawActivity = true
+                flushDeltaBatches()
+                val merged = mergeTextSnapshot(accumThink.toString(), ev.text)
+                accumThink.clear()
+                accumThink.appendBounded(merged)
+                emit(ev)
                 return false
             }
             is ChatStreamEvent.Usage -> {
@@ -1282,7 +1307,7 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
         }
         t.contains("reasoning.available") -> {
             val reasoning = obj.optString("reasoning", obj.optString("summary", obj.optString("text", obj.optString("preview", ""))))
-            if (reasoning.isNotEmpty()) out += ChatStreamEvent.ThinkingDelta(reasoning)
+            if (reasoning.isNotEmpty()) out += ChatStreamEvent.ThinkingSnapshot(reasoning)
             return out
         }
         t.contains("output_text") && t.contains("delta") -> {
@@ -1339,7 +1364,7 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
                 val itemType = item.optString("type", "")
                 if (itemType.contains("reasoning", ignoreCase = true)) {
                     val reasoning = extractReasoningText(item)
-                    if (reasoning.isNotEmpty()) out += ChatStreamEvent.ThinkingDelta(reasoning)
+                    if (reasoning.isNotEmpty()) out += ChatStreamEvent.ThinkingSnapshot(reasoning)
                 } else if (itemType.contains("message", ignoreCase = true)) {
                     extractTextFromAnyJson(item).takeIf { it.isNotEmpty() }?.let {
                         out += ChatStreamEvent.TextSnapshot(it)
@@ -1395,7 +1420,7 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
                 }
                 val reasoning = extractReasoningText(resp)
                 if (reasoning.isNotEmpty()) {
-                    out += ChatStreamEvent.ThinkingDelta(reasoning)
+                    out += ChatStreamEvent.ThinkingSnapshot(reasoning)
                 }
             }
             return out
@@ -1692,7 +1717,7 @@ private fun parseFullBody(body: String): List<ChatStreamEvent> {
     if (text.isNotEmpty()) out += ChatStreamEvent.TextDelta(text)
     try {
         val reasoning = extractReasoningText(JSONObject(body))
-        if (reasoning.isNotEmpty()) out += ChatStreamEvent.ThinkingDelta(reasoning)
+        if (reasoning.isNotEmpty()) out += ChatStreamEvent.ThinkingSnapshot(reasoning)
     } catch (_: Exception) {
         // Body may be plain text.
     }

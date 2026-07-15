@@ -68,17 +68,41 @@ class OperationalHubContractTests(unittest.TestCase):
             with self.subTest(tab=tab):
                 self.assertIn(tab, main)
 
-    def test_voice_call_controls_are_available_on_both_clients(self):
-        windows = self.read("src/NemoclawChat.Windows/Pages/VoicePage.xaml")
-        android = self.read(
+    def test_voice_controls_live_in_settings_and_only_supported_voices_are_exposed(self):
+        windows_voice = self.read("src/NemoclawChat.Windows/Pages/VoicePage.xaml")
+        windows_settings = self.read("src/NemoclawChat.Windows/Pages/SettingsPage.xaml")
+        android_voice = self.read(
             "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/VoiceModeScreen.kt"
         )
-        for label in ("Interrompi", "Premi per parlare", "Trascrizione", "Wake word"):
-            with self.subTest(client="windows", label=label):
-                self.assertIn(label, windows)
-        for label in ("Interrompi", "PTT", "Trascrizione", "Wake word"):
-            with self.subTest(client="android", label=label):
-                self.assertIn(label, android)
+        android_settings = self.read(
+            "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt"
+        )
+        for label in ("if_sara", "im_nicola", "Push-to-talk", "Trascrizione"):
+            with self.subTest(client="windows-settings", label=label):
+                self.assertIn(label, windows_settings)
+        for label in ("SupportedVoiceNames", "Push-to-talk", "Mostra trascrizione"):
+            with self.subTest(client="android-settings", label=label):
+                self.assertIn(label, android_settings)
+        for source in (windows_voice, android_voice):
+            self.assertNotIn("if_alba", source)
+            self.assertNotIn("Salva profilo", source)
+            self.assertNotIn("Anteprima", source)
+        self.assertEqual(android_voice.count('listOf("if_sara", "im_nicola")'), 1)
+
+    def test_reasoning_is_persistent_and_collapsible_on_both_clients(self):
+        windows = self.read("src/NemoclawChat.Windows/Pages/StreamingBubble.cs")
+        android_ui = self.read(
+            "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/ChatStreamUi.kt"
+        )
+        android_stream = self.read(
+            "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/ChatStream.kt"
+        )
+        gateway = self.read("scripts/patch-hermes-gateway-native.py")
+        self.assertIn('Text = "Ragionamento"', windows)
+        self.assertIn("_thinkingExpander.Visibility = Visibility.Visible", windows)
+        self.assertIn("ThinkingExpander(", android_ui)
+        self.assertIn("ThinkingSnapshot", android_stream)
+        self.assertIn("hermes.reasoning.available", gateway)
 
 
 if __name__ == "__main__":

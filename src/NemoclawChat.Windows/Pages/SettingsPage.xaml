@@ -42,7 +42,23 @@
                     <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Chat / Agente" />
                     <TextBox x:Name="ModelBox" Header="Modello / agente" />
                     <ToggleSwitch x:Name="ShowToolCallsSwitch" Header="Tool call in chat" OffContent="Nascondi pannello tool" OnContent="Mostra pannello tool compatto" />
-                    <ToggleSwitch x:Name="AdvancedChatDetailsSwitch" Header="Dettagli tecnici chat" OffContent="Nascondi eventi raw/reasoning" OnContent="Mostra eventi raw e reasoning" />
+                    <ToggleSwitch x:Name="AdvancedChatDetailsSwitch" Header="Dettagli tecnici chat" OffContent="Nascondi eventi raw" OnContent="Mostra eventi raw" />
+                </StackPanel>
+            </Border>
+
+            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Voce" />
+                    <TextBlock x:Name="VoiceProjectText" Foreground="{StaticResource MutedTextBrush}" Text="Profilo voce generale" />
+                    <ComboBox x:Name="VoiceNameBox" Header="Voce Kokoro" SelectedIndex="0">
+                        <ComboBoxItem Content="if_sara" />
+                        <ComboBoxItem Content="im_nicola" />
+                    </ComboBox>
+                    <Slider x:Name="VoiceSpeedSlider" Header="Velocità" Minimum="0.75" Maximum="1.35" Value="1.08" StepFrequency="0.05" />
+                    <ToggleSwitch x:Name="VoiceWakeWordSwitch" Header="Parola di attivazione 'Hermes'" />
+                    <ToggleSwitch x:Name="VoicePushToTalkSwitch" Header="Push-to-talk" OffContent="Conversazione continua" OnContent="Barra spaziatrice interrompe Hermes e riapre ascolto" />
+                    <ToggleSwitch x:Name="VoiceTranscriptSwitch" Header="Trascrizione durante chiamata" OffContent="Schermata libera" OnContent="Mostra trascrizione" />
+                    <Button Click="PreviewVoice_Click" Content="Ascolta anteprima" HorizontalAlignment="Left" />
                 </StackPanel>
             </Border>
 

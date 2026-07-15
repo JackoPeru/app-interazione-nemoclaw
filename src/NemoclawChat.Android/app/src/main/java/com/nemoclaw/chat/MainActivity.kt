@@ -1468,6 +1468,7 @@ private fun ChatScreen(
     onSwitchTab: (Tab) -> Unit = {}
 ) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var quickPrompt by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(conversationId, initialPrompt) {
         if (!conversationId.isNullOrBlank()) {
@@ -1586,7 +1587,7 @@ private fun ChatScreen(
         )
         Box(modifier = Modifier.weight(1f)) {
             if (isEmptyChat) {
-                EmptyState(onPrompt = { state.draft = it })
+                EmptyState(onPrompt = { quickPrompt = it })
             }
 
             LazyColumn(
@@ -1736,6 +1737,8 @@ private fun ChatScreen(
                 }
             },
             onModeChange = { state.mode = it },
+            quickPrompt = quickPrompt,
+            onQuickPromptConsumed = { quickPrompt = null },
             onSend = {
                 var text = state.draft.trim()
                 if ((text.isNotEmpty() || state.pendingAttachments.isNotEmpty()) && !state.sending && state.activeStreamJob == null) {
@@ -1778,6 +1781,7 @@ private fun ChatScreen(
                                 syncAfterSave = false
                             )
                         }
+                        val shouldGenerateTitle = initialConversation.title == UNTITLED_CHAT_TITLE
                         val persistedStreamCid = initialConversation.id
                         if (persistedStreamCid != streamCid) {
                             state.activeStreams.remove(streamCid)?.let { state.activeStreams[persistedStreamCid] = it }
@@ -1929,6 +1933,17 @@ private fun ChatScreen(
                                 state.activeStreamJob = null
                             } else {
                                 state.activeStreams.remove(activeStreamCid)
+                            }
+                            if (shouldGenerateTitle && !interrupted && finalState.error == null && finalText.isNotBlank()) {
+                                val generatedTitle = generateConversationTitle(
+                                    settings = settings,
+                                    firstPrompt = displayText,
+                                    firstAnswer = finalText,
+                                    apiKey = loadGatewaySecret(context)
+                                )
+                                withContext(NonCancellable + Dispatchers.IO) {
+                                    renameConversation(context, saved.id, generatedTitle)
+                                }
                             }
                         }
                     }
@@ -3190,6 +3205,8 @@ private fun Composer(
     onRemoveAttachment: (ChatInputAttachment) -> Unit,
     onAction: (String, String, String) -> Unit,
     onModeChange: (String) -> Unit,
+    quickPrompt: String?,
+    onQuickPromptConsumed: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
     isBusy: Boolean,
@@ -3197,6 +3214,13 @@ private fun Composer(
     onToggleVoiceNote: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(quickPrompt) {
+        val prompt = quickPrompt ?: return@LaunchedEffect
+        onValueChange(prompt)
+        onSend()
+        onQuickPromptConsumed()
+    }
 
     fun queueAction(title: String, detail: String, prompt: String) {
         onAction(title, detail, prompt)
@@ -3507,7 +3531,7 @@ private fun ProjectsScreen(
     settings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit,
     onNewChat: () -> Unit,
-    onOpenConversation: (String) -> Unit
+    @Suppress("UNUSED_PARAMETER") onOpenConversation: (String) -> Unit
 ) {
     var refreshKey by remember { mutableIntStateOf(0) }
     val projects = remember(refreshKey) {
@@ -3516,31 +3540,17 @@ private fun ProjectsScreen(
     var selectedId by rememberSaveable { mutableStateOf(settings.activeProjectId.takeIf { id -> projects.any { it.id == id } } ?: projects.firstOrNull()?.id.orEmpty()) }
     val selected = projects.firstOrNull { it.id == selectedId }
     var title by rememberSaveable { mutableStateOf(selected?.title.orEmpty()) }
-    var description by rememberSaveable { mutableStateOf(selected?.description.orEmpty()) }
-    var workspacePath by rememberSaveable { mutableStateOf(selected?.workspacePath.orEmpty()) }
-    var repositoryUrl by rememberSaveable { mutableStateOf(selected?.repositoryUrl.orEmpty()) }
     var instructions by rememberSaveable { mutableStateOf(selected?.projectInstructions.orEmpty()) }
-    var memory by rememberSaveable { mutableStateOf(selected?.projectMemory.orEmpty()) }
-    var tools by rememberSaveable { mutableStateOf(selected?.authorizedTools?.joinToString("\n").orEmpty()) }
     var status by remember { mutableStateOf("Pronto.") }
 
     fun edit(project: LocalConversation?) {
         selectedId = project?.id.orEmpty()
         title = project?.title.orEmpty()
-        description = project?.description.orEmpty()
-        workspacePath = project?.workspacePath.orEmpty()
-        repositoryUrl = project?.repositoryUrl.orEmpty()
         instructions = project?.projectInstructions.orEmpty()
-        memory = project?.projectMemory.orEmpty()
-        tools = project?.authorizedTools?.joinToString("\n").orEmpty()
-    }
-
-    val conversations = remember(refreshKey, selectedId) {
-        loadConversations(context).filter { it.kind in setOf("Chat", "Task") && it.projectId == selectedId }.sortedByDescending { it.updatedAt }
-    }
-    val artifacts = remember(conversations) {
-        conversations.flatMap { conversation -> conversation.messages.flatMap { it.visualBlocks } }
-            .filter { it.type in setOf("media_file", "image_gallery", "code", "diagram", "markdown", "table", "chart") }
+        if (project != null) {
+            onSettingsChanged(settings.withActiveProject(project))
+            status = "Progetto selezionato. Contesto applicato automaticamente."
+        }
     }
 
     LazyColumn(
@@ -3550,14 +3560,14 @@ private fun ProjectsScreen(
         item {
             Text("Progetti", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(6.dp))
-            Text("Workspace operativi con chat, contesto e artifact collegati.", color = AppColors.Muted)
+            Text("Scegli un nome e, se serve, un system prompt personalizzato. Il resto e' automatico.", color = AppColors.Muted)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Workspace", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        Button(onClick = { edit(null); status = "Inserisci dati progetto." }) { Text("Nuovo") }
+                        Text("I tuoi progetti", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Button(onClick = { edit(null); status = "Inserisci nome e system prompt facoltativo." }) { Text("Nuovo") }
                     }
                     if (projects.isEmpty()) {
                         Text("Nessun progetto.", color = AppColors.Muted)
@@ -3571,102 +3581,44 @@ private fun ProjectsScreen(
                 }
             }
         }
-        if (selected != null) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    ProjectMetric("${conversations.size}", "Chat", Modifier.weight(1f))
-                    ProjectMetric("${artifacts.size}", "Artifact", Modifier.weight(1f))
-                    ProjectMetric("${conversations.sumOf { it.messages.size }}", "Attività", Modifier.weight(1f))
-                }
-            }
-        }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(if (selected == null) "Nuovo progetto" else selected.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     if (selected?.id == settings.activeProjectId) Text("PROGETTO ATTIVO", color = AppColors.Success, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    SettingsField("Nome", title, { title = it })
-                    SettingsField("Descrizione", description, { description = it })
-                    SettingsField("Cartella o workspace server", workspacePath, { workspacePath = it })
-                    SettingsField("Repository", repositoryUrl, { repositoryUrl = it })
-                    SettingsField("Istruzioni specifiche", instructions, { instructions = it })
-                    SettingsField("Memoria progetto", memory, { memory = it })
-                    SettingsField("Tool autorizzati, uno per riga", tools, { tools = it })
+                    SettingsField("Nome progetto", title, { title = it })
+                    SettingsField("System prompt (facoltativo)", instructions, { instructions = it })
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
                             runCatching {
                                 saveProjectWorkspace(
-                                    context, selectedId.ifBlank { null }, title, description, workspacePath,
-                                    repositoryUrl, instructions, memory,
-                                    tools.split(',', ';', '\n', '\r').map { it.trim() }.filter { it.isNotBlank() }
+                                    context = context,
+                                    projectId = selectedId.ifBlank { null },
+                                    title = title,
+                                    description = selected?.description.orEmpty(),
+                                    workspacePath = selected?.workspacePath.orEmpty(),
+                                    repositoryUrl = selected?.repositoryUrl.orEmpty(),
+                                    instructions = instructions,
+                                    memory = selected?.projectMemory.orEmpty(),
+                                    authorizedTools = selected?.authorizedTools.orEmpty()
                                 )
                             }.onSuccess { saved ->
                                 selectedId = saved.id
                                 refreshKey++
-                                if (settings.activeProjectId == saved.id) {
-                                    onSettingsChanged(settings.withActiveProject(saved))
-                                }
-                                status = "Progetto salvato. Sync gateway in coda."
+                                onSettingsChanged(settings.withActiveProject(saved))
+                                status = "Progetto salvato e attivato."
                             }.onFailure { status = it.message ?: "Salvataggio progetto fallito." }
                         }) { Text("Salva") }
-                        Button(enabled = selected != null, onClick = {
-                            selected?.let {
-                                onSettingsChanged(settings.withActiveProject(it))
-                                status = "Progetto attivo. Nuove chat ricevono contesto automatico."
-                            }
-                        }) { Text("Attiva") }
                         Button(enabled = selected != null, onClick = {
                             selected?.let {
                                 onSettingsChanged(settings.withActiveProject(it))
                                 onNewChat()
                             }
                         }) { Text("Nuova chat") }
-                        Button(onClick = {
-                            onSettingsChanged(settings.clearActiveProject())
-                            status = "Nessun progetto attivo."
-                        }) { Text("Disattiva") }
                     }
                     Text(status, color = AppColors.Muted, fontSize = 12.sp)
                 }
             }
-        }
-        if (selected != null) {
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Chat associate", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        if (conversations.isEmpty()) Text("Nessuna chat associata.", color = AppColors.Muted)
-                        conversations.take(12).forEach { conversation ->
-                            Text(
-                                conversation.title,
-                                color = Color.White,
-                                modifier = Modifier.fillMaxWidth().clickable { onOpenConversation(conversation.id) }.padding(vertical = 7.dp)
-                            )
-                        }
-                    }
-                }
-            }
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(20.dp)) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Artifact recenti", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        if (artifacts.isEmpty()) Text("Nessun artifact prodotto nelle chat del progetto.", color = AppColors.Muted)
-                        artifacts.take(12).forEach { artifact ->
-                            Text("${artifact.type} · ${artifact.title.ifBlank { artifact.filename.ifBlank { artifact.id } }}", color = Color.White, fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProjectMetric(value: String, label: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = AppColors.Surface), shape = RoundedCornerShape(16.dp)) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(value, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-            Text(label, color = AppColors.Muted, fontSize = 12.sp)
         }
     }
 }
@@ -6953,6 +6905,15 @@ private fun SettingsScreen(
     var maxAttachmentMb by remember(settings.maxAttachmentMb) { mutableIntStateOf(settings.maxAttachmentMb.coerceIn(1, 150)) }
     var strictNativeMode by remember(settings.strictNativeMode) { mutableStateOf(settings.strictNativeMode) }
     var demoMode by remember(settings.demoMode) { mutableStateOf(settings.demoMode) }
+    val initialVoiceProfile = remember(settings.activeProjectId) {
+        loadVoiceProfile(context, settings.activeProjectId)
+    }
+    var voiceName by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.voice) }
+    var voiceSpeed by remember(settings.activeProjectId) { mutableFloatStateOf(initialVoiceProfile.speed) }
+    var voiceWakeWord by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.wakeWord) }
+    var voicePushToTalk by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.pushToTalk) }
+    var voiceTranscript by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.showTranscript) }
+    var voiceBluetooth by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.bluetooth) }
     var status by remember { mutableStateOf("Pronto.") }
     var advancedVisible by rememberSaveable { mutableStateOf(false) }
 
@@ -7018,6 +6979,55 @@ private fun SettingsScreen(
                         SettingsField("Limite allegati file (MB, max 150)", maxAttachmentMb.toString(), { value ->
                             maxAttachmentMb = value.filter { it.isDigit() }.toIntOrNull()?.coerceIn(1, 150) ?: maxAttachmentMb
                         })
+                    }
+                }
+            }
+            item {
+                PremiumPanel {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Voce", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Profilo progetto: ${settings.activeProjectName.ifBlank { "Generale" }}",
+                            color = AppColors.Muted,
+                            fontSize = 12.sp
+                        )
+                        Text("Voce Kokoro", color = Color.White)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SupportedVoiceNames.forEach { candidate ->
+                                Button(
+                                    onClick = { voiceName = candidate },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (voiceName == candidate) AppColors.Accent else AppColors.Composer
+                                    )
+                                ) {
+                                    Text(candidate)
+                                }
+                            }
+                            Button(onClick = {
+                                status = "Genero anteprima voce..."
+                                scope.launch {
+                                    status = runCatching {
+                                        previewVoiceProfile(context, currentSettings(), apiKey, voiceName, voiceSpeed)
+                                        "Anteprima completata."
+                                    }.getOrElse { "Anteprima non disponibile: ${it.message ?: it.javaClass.simpleName}" }
+                                }
+                            }) {
+                                Text("Anteprima")
+                            }
+                        }
+                        Text("Velocita: ${String.format(java.util.Locale.ROOT, "%.2f", voiceSpeed)}x", color = Color.White)
+                        Slider(
+                            value = voiceSpeed,
+                            onValueChange = { voiceSpeed = it },
+                            valueRange = 0.75f..1.35f
+                        )
+                        MetricSwitch("Wake word Hermes", voiceWakeWord) { voiceWakeWord = it }
+                        MetricSwitch("Push-to-talk", voicePushToTalk) { voicePushToTalk = it }
+                        MetricSwitch("Mostra trascrizione", voiceTranscript) { voiceTranscript = it }
+                        MetricSwitch("Instrada su Bluetooth", voiceBluetooth) { voiceBluetooth = it }
                     }
                 }
             }
@@ -7105,8 +7115,20 @@ private fun SettingsScreen(
                             val error = validateSettings(candidate)
                             if (error == null) {
                                 saveGatewaySecret(context, apiKey)
+                                saveVoiceProfile(
+                                    context,
+                                    settings.activeProjectId,
+                                    VoiceProfile(
+                                        voice = voiceName,
+                                        speed = voiceSpeed,
+                                        wakeWord = voiceWakeWord,
+                                        pushToTalk = voicePushToTalk,
+                                        showTranscript = voiceTranscript,
+                                        bluetooth = voiceBluetooth
+                                    )
+                                )
                                 onSave(candidate)
-                                status = "Impostazioni salvate. Hermes usa API key Bearer salvata."
+                                status = "Impostazioni e profilo voce salvati."
                             } else {
                                 status = error
                             }
@@ -7158,6 +7180,14 @@ private fun SettingsScreen(
                         Button(onClick = {
                             saveGatewaySecret(context, HERMES_FALLBACK_API_KEY)
                             apiKey = HERMES_FALLBACK_API_KEY
+                            val defaults = VoiceProfile()
+                            saveVoiceProfile(context, settings.activeProjectId, defaults)
+                            voiceName = defaults.voice
+                            voiceSpeed = defaults.speed
+                            voiceWakeWord = defaults.wakeWord
+                            voicePushToTalk = defaults.pushToTalk
+                            voiceTranscript = defaults.showTranscript
+                            voiceBluetooth = defaults.bluetooth
                             onReset()
                         }) {
                             Text("Reset")
@@ -7403,19 +7433,53 @@ internal fun hermesNativeInstructions(mode: String): String {
 
 internal fun projectContextInstructions(settings: AppSettings): String {
     if (settings.activeProjectId.isBlank()) return ""
-    val tools = settings.activeProjectTools.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.joinToString(", ").ifBlank { "nessuno specificato" }
     return """
 
         Contesto progetto attivo Hermes Hub:
         - ID: ${settings.activeProjectId}
         - Nome: ${settings.activeProjectName}
-        - Workspace: ${settings.activeProjectWorkspacePath}
-        - Repository: ${settings.activeProjectRepositoryUrl}
-        - Tool autorizzati: $tools
-        - Istruzioni progetto: ${settings.activeProjectInstructions}
-        - Memoria progetto: ${settings.activeProjectMemory}
-        Usa automaticamente questo contesto. Se lista tool non vuota, chiedi approvazione prima di usarne altri.
+        - System prompt personalizzato: ${settings.activeProjectInstructions}
+        Applica automaticamente il system prompt a tutte le chat del progetto.
     """.trimIndent()
+}
+
+private suspend fun generateConversationTitle(
+    settings: AppSettings,
+    firstPrompt: String,
+    firstAnswer: String,
+    apiKey: String?
+): String {
+    val fallback = normalizeGeneratedConversationTitle(firstAnswer, "Conversazione Hermes")
+    return kotlinx.coroutines.withTimeoutOrNull(20_000L) {
+        runCatching {
+            val payload = JSONObject()
+                .put("model", settings.model)
+                .put(
+                    "input",
+                    """
+                        Genera un titolo breve per questa conversazione.
+                        Argomento iniziale dell'utente:
+                        $firstPrompt
+
+                        Prima risposta di Hermes:
+                        $firstAnswer
+
+                        Rispondi solo con il titolo, massimo 7 parole. Niente virgolette, prefissi o punteggiatura finale.
+                    """.trimIndent()
+                )
+                .put("instructions", "Crea esclusivamente un titolo descrittivo dell'argomento della chat. Non rispondere alla domanda originale.")
+                .put("store", false)
+                .put("stream", false)
+            val response = postJson(
+                "${settings.gatewayUrl.trimEnd('/')}/responses",
+                payload,
+                apiKey,
+                allowCompatAuth = true
+            )
+            if (response.first !in 200..299) fallback
+            else normalizeGeneratedConversationTitle(extractAssistantText(response.second), fallback)
+        }.getOrDefault(fallback)
+    } ?: fallback
 }
 
 private suspend fun sendChatRequest(
@@ -7562,11 +7626,7 @@ private fun visualBlocksMetadata(settings: AppSettings, conversationId: String?)
             if (settings.activeProjectId.isBlank()) JSONObject.NULL else JSONObject()
                 .put("id", settings.activeProjectId)
                 .put("name", settings.activeProjectName)
-                .put("workspace_path", settings.activeProjectWorkspacePath)
-                .put("repository_url", settings.activeProjectRepositoryUrl)
-                .put("instructions", settings.activeProjectInstructions)
-                .put("memory", settings.activeProjectMemory)
-                .put("authorized_tools", JSONArray(settings.activeProjectTools.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()))
+                .put("system_prompt", settings.activeProjectInstructions)
         )
         .put(
             "hub_conversation",
@@ -10678,7 +10738,7 @@ private fun saveConversationExchange(
         } else {
             LocalConversation(
                 id = newConversationId,
-                title = makeTitle(prompt),
+                title = UNTITLED_CHAT_TITLE,
                 kind = if (mode == "Agente") "Task" else "Chat",
                 description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
                 prompt = prompt,
@@ -10730,7 +10790,7 @@ internal fun saveConversationSnapshot(
         } else {
             LocalConversation(
                 id = newConversationId,
-                title = makeTitle(prompt),
+                title = UNTITLED_CHAT_TITLE,
                 kind = if (mode == "Agente") "Task" else "Chat",
                 description = if (mode == "Agente") "Conversazione agente via $source." else "Conversazione chat via $source.",
                 prompt = prompt,
@@ -11386,6 +11446,21 @@ private fun makeTitle(prompt: String): String {
     return if (cleaned.length <= 46) cleaned else cleaned.take(46).trimEnd() + "..."
 }
 
+internal fun normalizeGeneratedConversationTitle(value: String?, fallback: String): String {
+    var title = value.orEmpty()
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
+        .lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.isNotBlank() }
+        .orEmpty()
+        .replace(Regex("^\\s*(?:titolo|title)\\s*:\\s*", RegexOption.IGNORE_CASE), "")
+        .trim(' ', '\t', '"', '\'', '`', '#', '*', '.', ':', ';', '-', '–', '—')
+    if (title.isBlank()) title = fallback
+    title = title.replace(MULTI_WHITESPACE_REGEX, " ").trim()
+    return if (title.length <= 70) title else title.take(70).trimEnd() + "…"
+}
+
 internal const val VISUAL_BLOCKS_VERSION = 1
 private const val VISUAL_BLOCKS_MAX_BLOCKS = 20
 private const val VISUAL_BLOCKS_MAX_PAYLOAD_BYTES = 500 * 1024
@@ -11566,6 +11641,7 @@ private const val SHOW_RAW_HERMES_EVENTS_IN_CHAT = false
 private const val CHAT_HISTORY_MAX_MESSAGES = 30
 private const val STREAMING_CHECKPOINT_INTERVAL_MS = 5000L
 private const val STREAMING_CHECKPOINT_MAX_CHARS = 50_000
+private const val UNTITLED_CHAT_TITLE = "Nuova chat"
 private const val DELETED_CONVERSATION_RETENTION_MS = 30L * 24L * 60L * 60L * 1000L
 private const val DEFAULT_CONTEXT_WINDOW_TOKENS = 90000
 private const val CONTEXT_SYSTEM_OVERHEAD_TOKENS = 900

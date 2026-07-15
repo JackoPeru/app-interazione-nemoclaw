@@ -13,10 +13,11 @@ class ChatStreamProtocolTest {
     }
 
     @Test
-    fun finalSnapshotReplacesOnlyItsKnownPrefix() {
+    fun finalSnapshotIsAuthoritativeWithoutConcatenatingDivergentFormatting() {
         assertEquals("hello world", mergeTextSnapshot("hello", "hello world"))
         assertEquals("hello world", mergeTextSnapshot("hello world", "hello"))
-        assertEquals("abcxyz", mergeTextSnapshot("abc", "xyz"))
+        assertEquals("xyz", mergeTextSnapshot("abc", "xyz"))
+        assertEquals("\n\nFinale Markdown", mergeTextSnapshot("Finale Markdown", "\n\nFinale Markdown"))
     }
 
     @Test
@@ -34,6 +35,17 @@ class ChatStreamProtocolTest {
             "{\"type\":\"response.output_text.done\",\"text\":\"Risposta finale\"}"
         )
         assertTrue(events.any { it is ChatStreamEvent.TextSnapshot && it.text == "Risposta finale" })
+    }
+
+    @Test
+    fun hermesReasoningIsParsedAsPersistentSnapshot() {
+        val events = parseSseData(
+            "hermes.reasoning.available",
+            "{\"type\":\"hermes.reasoning.available\",\"reasoning\":\"Verifico i dati prima di rispondere.\"}"
+        )
+        assertTrue(events.any {
+            it is ChatStreamEvent.ThinkingSnapshot && it.text == "Verifico i dati prima di rispondere."
+        })
     }
 
     @Test
@@ -100,5 +112,33 @@ class ChatStreamProtocolTest {
         assertEquals("OK", rendered)
         assertEquals(1, events.count { it is ChatStreamEvent.TextDelta })
         assertEquals(3, events.count { it is ChatStreamEvent.TextSnapshot })
+    }
+
+    @Test
+    fun threeTerminalSnapshotsDoNotRepeatFinalAnswerAfterUiTrimming() {
+        val final = "\n\nRisposta finale con tabella Markdown."
+        var rendered = "Risposta finale con tabella Markdown."
+        repeat(3) {
+            rendered = mergeTextSnapshot(rendered, final).trim()
+        }
+        assertEquals("Risposta finale con tabella Markdown.", rendered)
+    }
+
+    @Test
+    fun responsesTerminalEventSequenceRendersOneFinalAnswer() {
+        val final = "\n\nRisposta finale con tabella Markdown."
+        val payloads = listOf(
+            "response.output_text.done" to
+                "{\"type\":\"response.output_text.done\",\"text\":\"\\n\\nRisposta finale con tabella Markdown.\"}",
+            "response.output_item.done" to
+                "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"\\n\\nRisposta finale con tabella Markdown.\"}]}}",
+            "response.completed" to
+                "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"\\n\\nRisposta finale con tabella Markdown.\"}]}]}}"
+        )
+        var state = StreamingState(text = final.trim())
+        payloads.forEach { (event, data) ->
+            parseSseData(event, data).forEach { state = state.applyEvent(it) }
+        }
+        assertEquals(final.trim(), state.text)
     }
 }

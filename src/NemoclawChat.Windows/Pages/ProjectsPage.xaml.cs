@@ -2,7 +2,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using NemoclawChat_Windows.Services;
-using System.Globalization;
 
 namespace NemoclawChat_Windows.Pages;
 
@@ -20,11 +19,13 @@ public sealed partial class ProjectsPage : Page
     {
         Loaded -= ProjectsPage_Loaded;
         RenderProjectList();
+        var projects = ChatArchiveStore.Projects();
         var activeId = AppSettingsStore.Load().ActiveProjectId;
-        var active = ChatArchiveStore.Projects().FirstOrDefault(project => project.Id.Equals(activeId, StringComparison.OrdinalIgnoreCase));
-        if (active is not null)
+        var initial = projects.FirstOrDefault(project => project.Id.Equals(activeId, StringComparison.OrdinalIgnoreCase))
+                      ?? (projects.Count > 0 ? projects[0] : null);
+        if (initial is not null)
         {
-            SelectProject(active);
+            SelectProject(initial, activate: false);
         }
     }
 
@@ -36,9 +37,8 @@ public sealed partial class ProjectsPage : Page
         {
             ProjectListPanel.Children.Add(new TextBlock
             {
-                Text = "Nessun progetto. Creane uno per legare chat, workspace e contesto Hermes.",
-                Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
-                TextWrapping = TextWrapping.Wrap
+                Text = "Nessun progetto.",
+                Foreground = (Brush)Application.Current.Resources["MutedTextBrush"]
             });
             return;
         }
@@ -52,20 +52,9 @@ public sealed partial class ProjectsPage : Page
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(12),
-                Content = new StackPanel
-                {
-                    Spacing = 3,
-                    Children =
-                    {
-                        new TextBlock { Text = project.Title, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
-                        new TextBlock
-                        {
-                            Text = project.Id.Equals(activeId, StringComparison.OrdinalIgnoreCase) ? "Attivo" : $"Aggiornato {project.UpdatedAt.LocalDateTime:g}",
-                            Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
-                            FontSize = 11
-                        }
-                    }
-                }
+                Content = project.Id.Equals(activeId, StringComparison.OrdinalIgnoreCase)
+                    ? $"{project.Title}  ·  Attivo"
+                    : project.Title
             };
             button.Click += Project_Click;
             ProjectListPanel.Children.Add(button);
@@ -76,79 +65,27 @@ public sealed partial class ProjectsPage : Page
     {
         if (sender is FrameworkElement { Tag: ConversationRecord project })
         {
-            SelectProject(project);
+            SelectProject(project, activate: true);
+            StatusText.Text = "Progetto selezionato. Il contesto verra' applicato automaticamente.";
         }
     }
 
-    private void SelectProject(ConversationRecord project)
+    private void SelectProject(ConversationRecord project, bool activate)
     {
         _selected = project;
         DashboardTitle.Text = project.Title;
         TitleBox.Text = project.Title;
-        DescriptionBox.Text = project.Description;
-        WorkspacePathBox.Text = project.WorkspacePath;
-        RepositoryUrlBox.Text = project.RepositoryUrl;
-        InstructionsBox.Text = project.ProjectInstructions;
-        MemoryBox.Text = project.ProjectMemory;
-        ToolsBox.Text = string.Join(Environment.NewLine, project.AuthorizedTools);
-        ActivateButton.IsEnabled = true;
+        SystemPromptBox.Text = project.ProjectInstructions;
         NewChatButton.IsEnabled = true;
-        RenderDashboard(project);
+        if (activate)
+        {
+            SetActiveProject(project);
+            RenderProjectList();
+        }
+        ActiveBadge.Text = AppSettingsStore.Load().ActiveProjectId.Equals(project.Id, StringComparison.OrdinalIgnoreCase)
+            ? "PROGETTO ATTIVO"
+            : string.Empty;
     }
-
-    private void RenderDashboard(ConversationRecord project)
-    {
-        var settings = AppSettingsStore.Load();
-        ActiveBadge.Text = settings.ActiveProjectId.Equals(project.Id, StringComparison.OrdinalIgnoreCase) ? "PROGETTO ATTIVO" : string.Empty;
-        var conversations = ChatArchiveStore.ForProject(project.Id);
-        var artifacts = conversations
-            .SelectMany(conversation => conversation.Messages.SelectMany(message => message.VisualBlocks ?? []))
-            .Where(block => block.Type is "media_file" or "image_gallery" or "code" or "diagram" or "markdown" or "table" or "chart")
-            .ToList();
-        ChatCountText.Text = conversations.Count.ToString(CultureInfo.InvariantCulture);
-        ArtifactCountText.Text = artifacts.Count.ToString(CultureInfo.InvariantCulture);
-        ActivityCountText.Text = conversations.Sum(conversation => conversation.Messages.Count).ToString(CultureInfo.InvariantCulture);
-
-        ProjectChatsPanel.Children.Clear();
-        foreach (var conversation in conversations.Take(12))
-        {
-            var button = new Button
-            {
-                Tag = conversation.Id,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Content = $"{conversation.Title}  ·  {conversation.UpdatedAt.LocalDateTime:g}"
-            };
-            button.Click += OpenConversation_Click;
-            ProjectChatsPanel.Children.Add(button);
-        }
-        if (ProjectChatsPanel.Children.Count == 0)
-        {
-            ProjectChatsPanel.Children.Add(EmptyText("Nessuna chat associata. Attiva progetto e crea nuova chat."));
-        }
-
-        ProjectArtifactsPanel.Children.Clear();
-        foreach (var artifact in artifacts.Take(12))
-        {
-            ProjectArtifactsPanel.Children.Add(new TextBlock
-            {
-                Text = $"{artifact.Type} · {artifact.Title ?? artifact.Filename ?? artifact.Id}",
-                Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
-                TextWrapping = TextWrapping.Wrap
-            });
-        }
-        if (ProjectArtifactsPanel.Children.Count == 0)
-        {
-            ProjectArtifactsPanel.Children.Add(EmptyText("Nessun artifact prodotto nelle chat del progetto."));
-        }
-    }
-
-    private static TextBlock EmptyText(string text) => new()
-    {
-        Text = text,
-        Foreground = (Brush)Application.Current.Resources["MutedTextBrush"],
-        TextWrapping = TextWrapping.Wrap
-    };
 
     private void NewProject_Click(object sender, RoutedEventArgs e)
     {
@@ -156,46 +93,30 @@ public sealed partial class ProjectsPage : Page
         DashboardTitle.Text = "Nuovo progetto";
         ActiveBadge.Text = string.Empty;
         TitleBox.Text = string.Empty;
-        DescriptionBox.Text = string.Empty;
-        WorkspacePathBox.Text = string.Empty;
-        RepositoryUrlBox.Text = string.Empty;
-        InstructionsBox.Text = string.Empty;
-        MemoryBox.Text = string.Empty;
-        ToolsBox.Text = string.Empty;
-        ActivateButton.IsEnabled = false;
+        SystemPromptBox.Text = string.Empty;
         NewChatButton.IsEnabled = false;
-        ChatCountText.Text = "0";
-        ArtifactCountText.Text = "0";
-        ActivityCountText.Text = "0";
-        ProjectChatsPanel.Children.Clear();
-        ProjectArtifactsPanel.Children.Clear();
-        StatusText.Text = "Inserisci dati progetto.";
+        StatusText.Text = "Inserisci nome e system prompt facoltativo.";
+        TitleBox.Focus(FocusState.Programmatic);
     }
 
     private void SaveProject_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var tools = ToolsBox.Text.Split([',', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var project = ChatArchiveStore.SaveProjectWorkspace(
                 _selected?.Id,
                 TitleBox.Text,
-                DescriptionBox.Text,
-                WorkspacePathBox.Text,
-                RepositoryUrlBox.Text,
-                InstructionsBox.Text,
-                MemoryBox.Text,
-                tools);
+                _selected?.Description ?? string.Empty,
+                _selected?.WorkspacePath ?? string.Empty,
+                _selected?.RepositoryUrl ?? string.Empty,
+                SystemPromptBox.Text,
+                _selected?.ProjectMemory ?? string.Empty,
+                _selected?.AuthorizedTools ?? []);
             _selected = project;
-            var settings = AppSettingsStore.Load();
-            if (settings.ActiveProjectId.Equals(project.Id, StringComparison.OrdinalIgnoreCase))
-            {
-                settings.ActiveProjectName = project.Title;
-                AppSettingsStore.Save(settings);
-            }
+            SetActiveProject(project);
             RenderProjectList();
-            SelectProject(project);
-            StatusText.Text = "Progetto salvato. Sync gateway in coda.";
+            SelectProject(project, activate: false);
+            StatusText.Text = "Progetto salvato e attivato.";
         }
         catch (ArgumentException ex)
         {
@@ -203,40 +124,21 @@ public sealed partial class ProjectsPage : Page
         }
     }
 
-    private void ActivateProject_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selected is null) return;
-        var settings = AppSettingsStore.Load();
-        settings.ActiveProjectId = _selected.Id;
-        settings.ActiveProjectName = _selected.Title;
-        AppSettingsStore.Save(settings);
-        RenderProjectList();
-        RenderDashboard(_selected);
-        StatusText.Text = "Progetto attivo. Nuove chat riceveranno contesto workspace automaticamente.";
-    }
-
-    private void DeactivateProject_Click(object sender, RoutedEventArgs e)
+    private static void SetActiveProject(ConversationRecord project)
     {
         var settings = AppSettingsStore.Load();
-        settings.ActiveProjectId = string.Empty;
-        settings.ActiveProjectName = string.Empty;
+        settings.ActiveProjectId = project.Id;
+        settings.ActiveProjectName = project.Title;
         AppSettingsStore.Save(settings);
-        RenderProjectList();
-        if (_selected is not null) RenderDashboard(_selected);
-        StatusText.Text = "Nessun progetto attivo.";
     }
 
     private void NewProjectChat_Click(object sender, RoutedEventArgs e)
     {
-        ActivateProject_Click(sender, e);
-        Frame.Navigate(typeof(HomePage), new HomeNavigationRequest());
-    }
-
-    private void OpenConversation_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { Tag: string id })
+        if (_selected is null)
         {
-            Frame.Navigate(typeof(HomePage), new HomeNavigationRequest(id));
+            return;
         }
+        SetActiveProject(_selected);
+        Frame.Navigate(typeof(HomePage), new HomeNavigationRequest());
     }
 }
