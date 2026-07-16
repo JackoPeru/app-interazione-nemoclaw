@@ -531,6 +531,8 @@ public sealed partial class HomePage : Page
     {
         EmptyState.Visibility = visibility;
         EmptyStateBackdrop.Visibility = visibility;
+        MessagesList.Visibility = visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        MessagesList.IsHitTestVisible = visibility != Visibility.Visible;
     }
 
     private static async Task StopRunAfterResetAsync(string runId)

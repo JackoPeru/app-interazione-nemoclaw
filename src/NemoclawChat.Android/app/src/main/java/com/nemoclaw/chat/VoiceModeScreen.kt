@@ -145,14 +145,29 @@ private object VoiceTurnController {
 }
 
 internal val SupportedVoiceNames = listOf("if_sara", "im_nicola")
+internal const val SphereParticleShape = "sphere"
+internal const val NeuralCoreParticleShape = "neural-core"
+internal const val HermesHeadParticleShape = "hermes-head"
+internal const val DefaultWakePhrase = "Hermes"
+internal val SupportedParticleShapes = listOf(SphereParticleShape, NeuralCoreParticleShape, HermesHeadParticleShape)
+internal val SupportedWakePhrases = listOf(DefaultWakePhrase, "Ehi Hermes", "Ok Hermes")
+private val WakeTokenRegex = Regex("[\\p{L}\\p{N}]+")
+
+internal fun particleShapeLabel(shape: String): String = when (shape) {
+    NeuralCoreParticleShape -> "Nucleo neurale"
+    HermesHeadParticleShape -> "Testa Hermes"
+    else -> "Sfera"
+}
 
 internal data class VoiceProfile(
     val voice: String = "if_sara",
     val speed: Float = 1.08f,
     val wakeWord: Boolean = false,
+    val wakePhrase: String = DefaultWakePhrase,
     val pushToTalk: Boolean = false,
     val showTranscript: Boolean = false,
-    val bluetooth: Boolean = false
+    val bluetooth: Boolean = false,
+    val particleShape: String = SphereParticleShape
 )
 
 internal fun loadVoiceProfile(context: Context, projectId: String): VoiceProfile {
@@ -160,29 +175,70 @@ internal fun loadVoiceProfile(context: Context, projectId: String): VoiceProfile
     val keySuffix = projectId.ifBlank { "general" }
     val storedVoice = preferences.getString("voice:$keySuffix", "if_sara").orEmpty()
     val safeVoice = storedVoice.takeIf { it in SupportedVoiceNames } ?: "if_sara"
+    val storedParticleShape = preferences.getString("particles:$keySuffix", SphereParticleShape).orEmpty()
+    val safeParticleShape = storedParticleShape.takeIf { it in SupportedParticleShapes } ?: SphereParticleShape
+    val storedWakePhrase = preferences.getString("wakePhrase:$keySuffix", DefaultWakePhrase).orEmpty()
+    val safeWakePhrase = normalizeWakePhrase(storedWakePhrase)
     if (safeVoice != storedVoice) preferences.edit { putString("voice:$keySuffix", safeVoice) }
+    if (safeParticleShape != storedParticleShape) preferences.edit { putString("particles:$keySuffix", safeParticleShape) }
+    if (safeWakePhrase != storedWakePhrase) preferences.edit { putString("wakePhrase:$keySuffix", safeWakePhrase) }
     return VoiceProfile(
         voice = safeVoice,
         speed = preferences.getFloat("speed:$keySuffix", 1.08f).coerceIn(0.75f, 1.35f),
         wakeWord = preferences.getBoolean("wake:$keySuffix", false),
+        wakePhrase = safeWakePhrase,
         pushToTalk = preferences.getBoolean("ptt:$keySuffix", false),
         showTranscript = preferences.getBoolean("transcript:$keySuffix", false),
-        bluetooth = preferences.getBoolean("bluetooth:$keySuffix", false)
+        bluetooth = preferences.getBoolean("bluetooth:$keySuffix", false),
+        particleShape = safeParticleShape
     )
 }
 
 internal fun saveVoiceProfile(context: Context, projectId: String, profile: VoiceProfile) {
     val keySuffix = projectId.ifBlank { "general" }
     val safeVoice = profile.voice.takeIf { it in SupportedVoiceNames } ?: "if_sara"
+    val safeParticleShape = profile.particleShape.takeIf { it in SupportedParticleShapes } ?: SphereParticleShape
+    val safeWakePhrase = normalizeWakePhrase(profile.wakePhrase)
     context.getSharedPreferences("voice_profiles", Context.MODE_PRIVATE).edit {
         putString("voice:$keySuffix", safeVoice)
         putFloat("speed:$keySuffix", profile.speed.coerceIn(0.75f, 1.35f))
         putBoolean("wake:$keySuffix", profile.wakeWord)
+        putString("wakePhrase:$keySuffix", safeWakePhrase)
         putBoolean("ptt:$keySuffix", profile.pushToTalk)
         putBoolean("transcript:$keySuffix", profile.showTranscript)
         putBoolean("bluetooth:$keySuffix", profile.bluetooth)
+        putString("particles:$keySuffix", safeParticleShape)
     }
 }
+
+internal fun normalizeWakePhrase(value: String?): String {
+    val normalized = value.orEmpty().replace('|', ' ').trim().replace(Regex("\\s+"), " ").take(48).trimEnd()
+    return normalized.takeIf { WakeTokenRegex.containsMatchIn(it) } ?: DefaultWakePhrase
+}
+
+internal fun stripWakePhrase(transcript: String, wakePhrase: String?): String? {
+    val phraseTokens = WakeTokenRegex.findAll(normalizeWakePhrase(wakePhrase)).toList()
+    val transcriptTokens = WakeTokenRegex.findAll(transcript).toList()
+    if (phraseTokens.isEmpty() || transcriptTokens.size < phraseTokens.size) return null
+    phraseTokens.indices.forEach { index ->
+        if (!wakeTokensEqual(transcriptTokens[index].value, phraseTokens[index].value)) return null
+    }
+    val end = transcriptTokens[phraseTokens.lastIndex].range.last + 1
+    return transcript.substring(end).trimStart(' ', ',', ':', ';', '.', '-', '!', '?')
+}
+
+private fun wakeTokensEqual(left: String, right: String): Boolean {
+    val normalizedLeft = normalizeWakeToken(left)
+    val normalizedRight = normalizeWakeToken(right)
+    val leftIsHermes = normalizedLeft == "hermes" || normalizedLeft == "ermes"
+    val rightIsHermes = normalizedRight == "hermes" || normalizedRight == "ermes"
+    return normalizedLeft == normalizedRight || leftIsHermes && rightIsHermes
+}
+
+private fun normalizeWakeToken(value: String): String = java.text.Normalizer
+    .normalize(value, java.text.Normalizer.Form.NFD)
+    .filter { Character.getType(it) != Character.NON_SPACING_MARK.toInt() }
+    .lowercase(java.util.Locale.ROOT)
 
 internal suspend fun previewVoiceProfile(
     context: Context,
@@ -256,6 +312,7 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
                     setPhase = { phase = it },
                     setStatus = { status = it },
                     wakeWordEnabled = { voiceProfile.wakeWord },
+                    wakePhrase = { voiceProfile.wakePhrase },
                     voice = { voiceProfile.voice },
                     speed = { voiceProfile.speed.toDouble() }
                 )
@@ -300,6 +357,7 @@ internal fun VoiceModeScreen(settings: AppSettings, apiKey: String?) {
         VoiceParticleField(
             assembled = assembled,
             speaking = speaking,
+            particleShape = voiceProfile.particleShape,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -406,9 +464,10 @@ private fun stopVoiceForegroundService(context: Context) {
 private fun VoiceParticleField(
     assembled: Boolean,
     speaking: Boolean,
+    particleShape: String,
     modifier: Modifier = Modifier
 ) {
-    val particles = remember { buildVoiceParticles() }
+    val particles = remember(particleShape) { buildVoiceParticles(particleShape) }
     var assembly by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(assembled) {
         val target = if (assembled) 1f else 0f
@@ -438,9 +497,14 @@ private fun VoiceParticleField(
             primary * primary * 0.105f + secondary * secondary * 0.035f
         } else 0f
         val quietBreath = if (assembled) sin(time * 1.35f) * 0.012f else 0f
-        val scale = min(size.width, size.height) * (0.365f + quietBreath + speechBeat)
+        val shapeScale = if (particleShape == NeuralCoreParticleShape) 1.08f else 1f
+        val scale = min(size.width, size.height) * (0.365f + quietBreath + speechBeat) * shapeScale
         val camera = 4.1f
-        val spin = time * (0.17f + eased * 0.38f)
+        val spin = if (particleShape == HermesHeadParticleShape) {
+            sin(time * 0.28f) * 0.34f
+        } else {
+            time * (0.17f + eased * if (particleShape == NeuralCoreParticleShape) 0.52f else 0.38f)
+        }
         val tilt = sin(time * 0.31f) * 0.16f
         val center = Offset(size.width * 0.5f, size.height * 0.46f)
 
@@ -449,9 +513,9 @@ private fun VoiceParticleField(
             val idleY = particle.idleY + cos(time * particle.speed * 0.73f + particle.phase) * 0.11f
             val idleZ = particle.idleZ + sin(time * particle.speed * 0.41f + particle.phase) * 0.19f
             val gatherArc = sin(PI.toFloat() * eased) * 0.46f
-            val x = lerpFloat(idleX, particle.sphereX, eased) + sin(particle.phase + eased * PI.toFloat() * 2f) * gatherArc
-            val y = lerpFloat(idleY, particle.sphereY, eased) + cos(particle.phase * 0.73f + eased * PI.toFloat() * 2f) * gatherArc * 0.65f
-            val z = lerpFloat(idleZ, particle.sphereZ, eased)
+            val x = lerpFloat(idleX, particle.targetX, eased) + sin(particle.phase + eased * PI.toFloat() * 2f) * gatherArc
+            val y = lerpFloat(idleY, particle.targetY, eased) + cos(particle.phase * 0.73f + eased * PI.toFloat() * 2f) * gatherArc * 0.65f
+            val z = lerpFloat(idleZ, particle.targetZ, eased)
 
             val cosSpin = cos(spin)
             val sinSpin = sin(spin)
@@ -486,6 +550,7 @@ private suspend fun runVoiceCallLoop(
     setPhase: (VoiceCallPhase) -> Unit,
     setStatus: (String) -> Unit,
     wakeWordEnabled: () -> Boolean,
+    wakePhrase: () -> String,
     voice: () -> String,
     speed: () -> Double
 ) {
@@ -504,7 +569,13 @@ private suspend fun runVoiceCallLoop(
                 file.delete()
             }
             val wakeAdjusted = if (wakeWordEnabled()) {
-                if (!text.startsWith("Hermes", ignoreCase = true)) continue else text.drop("Hermes".length).trimStart(' ', ',', ':')
+                val matched = stripWakePhrase(text, wakePhrase())
+                if (matched == null) {
+                    setPhase(VoiceCallPhase.Listening)
+                    setStatus("In attesa di «${wakePhrase()}».")
+                    continue
+                }
+                matched
             } else text
             val now = System.currentTimeMillis()
             if (!isUsefulTranscript(wakeAdjusted) || (wakeAdjusted.equals(lastTranscript, ignoreCase = true) && now - lastTranscriptAt < 8_000)) {
@@ -1024,19 +1095,22 @@ private fun writePcmWav(file: File, pcm: ByteArray, sampleRate: Int) {
     }
 }
 
-private fun buildVoiceParticles(): List<VoiceParticle> {
+private fun buildVoiceParticles(particleShape: String): List<VoiceParticle> {
     val random = Random(8642)
-    return List(680) {
-        val theta = (PI * 2.0 * random.nextDouble()).toFloat()
-        val phi = acos(2.0 * random.nextDouble() - 1.0).toFloat()
-        val radius = random.nextFloat(0.91f, 1.09f)
+    val particleCount = 680
+    return List(particleCount) { index ->
+        val target = when (particleShape) {
+            NeuralCoreParticleShape -> buildNeuralCoreTarget(index, particleCount, random)
+            HermesHeadParticleShape -> buildHermesHeadTarget(index, particleCount, random)
+            else -> buildSphereTarget(random)
+        }
         VoiceParticle(
             idleX = random.nextFloat(-1.35f, 1.35f),
             idleY = random.nextFloat(-2.4f, 2.4f),
             idleZ = random.nextFloat(-2.4f, 2.4f),
-            sphereX = radius * sin(phi) * cos(theta),
-            sphereY = radius * cos(phi),
-            sphereZ = radius * sin(phi) * sin(theta),
+            targetX = target.x,
+            targetY = target.y,
+            targetZ = target.z,
             phase = random.nextFloat(0f, (PI * 2.0).toFloat()),
             speed = random.nextFloat(0.42f, 1.58f),
             size = random.nextFloat(1.45f, 3.75f),
@@ -1045,18 +1119,127 @@ private fun buildVoiceParticles(): List<VoiceParticle> {
     }
 }
 
+private fun buildSphereTarget(random: Random): VoiceParticleTarget {
+    val theta = (PI * 2.0 * random.nextDouble()).toFloat()
+    val phi = acos(2.0 * random.nextDouble() - 1.0).toFloat()
+    val radius = 0.91f + random.nextFloat() * 0.18f
+    return VoiceParticleTarget(
+        radius * sin(phi) * cos(theta),
+        radius * cos(phi),
+        radius * sin(phi) * sin(theta)
+    )
+}
+
+private fun buildNeuralCoreTarget(index: Int, count: Int, random: Random): VoiceParticleTarget {
+    if (index < count * 0.42f) {
+        val around = random.nextFloat() * PI.toFloat() * 2f
+        val tube = random.nextFloat() * PI.toFloat() * 2f
+        val tubeRadius = 0.105f + random.nextFloat() * 0.075f
+        val radius = 0.72f + tubeRadius * cos(tube)
+        return VoiceParticleTarget(
+            radius * cos(around),
+            radius * sin(around),
+            tubeRadius * sin(tube)
+        )
+    }
+
+    if (index < count * 0.74f) {
+        val t = random.nextFloat()
+        val branch = if (index % 2 == 0) 0f else PI.toFloat()
+        val angle = t * PI.toFloat() * 5f + branch
+        val radius = 0.27f + (random.nextFloat() - 0.5f) * 0.045f
+        return VoiceParticleTarget(
+            radius * cos(angle),
+            (t - 0.5f) * 1.48f,
+            radius * sin(angle)
+        )
+    }
+
+    val theta = random.nextFloat() * PI.toFloat() * 2f
+    val phi = acos(random.nextFloat() * 2f - 1f)
+    val radius = 0.19f + random.nextFloat() * 0.17f
+    return VoiceParticleTarget(
+        radius * sin(phi) * cos(theta),
+        radius * cos(phi),
+        radius * sin(phi) * sin(theta)
+    )
+}
+
+private fun buildHermesHeadTarget(index: Int, count: Int, random: Random): VoiceParticleTarget {
+    if (index < count * 0.46f) {
+        val theta = random.nextFloat() * PI.toFloat() * 2f
+        val phi = acos(random.nextFloat() * 2f - 1f)
+        val y = 0.08f + 0.78f * cos(phi)
+        val jawTaper = 1f - 0.27f * ((y - 0.18f) / 0.68f).coerceIn(0f, 1f)
+        return VoiceParticleTarget(
+            0.58f * sin(phi) * cos(theta) * jawTaper,
+            y,
+            0.42f * sin(phi) * sin(theta)
+        )
+    }
+
+    if (index < count * 0.68f) {
+        val polar = random.nextFloat() * PI.toFloat() * 0.5f
+        val around = random.nextFloat() * PI.toFloat() * 2f
+        return VoiceParticleTarget(
+            0.68f * sin(polar) * cos(around),
+            -0.46f - 0.60f * cos(polar),
+            0.52f * sin(polar) * sin(around)
+        )
+    }
+
+    if (index < count * 0.84f) {
+        val side = if (index % 2 == 0) -1f else 1f
+        val t = random.nextFloat()
+        val feather = (index % 4) / 3f
+        return VoiceParticleTarget(
+            side * (0.60f + 0.50f * t),
+            -0.54f - (0.20f + feather * 0.24f) * t + feather * 0.035f,
+            -0.03f + (random.nextFloat() - 0.5f) * 0.16f
+        )
+    }
+
+    if (index < count * 0.94f) {
+        val side = if (index % 2 == 0) -1f else 1f
+        val angle = random.nextFloat() * PI.toFloat()
+        return VoiceParticleTarget(
+            side * (0.20f + 0.15f * cos(angle)),
+            -0.10f + 0.07f * sin(angle),
+            -0.405f - 0.035f * sin(angle)
+        )
+    }
+
+    if (index % 2 == 0) {
+        val t = random.nextFloat()
+        return VoiceParticleTarget(
+            (random.nextFloat() - 0.5f) * 0.045f,
+            -0.12f + t * 0.43f,
+            -0.43f - sin(t * PI.toFloat()) * 0.10f
+        )
+    }
+
+    val rim = random.nextFloat() * 2f - 1f
+    return VoiceParticleTarget(
+        rim * 0.64f,
+        -0.46f + abs(rim) * 0.055f,
+        -0.31f + (random.nextFloat() - 0.5f) * 0.06f
+    )
+}
+
 private data class VoiceParticle(
     val idleX: Float,
     val idleY: Float,
     val idleZ: Float,
-    val sphereX: Float,
-    val sphereY: Float,
-    val sphereZ: Float,
+    val targetX: Float,
+    val targetY: Float,
+    val targetZ: Float,
     val phase: Float,
     val speed: Float,
     val size: Float,
     val hot: Boolean
 )
+
+private data class VoiceParticleTarget(val x: Float, val y: Float, val z: Float)
 
 private fun Random.nextFloat(minimum: Float, maximum: Float): Float = minimum + nextFloat() * (maximum - minimum)
 private fun lerpFloat(start: Float, stop: Float, amount: Float): Float = start + (stop - start) * amount

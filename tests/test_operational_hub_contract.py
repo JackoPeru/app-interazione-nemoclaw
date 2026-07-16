@@ -89,6 +89,34 @@ class OperationalHubContractTests(unittest.TestCase):
             self.assertNotIn("Anteprima", source)
         self.assertEqual(android_voice.count('listOf("if_sara", "im_nicola")'), 1)
 
+    def test_wake_phrase_is_configurable_and_used_by_both_voice_loops(self):
+        windows_settings = self.read("src/NemoclawChat.Windows/Pages/SettingsPage.xaml")
+        windows_store = self.read("src/NemoclawChat.Windows/Services/VoicePreferencesStore.cs")
+        windows_voice = self.read("src/NemoclawChat.Windows/Pages/VoicePage.xaml.cs")
+        android_settings = self.read(
+            "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt"
+        )
+        android_voice = self.read(
+            "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/VoiceModeScreen.kt"
+        )
+        self.assertIn('x:Name="VoiceWakePhraseBox"', windows_settings)
+        self.assertIn("TryStripWakePhrase(text, _wakePhrase", windows_voice)
+        self.assertIn("SupportedWakePhrases", windows_store)
+        self.assertIn('SettingsField("Wake word personalizzata"', android_settings)
+        self.assertIn("stripWakePhrase(text, wakePhrase())", android_voice)
+
+    def test_quick_actions_are_above_or_exclude_empty_message_layers(self):
+        windows = self.read("src/NemoclawChat.Windows/Pages/HomePage.xaml")
+        windows_code = self.read("src/NemoclawChat.Windows/Pages/HomePage.xaml.cs")
+        android = self.read(
+            "src/NemoclawChat.Android/app/src/main/java/com/nemoclaw/chat/MainActivity.kt"
+        )
+        self.assertIn('x:Name="MessagesList"', windows)
+        self.assertIn('IsHitTestVisible="False"', windows)
+        self.assertIn("MessagesList.IsHitTestVisible = visibility != Visibility.Visible", windows_code)
+        chat_box = android[android.index("Box(modifier = Modifier.weight(1f))") :]
+        self.assertLess(chat_box.index("LazyColumn("), chat_box.index("EmptyState(onPrompt"))
+
     def test_reasoning_is_persistent_and_collapsible_on_both_clients(self):
         windows = self.read("src/NemoclawChat.Windows/Pages/StreamingBubble.cs")
         windows_home = self.read("src/NemoclawChat.Windows/Pages/HomePage.xaml.cs")

@@ -1,13 +1,12 @@
-Hermes Hub 0.6.163 (UI Windows allineata ad Android)
+Hermes Hub 0.6.164 (wake word configurabile e quick actions ripristinate)
 
-- Windows: palette, superfici, bordi e gerarchia visiva riallineati alla UI Android.
-- Shell Windows: sidebar organizzata per aree, stato selezionato e testata contestuale durante la navigazione.
-- Chat Windows: nuovo stato vuoto sfumato, operazioni rapide verticali, context meter compatto e composer con accento Hermes.
-- Messaggi Windows: label `HERMES`, bubble utente asimmetrica e streaming uniforme con il client Android.
-- Pagine secondarie: card e bordi normalizzati in Impostazioni, Server, Archivio, Cron, About, News e Video.
-- Compatibilita: package identity Windows, `applicationId com.nemoclaw.chat`, firma Android, archivio, endpoint e impostazioni esistenti preservati.
-- Versioni: Windows/AdminBridge `0.6.163`; Android `versionName 0.6.163`, `versionCode 167`.
-- Asset: `HermesHub-0.6.163-android.apk`, `NemoclawChat.Windows_0.6.163.0_x64.msix`, `HermesHub-0.6.163-linux-gateway.tar.gz`.
-- SHA-256 Android: `9A07FC66AA460B2CC31049001410F10DFC5CEE9EE00B018B2B9B2C5526BE45DB`.
-- SHA-256 Windows: `E9A67A8ACFE7558B779A2A94AD1523AE8A60FDE70A04D72AFC7868ECED928D69`.
-- SHA-256 gateway Linux: `A9BC61403E0B04788F59ADFFCC7E2DF1CC3187D5ED69438EA50575FABF32812C`.
+- Windows e Android: wake word configurabile per progetto con preset `Hermes`, `Ehi Hermes`, `Ok Hermes` o frase personalizzata.
+- Voce: matching tollerante a maiuscole, accenti, punteggiatura e trascrizione italiana `Ermes`; feedback visibile mentre attende la frase scelta.
+- Chat: corretto il livello trasparente che assorbiva click e tap delle tre operazioni rapide nello stato vuoto.
+- Voce: aggiunta selezione forma particelle tra Sfera, Nucleo neurale e Testa Hermes.
+- Compatibilita: package identity Windows, `applicationId com.nemoclaw.chat`, firme, archivio, endpoint e impostazioni esistenti preservati.
+- Versioni: Windows/AdminBridge `0.6.164`; Android `versionName 0.6.164`, `versionCode 168`.
+- Asset: `HermesHub-0.6.164-android.apk`, `NemoclawChat.Windows_0.6.164.0_x64.msix`, `HermesHub-0.6.164-linux-gateway.tar.gz`.
+- SHA-256 Android: `D60E9EAAD31C4E394022B65B244952F6A7137082D783691B0EA4BA8905277C6D`.
+- SHA-256 Windows: `86EEEB0514C2D882DF74C3CD204BE1BB7A872D30B1C3019818CB61BB6410592E`.
+- SHA-256 gateway Linux: `27F5A92E22376FC57D8E5FB989036A119A3AA3F042FDBC68F840722F21D5299B`.

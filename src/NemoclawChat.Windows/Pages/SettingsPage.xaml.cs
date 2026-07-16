@@ -21,6 +21,7 @@ public sealed partial class SettingsPage : Page
     public SettingsPage()
     {
         InitializeComponent();
+        VoiceWakePhraseBox.ItemsSource = VoicePreferencesStore.SupportedWakePhrases;
         LoadSettings();
         Unloaded += (_, _) => CleanupVoicePreview();
     }
@@ -55,8 +56,10 @@ public sealed partial class SettingsPage : Page
         SelectComboItem(VisualBlocksModeBox, settings.VisualBlocksMode);
         var voice = VoicePreferencesStore.Load(settings.ActiveProjectId);
         SelectComboItem(VoiceNameBox, voice.Voice);
+        SelectTaggedComboItem(VoiceParticleShapeBox, voice.ParticleShape);
         VoiceSpeedSlider.Value = voice.Speed;
         VoiceWakeWordSwitch.IsOn = voice.WakeWord;
+        VoiceWakePhraseBox.Text = voice.WakePhrase;
         VoicePushToTalkSwitch.IsOn = voice.PushToTalk;
         VoiceTranscriptSwitch.IsOn = voice.ShowTranscript;
         VoiceProjectText.Text = string.IsNullOrWhiteSpace(settings.ActiveProjectName)
@@ -260,12 +263,26 @@ public sealed partial class SettingsPage : Page
         }
     }
 
+    private static void SelectTaggedComboItem(ComboBox comboBox, string value)
+    {
+        foreach (var item in comboBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(item.Tag?.ToString(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
     private VoicePreferences ReadVoicePreferences() => new(
         SelectedComboText(VoiceNameBox),
         VoiceSpeedSlider.Value,
         VoiceWakeWordSwitch.IsOn,
         VoicePushToTalkSwitch.IsOn,
-        VoiceTranscriptSwitch.IsOn);
+        VoiceTranscriptSwitch.IsOn,
+        (VoiceParticleShapeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? VoicePreferencesStore.SphereShape,
+        VoicePreferencesStore.NormalizeWakePhrase(VoiceWakePhraseBox.Text));
 
     private async void PreviewVoice_Click(object sender, RoutedEventArgs e)
     {

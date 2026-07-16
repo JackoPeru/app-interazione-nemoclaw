@@ -121,6 +121,7 @@
                     x:Name="MessagesList"
                     MaxWidth="900"
                     HorizontalAlignment="Stretch"
+                    IsHitTestVisible="False"
                     Padding="0,32,0,32"
                     Background="Transparent"
                     BorderThickness="0"

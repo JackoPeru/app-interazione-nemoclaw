@@ -54,8 +54,23 @@
                         <ComboBoxItem Content="if_sara" />
                         <ComboBoxItem Content="im_nicola" />
                     </ComboBox>
+                    <ComboBox x:Name="VoiceParticleShapeBox" Header="Forma particelle" SelectedIndex="0">
+                        <ComboBoxItem Content="Sfera" Tag="sphere" />
+                        <ComboBoxItem Content="Nucleo neurale" Tag="neural-core" />
+                        <ComboBoxItem Content="Testa Hermes" Tag="hermes-head" />
+                    </ComboBox>
                     <Slider x:Name="VoiceSpeedSlider" Header="Velocità" Minimum="0.75" Maximum="1.35" Value="1.08" StepFrequency="0.05" />
-                    <ToggleSwitch x:Name="VoiceWakeWordSwitch" Header="Parola di attivazione 'Hermes'" />
+                    <ToggleSwitch x:Name="VoiceWakeWordSwitch" Header="Abilita wake word" />
+                    <AutoSuggestBox
+                        x:Name="VoiceWakePhraseBox"
+                        Header="Parola di attivazione"
+                        PlaceholderText="Hermes"
+                        Text="Hermes" />
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{StaticResource MutedTextBrush}"
+                        Text="Scegli un suggerimento o scrivi una frase personalizzata. La wake word è attiva durante una sessione Voce."
+                        TextWrapping="Wrap" />
                     <ToggleSwitch x:Name="VoicePushToTalkSwitch" Header="Push-to-talk" OffContent="Conversazione continua" OnContent="Barra spaziatrice interrompe Hermes e riapre ascolto" />
                     <ToggleSwitch x:Name="VoiceTranscriptSwitch" Header="Trascrizione durante chiamata" OffContent="Schermata libera" OnContent="Mostra trascrizione" />
                     <Button Click="PreviewVoice_Click" Content="Ascolta anteprima" HorizontalAlignment="Left" />

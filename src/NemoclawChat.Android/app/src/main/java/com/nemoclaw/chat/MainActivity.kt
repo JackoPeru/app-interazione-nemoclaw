@@ -1586,10 +1586,6 @@ private fun ChatScreen(
             onOpenArchive = { onSwitchTab(Tab.Archive) }
         )
         Box(modifier = Modifier.weight(1f)) {
-            if (isEmptyChat) {
-                EmptyState(onPrompt = { quickPrompt = it })
-            }
-
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -1619,6 +1615,10 @@ private fun ChatScreen(
                         )
                     }
                 }
+            }
+            if (isEmptyChat) {
+                // Empty state must stay above the transparent LazyColumn or the list consumes taps.
+                EmptyState(onPrompt = { quickPrompt = it })
             }
         }
         val slashMatches = remember(state.draft) { filterSlashCommands(state.draft) }
@@ -6907,9 +6907,11 @@ private fun SettingsScreen(
     var voiceName by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.voice) }
     var voiceSpeed by remember(settings.activeProjectId) { mutableFloatStateOf(initialVoiceProfile.speed) }
     var voiceWakeWord by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.wakeWord) }
+    var voiceWakePhrase by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.wakePhrase) }
     var voicePushToTalk by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.pushToTalk) }
     var voiceTranscript by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.showTranscript) }
     var voiceBluetooth by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.bluetooth) }
+    var voiceParticleShape by remember(settings.activeProjectId) { mutableStateOf(initialVoiceProfile.particleShape) }
     var status by remember { mutableStateOf("Pronto.") }
     var advancedVisible by rememberSaveable { mutableStateOf(false) }
 
@@ -7020,7 +7022,45 @@ private fun SettingsScreen(
                             onValueChange = { voiceSpeed = it },
                             valueRange = 0.75f..1.35f
                         )
-                        MetricSwitch("Wake word Hermes", voiceWakeWord) { voiceWakeWord = it }
+                        Text("Forma particelle", color = Color.White)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SupportedParticleShapes.forEach { candidate ->
+                                Button(
+                                    onClick = { voiceParticleShape = candidate },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (voiceParticleShape == candidate) AppColors.Accent else AppColors.Composer
+                                    )
+                                ) {
+                                    Text(particleShapeLabel(candidate))
+                                }
+                            }
+                        }
+                        Text("Parola di attivazione", color = Color.White)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SupportedWakePhrases.forEach { candidate ->
+                                Button(
+                                    onClick = { voiceWakePhrase = candidate },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (voiceWakePhrase.equals(candidate, ignoreCase = true)) AppColors.Accent else AppColors.Composer
+                                    )
+                                ) {
+                                    Text(candidate)
+                                }
+                            }
+                        }
+                        SettingsField("Wake word personalizzata", voiceWakePhrase, { voiceWakePhrase = it })
+                        MetricSwitch("Abilita wake word", voiceWakeWord) { voiceWakeWord = it }
+                        Text(
+                            "Attiva durante una sessione Voce: Hermes risponde solo dopo la frase scelta.",
+                            color = AppColors.Muted,
+                            fontSize = 12.sp
+                        )
                         MetricSwitch("Push-to-talk", voicePushToTalk) { voicePushToTalk = it }
                         MetricSwitch("Mostra trascrizione", voiceTranscript) { voiceTranscript = it }
                         MetricSwitch("Instrada su Bluetooth", voiceBluetooth) { voiceBluetooth = it }
@@ -7118,9 +7158,11 @@ private fun SettingsScreen(
                                         voice = voiceName,
                                         speed = voiceSpeed,
                                         wakeWord = voiceWakeWord,
+                                        wakePhrase = normalizeWakePhrase(voiceWakePhrase),
                                         pushToTalk = voicePushToTalk,
                                         showTranscript = voiceTranscript,
-                                        bluetooth = voiceBluetooth
+                                        bluetooth = voiceBluetooth,
+                                        particleShape = voiceParticleShape
                                     )
                                 )
                                 onSave(candidate)
@@ -7181,9 +7223,11 @@ private fun SettingsScreen(
                             voiceName = defaults.voice
                             voiceSpeed = defaults.speed
                             voiceWakeWord = defaults.wakeWord
+                            voiceWakePhrase = defaults.wakePhrase
                             voicePushToTalk = defaults.pushToTalk
                             voiceTranscript = defaults.showTranscript
                             voiceBluetooth = defaults.bluetooth
+                            voiceParticleShape = defaults.particleShape
                             onReset()
                         }) {
                             Text("Reset")

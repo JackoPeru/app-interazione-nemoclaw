@@ -43,8 +43,10 @@ public sealed partial class VoicePage : Page
     private string _selectedVoice = "if_sara";
     private double _voiceSpeed = 1.08;
     private bool _wakeWordEnabled;
+    private string _wakePhrase = VoicePreferencesStore.DefaultWakePhrase;
     private bool _pushToTalkEnabled;
     private bool _showTranscript;
+    private string _particleShape = VoicePreferencesStore.SphereShape;
 
     public VoicePage()
     {
@@ -235,10 +237,10 @@ public sealed partial class VoicePage : Page
                 SetPhase(VoiceCallPhase.Transcribing, "Trascrivo...");
                 var settings = AppSettingsStore.Load();
                 var text = await SpeechGatewayService.TranscribeFileAsync(settings, path, cancellationToken).ConfigureAwait(false);
-                if (_wakeWordEnabled)
+                if (_wakeWordEnabled && !VoicePreferencesStore.TryStripWakePhrase(text, _wakePhrase, out text))
                 {
-                    if (!text.TrimStart().StartsWith("Hermes", StringComparison.OrdinalIgnoreCase)) continue;
-                    text = text.TrimStart()["Hermes".Length..].TrimStart(' ', ',', ':');
+                    SetPhase(VoiceCallPhase.Listening, $"In attesa di «{_wakePhrase}».");
+                    continue;
                 }
                 if (!ShouldSendTranscript(text))
                 {
@@ -473,9 +475,12 @@ public sealed partial class VoicePage : Page
         var primary = speaking ? Math.Pow(Math.Max(0, Math.Sin(_time * 10.8)), 2) * 0.105 : 0;
         var secondary = speaking ? Math.Pow(Math.Max(0, Math.Sin(_time * 17.1 + 0.8)), 2) * 0.035 : 0;
         var breath = _assembly > 0 ? Math.Sin(_time * 1.35) * 0.012 : 0;
-        var scale = Math.Min(width, height) * (0.355 + breath + primary + secondary);
+        var shapeScale = _particleShape == VoicePreferencesStore.NeuralCoreShape ? 1.08 : 1.0;
+        var scale = Math.Min(width, height) * (0.355 + breath + primary + secondary) * shapeScale;
         var camera = 4.1;
-        var spin = _time * (0.17 + eased * 0.38);
+        var spin = _particleShape == VoicePreferencesStore.HermesHeadShape
+            ? Math.Sin(_time * 0.28) * 0.34
+            : _time * (0.17 + eased * (_particleShape == VoicePreferencesStore.NeuralCoreShape ? 0.52 : 0.38));
         var tilt = Math.Sin(_time * 0.31) * 0.16;
         using var glowLayer = new CanvasCommandList(sender.Device);
         using (var glowSession = glowLayer.CreateDrawingSession())
@@ -487,9 +492,10 @@ public sealed partial class VoicePage : Page
                 var idleY = particle.IdleY + Math.Cos(_time * particle.Speed * 0.73 + particle.Phase) * 0.11;
                 var idleZ = particle.IdleZ + Math.Sin(_time * particle.Speed * 0.41 + particle.Phase) * 0.19;
                 var gatherArc = Math.Sin(Math.PI * eased) * 0.24;
-                var x = Lerp(idleX, particle.SphereX, eased) + Math.Sin(particle.Phase + eased * Math.PI * 2) * gatherArc;
-                var y = Lerp(idleY, particle.SphereY, eased) + Math.Cos(particle.Phase * 0.73 + eased * Math.PI * 2) * gatherArc * 0.65;
-                var z = Lerp(idleZ, particle.SphereZ, eased);
+                var target = ParticleTargetFor(particle);
+                var x = Lerp(idleX, target.X, eased) + Math.Sin(particle.Phase + eased * Math.PI * 2) * gatherArc;
+                var y = Lerp(idleY, target.Y, eased) + Math.Cos(particle.Phase * 0.73 + eased * Math.PI * 2) * gatherArc * 0.65;
+                var z = Lerp(idleZ, target.Z, eased);
 
                 var cosSpin = Math.Cos(spin);
                 var sinSpin = Math.Sin(spin);
@@ -609,8 +615,10 @@ public sealed partial class VoicePage : Page
         _selectedVoice = profile.Voice;
         _voiceSpeed = profile.Speed;
         _wakeWordEnabled = profile.WakeWord;
+        _wakePhrase = VoicePreferencesStore.NormalizeWakePhrase(profile.WakePhrase);
         _pushToTalkEnabled = profile.PushToTalk;
         _showTranscript = profile.ShowTranscript;
+        _particleShape = VoicePreferencesStore.NormalizeParticleShape(profile.ParticleShape);
         TranscriptBorder.Visibility = _showTranscript ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -712,25 +720,137 @@ public sealed partial class VoicePage : Page
     private static List<VoiceParticle> BuildParticles()
     {
         var random = new Random(8642);
-        var particles = new List<VoiceParticle>();
-        for (var index = 0; index < 520; index++)
+        const int particleCount = 520;
+        var particles = new List<VoiceParticle>(particleCount);
+        for (var index = 0; index < particleCount; index++)
         {
-            var theta = 2 * Math.PI * random.NextDouble();
-            var phi = Math.Acos(2 * random.NextDouble() - 1);
-            var radius = 0.91 + random.NextDouble() * 0.18;
             particles.Add(new VoiceParticle(
                 (random.NextDouble() - 0.5) * 7.0,
                 (random.NextDouble() - 0.5) * 4.8,
                 (random.NextDouble() - 0.5) * 6.2,
-                radius * Math.Sin(phi) * Math.Cos(theta),
-                radius * Math.Cos(phi),
-                radius * Math.Sin(phi) * Math.Sin(theta),
+                BuildSphereTarget(random),
+                BuildNeuralCoreTarget(index, particleCount, random),
+                BuildHermesHeadTarget(index, particleCount, random),
                 0.42 + random.NextDouble() * 1.16,
                 random.NextDouble() * Math.PI * 2,
                 1.35 + random.NextDouble() * 2.4,
                 random.NextDouble() > 0.72));
         }
         return particles;
+    }
+
+    private ParticleTarget ParticleTargetFor(VoiceParticle particle) => _particleShape switch
+    {
+        VoicePreferencesStore.NeuralCoreShape => particle.NeuralCore,
+        VoicePreferencesStore.HermesHeadShape => particle.HermesHead,
+        _ => particle.Sphere
+    };
+
+    private static ParticleTarget BuildSphereTarget(Random random)
+    {
+        var theta = 2 * Math.PI * random.NextDouble();
+        var phi = Math.Acos(2 * random.NextDouble() - 1);
+        var radius = 0.91 + random.NextDouble() * 0.18;
+        return new ParticleTarget(
+            radius * Math.Sin(phi) * Math.Cos(theta),
+            radius * Math.Cos(phi),
+            radius * Math.Sin(phi) * Math.Sin(theta));
+    }
+
+    private static ParticleTarget BuildNeuralCoreTarget(int index, int count, Random random)
+    {
+        if (index < count * 0.42)
+        {
+            var around = 2 * Math.PI * random.NextDouble();
+            var tube = 2 * Math.PI * random.NextDouble();
+            var tubeRadius = 0.105 + random.NextDouble() * 0.075;
+            var radius = 0.72 + tubeRadius * Math.Cos(tube);
+            return new ParticleTarget(
+                radius * Math.Cos(around),
+                radius * Math.Sin(around),
+                tubeRadius * Math.Sin(tube));
+        }
+
+        if (index < count * 0.74)
+        {
+            var t = random.NextDouble();
+            var branch = index % 2 == 0 ? 0 : Math.PI;
+            var angle = t * Math.PI * 5 + branch;
+            var jitter = (random.NextDouble() - 0.5) * 0.045;
+            return new ParticleTarget(
+                (0.27 + jitter) * Math.Cos(angle),
+                (t - 0.5) * 1.48,
+                (0.27 + jitter) * Math.Sin(angle));
+        }
+
+        var theta = 2 * Math.PI * random.NextDouble();
+        var phi = Math.Acos(2 * random.NextDouble() - 1);
+        var nucleusRadius = 0.19 + random.NextDouble() * 0.17;
+        return new ParticleTarget(
+            nucleusRadius * Math.Sin(phi) * Math.Cos(theta),
+            nucleusRadius * Math.Cos(phi),
+            nucleusRadius * Math.Sin(phi) * Math.Sin(theta));
+    }
+
+    private static ParticleTarget BuildHermesHeadTarget(int index, int count, Random random)
+    {
+        if (index < count * 0.46)
+        {
+            var theta = 2 * Math.PI * random.NextDouble();
+            var phi = Math.Acos(2 * random.NextDouble() - 1);
+            var y = 0.08 + 0.78 * Math.Cos(phi);
+            var jawTaper = 1 - 0.27 * Math.Clamp((y - 0.18) / 0.68, 0, 1);
+            return new ParticleTarget(
+                0.58 * Math.Sin(phi) * Math.Cos(theta) * jawTaper,
+                y,
+                0.42 * Math.Sin(phi) * Math.Sin(theta));
+        }
+
+        if (index < count * 0.68)
+        {
+            var polar = random.NextDouble() * Math.PI * 0.5;
+            var around = random.NextDouble() * Math.PI * 2;
+            return new ParticleTarget(
+                0.68 * Math.Sin(polar) * Math.Cos(around),
+                -0.46 - 0.60 * Math.Cos(polar),
+                0.52 * Math.Sin(polar) * Math.Sin(around));
+        }
+
+        if (index < count * 0.84)
+        {
+            var side = index % 2 == 0 ? -1.0 : 1.0;
+            var t = random.NextDouble();
+            var feather = (index % 4) / 3.0;
+            return new ParticleTarget(
+                side * (0.60 + 0.50 * t),
+                -0.54 - (0.20 + feather * 0.24) * t + feather * 0.035,
+                -0.03 + (random.NextDouble() - 0.5) * 0.16);
+        }
+
+        if (index < count * 0.94)
+        {
+            var side = index % 2 == 0 ? -1.0 : 1.0;
+            var angle = random.NextDouble() * Math.PI;
+            return new ParticleTarget(
+                side * (0.20 + 0.15 * Math.Cos(angle)),
+                -0.10 + 0.07 * Math.Sin(angle),
+                -0.405 - 0.035 * Math.Sin(angle));
+        }
+
+        if (index % 2 == 0)
+        {
+            var t = random.NextDouble();
+            return new ParticleTarget(
+                (random.NextDouble() - 0.5) * 0.045,
+                -0.12 + t * 0.43,
+                -0.43 - Math.Sin(t * Math.PI) * 0.10);
+        }
+
+        var rim = random.NextDouble() * 2 - 1;
+        return new ParticleTarget(
+            rim * 0.64,
+            -0.46 + Math.Abs(rim) * 0.055,
+            -0.31 + (random.NextDouble() - 0.5) * 0.06);
     }
 
     private static string TrimForStatus(string text)
@@ -806,13 +926,14 @@ public sealed partial class VoicePage : Page
         double IdleX,
         double IdleY,
         double IdleZ,
-        double SphereX,
-        double SphereY,
-        double SphereZ,
+        ParticleTarget Sphere,
+        ParticleTarget NeuralCore,
+        ParticleTarget HermesHead,
         double Speed,
         double Phase,
         double Size,
         bool Hot);
 
+    private readonly record struct ParticleTarget(double X, double Y, double Z);
     private readonly record struct ProjectedParticle(double X, double Y, double Size, double Alpha, bool Hot);
 }

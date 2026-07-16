@@ -2,6 +2,13 @@
 
 Le modifiche rilevanti di Hermes Hub sono documentate qui. Le release GitHub restano la fonte per asset e note complete.
 
+## 0.6.164 - 2026-07-16
+
+- Wake word configurabile per progetto su Windows e Android: preset `Hermes`, `Ehi Hermes`, `Ok Hermes` o frase personalizzata.
+- Matching wake word reso robusto a maiuscole, accenti, punteggiatura e trascrizione italiana `Ermes`; lo stato Voce indica quando attende la frase scelta.
+- Corrette le tre operazioni rapide della chat: le liste trasparenti non intercettano più click e tap nello stato vuoto.
+- Impostazioni Voce estese con selezione della forma particelle, preservando profili e preferenze già salvati.
+
 ## 0.6.163 - 2026-07-16
 
 - UI Windows riallineata al linguaggio visivo Android: palette scura comune, superfici gerarchiche, accento arancione e bordi coerenti.
