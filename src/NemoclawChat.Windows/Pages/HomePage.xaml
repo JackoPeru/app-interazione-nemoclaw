@@ -27,6 +27,20 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <Border
+            x:Name="EmptyStateBackdrop"
+            Grid.RowSpan="3"
+            IsHitTestVisible="False">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                    <GradientStop Color="#34F5A524" Offset="0" />
+                    <GradientStop Color="#241F1710" Offset="0.28" />
+                    <GradientStop Color="#12181510" Offset="0.56" />
+                    <GradientStop Color="#000B0D10" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+
         <InfoBar
             x:Name="ErrorInfoBar"
             Grid.Row="0"
@@ -38,84 +52,74 @@
         <ScrollViewer
             x:Name="MessagesScroll"
             Grid.Row="1"
-            Padding="24,64,24,18"
+            Padding="28,52,28,18"
             VerticalScrollBarVisibility="Auto">
             <Grid MinHeight="620">
                 <Grid
                     x:Name="EmptyState"
-                    HorizontalAlignment="Center"
+                    HorizontalAlignment="Left"
                     VerticalAlignment="Center"
-                    MaxWidth="820">
-                    <StackPanel HorizontalAlignment="Center" Spacing="18">
+                    Margin="18,0,0,24"
+                    MaxWidth="560">
+                    <StackPanel HorizontalAlignment="Stretch" Spacing="0">
                         <Border
-                            Width="108"
-                            Height="108"
-                            Background="#FF0A0F16"
-                            CornerRadius="28">
+                            Width="76"
+                            Height="76"
+                            HorizontalAlignment="Left"
+                            Background="{StaticResource PanelBrush}"
+                            CornerRadius="24">
                             <Image
                                 Source="ms-appx:///Assets/ChatClawLogo.png"
                                 Stretch="UniformToFill" />
                         </Border>
                         <TextBlock
-                            HorizontalAlignment="Center"
-                            FontSize="30"
+                            Margin="0,22,0,0"
+                            FontSize="27"
                             FontWeight="SemiBold"
                             Foreground="White"
                             Text="Che vuoi fare oggi?" />
                         <TextBlock
-                            HorizontalAlignment="Center"
+                            Margin="0,10,0,0"
                             FontSize="14"
                             Foreground="{StaticResource MutedTextBrush}"
-                            Text="Chat normale, cron e strumenti Hermes Agent sul tuo home-server." />
-                        <Grid
-                            MaxWidth="430"
-                            ColumnSpacing="10"
-                            RowSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Button
-                                Padding="14,8"
-                                HorizontalAlignment="Stretch"
-                                Background="{StaticResource SurfaceBrush}"
-                                BorderBrush="{StaticResource BorderBrushSoft}"
-                                Click="PromptSetup_Click"
-                                Content="Prepara setup Hermes"
-                                CornerRadius="8"
-                                Foreground="White" />
-                            <Button
-                                Grid.Column="1"
-                                Padding="14,8"
-                                HorizontalAlignment="Stretch"
-                                Background="{StaticResource SurfaceBrush}"
-                                BorderBrush="{StaticResource BorderBrushSoft}"
-                                Click="PromptHealth_Click"
-                                Content="Controlla server"
-                                CornerRadius="8"
-                                Foreground="White" />
-                            <Button
-                                Grid.Row="1"
-                                Grid.ColumnSpan="2"
-                                Padding="14,8"
-                                HorizontalAlignment="Stretch"
-                                Background="{StaticResource SurfaceBrush}"
-                                BorderBrush="{StaticResource BorderBrushSoft}"
-                                Click="PromptAgent_Click"
-                                Content="Crea ordine agente"
-                                CornerRadius="8"
-                                Foreground="White" />
-                        </Grid>
+                            Text="Chat live, cron e strumenti Hermes Agent sul tuo home-server."
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            Margin="0,28,0,10"
+                            Style="{StaticResource SidebarSectionLabelStyle}"
+                            Text="OPERAZIONI RAPIDE" />
+                        <StackPanel Spacing="9">
+                            <Button Click="PromptSetup_Click" Style="{StaticResource QuickActionButtonStyle}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Ellipse Width="7" Height="7" Fill="{StaticResource AccentBrush}" />
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" Text="Prepara setup Hermes" />
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="22" Foreground="{StaticResource FaintTextBrush}" Text="&#x203A;" />
+                                </Grid>
+                            </Button>
+                            <Button Click="PromptHealth_Click" Style="{StaticResource QuickActionButtonStyle}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Ellipse Width="7" Height="7" Fill="{StaticResource AccentBrush}" />
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" Text="Controlla server" />
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="22" Foreground="{StaticResource FaintTextBrush}" Text="&#x203A;" />
+                                </Grid>
+                            </Button>
+                            <Button Click="PromptAgent_Click" Style="{StaticResource QuickActionButtonStyle}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Ellipse Width="7" Height="7" Fill="{StaticResource AccentBrush}" />
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" Text="Crea ordine agente" />
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="22" Foreground="{StaticResource FaintTextBrush}" Text="&#x203A;" />
+                                </Grid>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
 
                 <ListView
                     x:Name="MessagesList"
-                    MaxWidth="860"
+                    MaxWidth="900"
                     HorizontalAlignment="Stretch"
                     Padding="0,32,0,32"
                     Background="Transparent"
@@ -146,39 +150,37 @@
 
         <StackPanel
             Grid.Row="1"
-            Margin="0,20,34,0"
+            Margin="0,18,28,0"
             HorizontalAlignment="Right"
             VerticalAlignment="Top"
             Orientation="Horizontal"
             Spacing="8">
             <Button
                 x:Name="NewChatButton"
-                MinWidth="100"
-                Padding="12,7"
-                Background="{StaticResource ElevatedSurfaceBrush}"
+                Width="42"
+                Height="42"
+                Padding="0"
+                Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
                 Click="NewChat_Click"
-                CornerRadius="18"
-                Foreground="White"
+                CornerRadius="14"
+                Foreground="{StaticResource AccentBrush}"
                 AutomationProperties.Name="Nuova chat"
                 ToolTipService.ToolTip="Inizia una nuova chat">
-                <StackPanel Orientation="Horizontal" Spacing="7">
-                    <FontIcon FontSize="14" Glyph="&#xE70F;" />
-                    <TextBlock FontSize="12" FontWeight="SemiBold" Text="Nuova" />
-                </StackPanel>
+                <FontIcon FontSize="16" Glyph="&#xE70F;" />
             </Button>
             <Border
                 x:Name="ContextMeter"
-                Width="54"
-                Height="54"
+                Width="42"
+                Height="42"
                 Background="{StaticResource ElevatedSurfaceBrush}"
                 BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
-                CornerRadius="27"
+                CornerRadius="21"
                 AutomationProperties.Name="Contesto chat">
-                <Grid Width="54" Height="54">
-                    <Ellipse Fill="#FF111821" />
+                <Grid Width="42" Height="42">
+                    <Ellipse Fill="{StaticResource PanelBrush}" />
                     <Path
                         x:Name="ContextMeterFill"
                         Fill="{StaticResource AccentGreenBrush}"
@@ -192,7 +194,7 @@
                         x:Name="ContextMeterText"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
-                        FontSize="12"
+                        FontSize="11"
                         FontWeight="SemiBold"
                         Foreground="White"
                         Text="0%" />
@@ -202,17 +204,17 @@
 
         <Grid
             Grid.Row="2"
-            Padding="24,0,24,28"
+            Padding="20,0,20,20"
             HorizontalAlignment="Stretch">
             <Border
                 MaxWidth="1040"
-                MinHeight="58"
+                MinHeight="60"
                 HorizontalAlignment="Stretch"
                 Background="{StaticResource ComposerBrush}"
                 BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
-                CornerRadius="30">
-                <Grid Padding="14,8,10,8" RowSpacing="2">
+                CornerRadius="25">
+                <Grid Padding="9,8,8,8" RowSpacing="2">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -235,8 +237,10 @@
                             x:Name="PlusButton"
                             Width="38"
                             Height="38"
-                            Background="Transparent"
-                            BorderThickness="0"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="19"
                             Foreground="{StaticResource MutedTextBrush}"
                             AutomationProperties.Name="Azioni e allegati">
                             <FontIcon FontSize="16" Glyph="&#xE710;" />
@@ -316,10 +320,11 @@
                             DragOver="PromptBox_DragOver"
                             Drop="PromptBox_Drop"
                             Foreground="White"
+                            FontSize="16"
                             IsSpellCheckEnabled="True"
                             KeyDown="PromptBox_KeyDown"
                             MaxLength="50000"
-                            PlaceholderForeground="{StaticResource MutedTextBrush}"
+                            PlaceholderForeground="{StaticResource FaintTextBrush}"
                             PlaceholderText="Fai una domanda"
                             Paste="PromptBox_Paste"
                             TextWrapping="Wrap" />
@@ -342,11 +347,11 @@
                             Grid.Column="3"
                             Width="42"
                             Height="42"
-                            Background="White"
+                            Background="{StaticResource AccentBrush}"
                             BorderThickness="0"
                             Click="Send_Click"
                             CornerRadius="21"
-                            Foreground="#FF111111"
+                            Foreground="#FF171009"
                             AutomationProperties.Name="Invia messaggio">
                             <FontIcon FontSize="16" Glyph="&#xE724;" />
                         </Button>

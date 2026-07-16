@@ -111,7 +111,7 @@
 
                                         <Border
                                             Height="101"
-                                            Background="#FF232831"
+                                            Background="{StaticResource ElevatedSurfaceBrush}"
                                             BorderBrush="#33FFFFFF"
                                             BorderThickness="1"
                                             CornerRadius="8">

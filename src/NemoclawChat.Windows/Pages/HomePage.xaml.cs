@@ -522,9 +522,15 @@ public sealed partial class HomePage : Page
         Messages.Clear();
         _pendingAttachments.Clear();
         RenderAttachmentPreviews();
-        EmptyState.Visibility = Visibility.Visible;
+        SetEmptyStateVisibility(Visibility.Visible);
         PromptBox.Text = string.Empty;
         UpdateContextMeter();
+    }
+
+    private void SetEmptyStateVisibility(Visibility visibility)
+    {
+        EmptyState.Visibility = visibility;
+        EmptyStateBackdrop.Visibility = visibility;
     }
 
     private static async Task StopRunAfterResetAsync(string runId)
@@ -578,11 +584,11 @@ public sealed partial class HomePage : Page
     {
         SendButton.IsEnabled = true;
         SendButton.Background = isStreaming
-            ? new SolidColorBrush(ColorHelper.FromArgb(255, 166, 37, 37))
-            : new SolidColorBrush(Colors.White);
+            ? new SolidColorBrush(ColorHelper.FromArgb(255, 158, 36, 36))
+            : (Brush)Application.Current.Resources["AccentBrush"];
         SendButton.Foreground = isStreaming
             ? new SolidColorBrush(Colors.White)
-            : new SolidColorBrush(ColorHelper.FromArgb(255, 17, 17, 17));
+            : new SolidColorBrush(ColorHelper.FromArgb(255, 23, 16, 9));
         AutomationProperties.SetName(SendButton, isStreaming ? "Interrompi risposta" : "Invia messaggio");
         if (SendButton.Content is FontIcon icon)
         {
@@ -673,7 +679,7 @@ public sealed partial class HomePage : Page
 
         try
         {
-            EmptyState.Visibility = Visibility.Collapsed;
+            SetEmptyStateVisibility(Visibility.Collapsed);
             _pendingAttachments.Clear();
             RenderAttachmentPreviews();
             var displayPrompt = attachments.Count == 0
@@ -1499,8 +1505,8 @@ public sealed partial class HomePage : Page
 
     private void AddAction(string title, string text)
     {
-        EmptyState.Visibility = Visibility.Collapsed;
-        AddBubble(title, text, "SurfaceBrush", HorizontalAlignment.Left);
+        SetEmptyStateVisibility(Visibility.Collapsed);
+        AddBubble(title, text, "PanelBrush", HorizontalAlignment.Left);
     }
 
     private void LoadConversation(string conversationId)
@@ -1519,7 +1525,7 @@ public sealed partial class HomePage : Page
             ? conversation.PreviousResponseId
             : null;
         _lastServerContextTokens = 0;
-        EmptyState.Visibility = Visibility.Collapsed;
+        SetEmptyStateVisibility(Visibility.Collapsed);
         Messages.Clear();
         _messageHistory.Clear();
 
@@ -1590,6 +1596,28 @@ public sealed partial class HomePage : Page
         }
         if (isAssistant)
         {
+            var assistantLabel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 7,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            assistantLabel.Children.Add(new Border
+            {
+                Width = 7,
+                Height = 7,
+                CornerRadius = new CornerRadius(4),
+                Background = (Brush)Application.Current.Resources["AccentBrush"]
+            });
+            assistantLabel.Children.Add(new TextBlock
+            {
+                Text = "HERMES",
+                FontSize = 10,
+                FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                CharacterSpacing = 110,
+                Foreground = (Brush)Application.Current.Resources["FaintTextBrush"]
+            });
+            content.Children.Add(assistantLabel);
             content.Children.Add(RenderThinkingExpander(thinking));
             content.Children.Add(MarkdownRenderer.Render(text, Colors.White));
         }
@@ -1625,9 +1653,17 @@ public sealed partial class HomePage : Page
         {
             MaxWidth = isUser ? 520 : 820,
             Padding = isAssistant ? new Thickness(4, 2, 4, 2) : new Thickness(18, 14, 18, 14),
-            CornerRadius = isAssistant ? new CornerRadius(0) : new CornerRadius(20),
+            CornerRadius = isAssistant
+                ? new CornerRadius(0)
+                : isUser
+                    ? new CornerRadius(20, 7, 20, 20)
+                    : new CornerRadius(16),
             Background = isAssistant ? new SolidColorBrush(Colors.Transparent) : (Brush)Application.Current.Resources[brushKey],
-            BorderBrush = isAssistant ? new SolidColorBrush(Colors.Transparent) : (Brush)Application.Current.Resources["BorderBrushSoft"],
+            BorderBrush = isAssistant
+                ? new SolidColorBrush(Colors.Transparent)
+                : isUser
+                    ? (Brush)Application.Current.Resources["AccentBorderBrush"]
+                    : (Brush)Application.Current.Resources["BorderBrushSoft"],
             BorderThickness = isAssistant ? new Thickness(0) : new Thickness(1),
             HorizontalAlignment = alignment,
             Child = content
@@ -2013,7 +2049,7 @@ public sealed partial class HomePage : Page
         percent = Math.Clamp(percent, 0, 100);
 
         ContextMeterText.Text = $"{percent}%";
-        ContextMeterFill.Data = BuildContextMeterGeometry(percent / 100.0, 54, 54);
+        ContextMeterFill.Data = BuildContextMeterGeometry(percent / 100.0, 42, 42);
         ToolTipService.SetToolTip(
             ContextMeter,
             HermesHubProtocol.IsNativePreferred(settings)

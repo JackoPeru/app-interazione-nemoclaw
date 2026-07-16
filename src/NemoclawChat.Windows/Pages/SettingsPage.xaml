@@ -22,7 +22,7 @@
         <StackPanel Grid.Row="1" MaxWidth="820" HorizontalAlignment="Stretch" Spacing="16">
             <TextBlock Foreground="{StaticResource MutedTextBrush}" Text="Impostazioni salvate localmente. Le nuove installazioni non includono endpoint o credenziali preconfigurati." />
 
-            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="8">
+            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="20">
                 <StackPanel Spacing="10">
                     <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Connessione Hermes" />
                         <TextBox x:Name="GatewayUrlBox" Header="Hermes API URL" PlaceholderText="http://nome-magicdns:8642/v1" />
@@ -37,7 +37,7 @@
             <TextBox x:Name="GatewayWsUrlBox" Visibility="Collapsed" />
             <TextBox x:Name="AdminBridgeUrlBox" Visibility="Collapsed" />
 
-            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="8">
+            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="20">
                 <StackPanel Spacing="10">
                     <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Chat / Agente" />
                     <TextBox x:Name="ModelBox" Header="Modello / agente" />
@@ -46,7 +46,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="8">
+            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="20">
                 <StackPanel Spacing="10">
                     <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Voce" />
                     <TextBlock x:Name="VoiceProjectText" Foreground="{StaticResource MutedTextBrush}" Text="Profilo voce generale" />
@@ -62,7 +62,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="8">
+            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="20">
                 <StackPanel Spacing="10">
                     <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Visualizzazione messaggi" />
                     <ToggleSwitch x:Name="ShowMessageMetricsSwitch" Header="Metriche sotto messaggi" OffContent="Nascoste" OnContent="Visibili" />
@@ -87,7 +87,7 @@
             </Border>
 
             <Expander Header="Avanzate">
-                <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="8">
+            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="20">
                     <StackPanel Spacing="10">
                         <TextBox x:Name="ProviderBox" Header="Provider" />
                         <TextBox x:Name="InferenceEndpointBox" Header="Endpoint API lato server" />
@@ -113,7 +113,7 @@
             </Expander>
 
             <Expander Header="Memoria Hermes">
-                <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="#FF3A3A3A" BorderThickness="1" CornerRadius="8">
+            <Border Padding="16" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="20">
                     <StackPanel Spacing="10">
                         <TextBlock x:Name="MemoryStatusText" Foreground="{StaticResource MutedTextBrush}" Text="Memoria gateway non ancora letta." TextWrapping="Wrap" />
                         <TextBox x:Name="MemoryVideoBox" Header="Preferenze video" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72" />

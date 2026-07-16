@@ -22,192 +22,164 @@
             Grid.Column="0"
             Padding="14,16,14,14"
             Background="{StaticResource SidebarBrush}"
-            BorderBrush="#FF303030"
+            BorderBrush="{StaticResource BorderBrushSoft}"
             BorderThickness="0,0,1,0">
-            <Grid RowSpacing="18">
+            <Grid RowSpacing="14">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid ColumnSpacing="8">
+                <Grid ColumnSpacing="10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Border
-                        Width="40"
-                        Height="40"
-                        Background="#FF0A0F16"
-                        CornerRadius="12">
+                        Width="44"
+                        Height="44"
+                        Background="{StaticResource PanelBrush}"
+                        CornerRadius="14">
                         <Image
-                            Width="40"
-                            Height="40"
                             Source="ms-appx:///Assets/ChatClawLogo.png"
                             Stretch="UniformToFill" />
                     </Border>
-                    <TextBlock
+                    <StackPanel
                         Grid.Column="1"
-                        FontSize="20"
-                        FontWeight="SemiBold"
-                        Foreground="White"
-                        Text="Hermes Hub" />
+                        VerticalAlignment="Center"
+                        Spacing="1">
+                        <TextBlock
+                            FontSize="18"
+                            FontWeight="SemiBold"
+                            Foreground="White"
+                            Text="Hermes Hub" />
+                        <TextBlock
+                            FontSize="11"
+                            Foreground="{StaticResource FaintTextBrush}"
+                            Text="Hermes Agent · desktop" />
+                    </StackPanel>
                     <Button
                         Grid.Column="2"
-                        Width="34"
-                        Height="34"
-                        Background="Transparent"
-                        BorderThickness="0"
                         Click="CollapseSidebar_Click"
-                        Foreground="{StaticResource MutedTextBrush}"
+                        Style="{StaticResource ShellIconButtonStyle}"
                         AutomationProperties.Name="Comprimi sidebar"
                         ToolTipService.ToolTip="Comprimi sidebar">
-                        <FontIcon FontSize="14" Glyph="&#xE700;" />
+                        <FontIcon FontSize="15" Glyph="&#xE700;" />
                     </Button>
                 </Grid>
 
-                <StackPanel Grid.Row="1" Spacing="4">
-                    <Button Click="NewChat_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Nuova chat" AutomationProperties.Name="Nuova chat">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE710;" />
-                            <TextBlock Text="Nuova chat" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Archivio chat" AutomationProperties.Name="Archivio chat">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE721;" />
-                            <TextBlock Text="Cerca chat" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Cron_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Cron Hermes" AutomationProperties.Name="Cron Hermes">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE7C1;" />
-                            <TextBlock Text="Cron" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Notifications_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Notifiche Hermes" AutomationProperties.Name="Notifiche Hermes">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE91C;" />
-                            <TextBlock Text="Notifiche" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Server_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Server Hermes" AutomationProperties.Name="Server Hermes">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE968;" />
-                            <TextBlock Text="Server" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Hardware_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Prestazioni hardware" AutomationProperties.Name="Prestazioni hardware">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE9D9;" />
-                            <TextBlock Text="Prestazioni" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Continuity_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Continuità dispositivi" AutomationProperties.Name="Continuità dispositivi">
-                        <StackPanel Orientation="Horizontal" Spacing="10"><FontIcon FontSize="15" Glyph="&#xE8C8;" /><TextBlock Text="Continuità" /></StackPanel>
-                    </Button>
-                    <Button Click="Audit_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Timeline audit" AutomationProperties.Name="Timeline audit"><StackPanel Orientation="Horizontal" Spacing="10"><FontIcon FontSize="15" Glyph="&#xE9D5;" /><TextBlock Text="Audit" /></StackPanel></Button>
-                    <Button Click="Search_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Ricerca universale (Ctrl+K)" AutomationProperties.Name="Ricerca universale">
-                        <StackPanel Orientation="Horizontal" Spacing="10"><FontIcon FontSize="15" Glyph="&#xE721;" /><TextBlock Text="Ricerca globale" /></StackPanel>
-                    </Button>
-                    <Button Click="Voice_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Voce" AutomationProperties.Name="Voce">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE720;" />
-                            <TextBlock Text="Voce" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Video_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Video" AutomationProperties.Name="Video">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE714;" />
-                            <TextBlock Text="Video" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Artifacts_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Artifact" AutomationProperties.Name="Artifact">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE8B7;" />
-                            <TextBlock Text="Artifact" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="News_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="News" AutomationProperties.Name="News">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE789;" />
-                            <TextBlock Text="News" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Settings_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Impostazioni" AutomationProperties.Name="Impostazioni">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <FontIcon FontSize="15" Glyph="&#xE713;" />
-                            <TextBlock Text="Impostazioni" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
+                <ScrollViewer
+                    Grid.Row="1"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="4">
+                        <Button
+                            x:Name="NavNewChatButton"
+                            Click="NewChat_Click"
+                            Style="{StaticResource SidebarSelectedButtonStyle}"
+                            AutomationProperties.Name="Nuova chat"
+                            ToolTipService.ToolTip="Nuova chat">
+                            <StackPanel Orientation="Horizontal" Spacing="11">
+                                <FontIcon FontSize="17" Glyph="&#xE710;" />
+                                <TextBlock FontWeight="SemiBold" Text="Nuova chat" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            x:Name="NavArchiveButton"
+                            Click="Archive_Click"
+                            Style="{StaticResource SidebarButtonStyle}"
+                            AutomationProperties.Name="Archivio chat"
+                            ToolTipService.ToolTip="Archivio chat">
+                            <StackPanel Orientation="Horizontal" Spacing="11">
+                                <FontIcon FontSize="17" Glyph="&#xE8B7;" />
+                                <TextBlock Text="Archivio chat" />
+                            </StackPanel>
+                        </Button>
 
-                <StackPanel Grid.Row="2" Spacing="18">
-                    <Button Click="Projects_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Progetti" AutomationProperties.Name="Progetti">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock
-                                Foreground="White"
-                            FontSize="13"
-                            FontWeight="SemiBold"
-                            Text="Progetti" />
-                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text=">" />
-                        </StackPanel>
-                    </Button>
-                    <Button Click="Archive_Click" Style="{StaticResource SidebarButtonStyle}" ToolTipService.ToolTip="Recenti" AutomationProperties.Name="Recenti">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock
-                                Foreground="White"
-                            FontSize="13"
-                            FontWeight="SemiBold"
-                            Text="Recenti" />
-                            <TextBlock Foreground="{StaticResource MutedTextBrush}" Text=">" />
-                        </StackPanel>
-                    </Button>
-                    <StackPanel x:Name="RecentChatsPanel" Spacing="4" />
-                </StackPanel>
+                        <TextBlock Style="{StaticResource SidebarSectionLabelStyle}" Text="OPERATIVITÀ" />
+                        <Button x:Name="NavProjectsButton" Click="Projects_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Progetti" ToolTipService.ToolTip="Progetti">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE8F1;" /><TextBlock Text="Progetti" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavCronButton" Click="Cron_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Cron Hermes" ToolTipService.ToolTip="Cron Hermes">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE7C1;" /><TextBlock Text="Cron" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavNotificationsButton" Click="Notifications_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Notifiche Hermes" ToolTipService.ToolTip="Notifiche Hermes">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE91C;" /><TextBlock Text="Notifiche" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavContinuityButton" Click="Continuity_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Continuità dispositivi" ToolTipService.ToolTip="Continuità dispositivi">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE8C8;" /><TextBlock Text="Continuità" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavAuditButton" Click="Audit_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Timeline audit" ToolTipService.ToolTip="Timeline audit">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE9D5;" /><TextBlock Text="Audit" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavSearchButton" Click="Search_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Ricerca universale" ToolTipService.ToolTip="Ricerca universale (Ctrl+K)">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE721;" /><TextBlock Text="Ricerca globale" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavServerButton" Click="Server_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Server Hermes" ToolTipService.ToolTip="Server Hermes">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE968;" /><TextBlock Text="Server" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavHardwareButton" Click="Hardware_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Prestazioni hardware" ToolTipService.ToolTip="Prestazioni hardware">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE9D9;" /><TextBlock Text="Prestazioni" /></StackPanel>
+                        </Button>
+
+                        <TextBlock Style="{StaticResource SidebarSectionLabelStyle}" Text="CREAZIONE" />
+                        <Button x:Name="NavVoiceButton" Click="Voice_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Voce" ToolTipService.ToolTip="Voce">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE720;" /><TextBlock Text="Voce" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavVideoButton" Click="Video_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Video" ToolTipService.ToolTip="Video">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE714;" /><TextBlock Text="Video" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavArtifactsButton" Click="Artifacts_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Artifact" ToolTipService.ToolTip="Artifact">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE8B7;" /><TextBlock Text="Artifact" /></StackPanel>
+                        </Button>
+                        <Button x:Name="NavNewsButton" Click="News_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="News" ToolTipService.ToolTip="News">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE789;" /><TextBlock Text="News" /></StackPanel>
+                        </Button>
+
+                        <TextBlock Style="{StaticResource SidebarSectionLabelStyle}" Text="RECENTI" />
+                        <StackPanel x:Name="RecentChatsPanel" Spacing="4" />
+
+                        <TextBlock Style="{StaticResource SidebarSectionLabelStyle}" Text="SISTEMA" />
+                        <Button x:Name="NavSettingsButton" Click="Settings_Click" Style="{StaticResource SidebarButtonStyle}" AutomationProperties.Name="Impostazioni" ToolTipService.ToolTip="Impostazioni">
+                            <StackPanel Orientation="Horizontal" Spacing="11"><FontIcon FontSize="16" Glyph="&#xE713;" /><TextBlock Text="Impostazioni" /></StackPanel>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
 
                 <Button
-                    Grid.Row="3"
-                    Padding="6"
-                    Background="Transparent"
-                    BorderThickness="0"
+                    x:Name="ProfileButton"
+                    Grid.Row="2"
                     Click="About_Click"
-                    HorizontalAlignment="Stretch"
+                    Style="{StaticResource SidebarButtonStyle}"
                     HorizontalContentAlignment="Stretch"
-                    ToolTipService.ToolTip="Profilo"
-                    AutomationProperties.Name="Profilo">
+                    AutomationProperties.Name="Profilo"
+                    ToolTipService.ToolTip="Profilo">
                     <Grid ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Border
-                            Width="28"
-                            Height="28"
-                            Background="#FF9B59B6"
-                            CornerRadius="14">
+                            Width="32"
+                            Height="32"
+                            Background="{StaticResource AccentSubtleBrush}"
+                            CornerRadius="16">
                             <TextBlock
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 FontSize="11"
-                                FontWeight="SemiBold"
-                                Foreground="White"
+                                FontWeight="Bold"
+                                Foreground="{StaticResource AccentBrush}"
                                 Text="MP" />
                         </Border>
-                        <StackPanel Grid.Column="1">
-                            <TextBlock
-                                FontSize="12"
-                                FontWeight="SemiBold"
-                                Foreground="White"
-                                Text="Profilo locale" />
-                            <TextBlock
-                                FontSize="11"
-                                Foreground="{StaticResource MutedTextBrush}"
-                                Text="Hermes locale" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="White" Text="Profilo locale" />
+                            <TextBlock FontSize="10" Foreground="{StaticResource FaintTextBrush}" Text="Hermes locale" />
                         </StackPanel>
+                        <FontIcon Grid.Column="2" FontSize="12" Glyph="&#xE76C;" Foreground="{StaticResource FaintTextBrush}" />
                     </Grid>
                 </Button>
             </Grid>
@@ -215,52 +187,60 @@
 
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
-                <RowDefinition Height="64" />
+                <RowDefinition Height="68" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid
+            <Border
                 x:Name="DragRegion"
-                Background="{StaticResource AppBackgroundBrush}">
-                <StackPanel
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Center"
-                    Orientation="Horizontal"
-                    Padding="16,0,0,0">
+                Background="{StaticResource AppBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="0,0,0,1">
+                <Grid Padding="16,0,16,0" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
                     <Button
                         x:Name="RestoreSidebarButton"
-                        Width="32"
-                        Height="32"
-                        Background="Transparent"
-                        BorderThickness="0"
                         Click="CollapseSidebar_Click"
-                        Foreground="{StaticResource MutedTextBrush}"
+                        Style="{StaticResource ShellIconButtonStyle}"
                         Visibility="Collapsed"
-                        ToolTipService.ToolTip="Mostra sidebar"
-                        AutomationProperties.Name="Mostra sidebar">
-                        <FontIcon FontSize="14" Glyph="&#xE8A0;" />
+                        AutomationProperties.Name="Mostra sidebar"
+                        ToolTipService.ToolTip="Mostra sidebar">
+                        <FontIcon FontSize="16" Glyph="&#xE8A0;" />
                     </Button>
-                </StackPanel>
-
-                <StackPanel
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Bottom"
-                    Orientation="Horizontal"
-                    Padding="0,0,16,8"
-                    Spacing="10">
-                    <Button
-                        Width="32"
-                        Height="32"
-                        Click="Settings_Click"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Foreground="{StaticResource MutedTextBrush}"
-                        ToolTipService.ToolTip="Impostazioni"
-                        AutomationProperties.Name="Impostazioni">
-                        <FontIcon FontSize="14" Glyph="&#xE713;" />
-                    </Button>
-                </StackPanel>
-            </Grid>
+                    <StackPanel
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Spacing="1">
+                        <TextBlock
+                            x:Name="ShellPageTitle"
+                            FontSize="19"
+                            FontWeight="SemiBold"
+                            Foreground="White"
+                            Text="Chat" />
+                        <TextBlock
+                            x:Name="ShellPageSubtitle"
+                            FontSize="11"
+                            Foreground="{StaticResource FaintTextBrush}"
+                            Text="Hermes Hub" />
+                    </StackPanel>
+                    <StackPanel
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="4">
+                        <Button Click="NewChat_Click" Style="{StaticResource ShellIconButtonStyle}" AutomationProperties.Name="Nuova chat" ToolTipService.ToolTip="Nuova chat">
+                            <FontIcon FontSize="16" Glyph="&#xE70F;" Foreground="{StaticResource AccentBrush}" />
+                        </Button>
+                        <Button Click="Settings_Click" Style="{StaticResource ShellIconButtonStyle}" AutomationProperties.Name="Impostazioni" ToolTipService.ToolTip="Impostazioni">
+                            <FontIcon FontSize="16" Glyph="&#xE713;" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
             <Frame x:Name="ContentFrame" Grid.Row="1" />
         </Grid>

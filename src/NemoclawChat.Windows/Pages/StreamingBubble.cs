@@ -67,16 +67,28 @@ internal sealed class StreamingBubble
         _speakMessageAsync = speakMessageAsync;
         _content = new StackPanel { Spacing = 10 };
 
-        if (_showAdvanced)
+        var assistantLabel = new StackPanel
         {
-            _content.Children.Add(new TextBlock
-            {
-                Text = "Hermes",
-                FontSize = 12,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(Colors.White)
-            });
-        }
+            Orientation = Orientation.Horizontal,
+            Spacing = 7,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        assistantLabel.Children.Add(new Border
+        {
+            Width = 7,
+            Height = 7,
+            CornerRadius = new CornerRadius(4),
+            Background = (Brush)Application.Current.Resources["AccentBrush"]
+        });
+        assistantLabel.Children.Add(new TextBlock
+        {
+            Text = "HERMES",
+            FontSize = 10,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            CharacterSpacing = 110,
+            Foreground = (Brush)Application.Current.Resources["FaintTextBrush"]
+        });
+        _content.Children.Add(assistantLabel);
 
         _shimmerBrush = new LinearGradientBrush
         {
@@ -236,11 +248,11 @@ internal sealed class StreamingBubble
         var bubble = new Border
         {
             MaxWidth = 820,
-            Padding = _showAdvanced ? new Thickness(18, 14, 18, 14) : new Thickness(4, 2, 4, 2),
-            CornerRadius = _showAdvanced ? new CornerRadius(20) : new CornerRadius(0),
-            Background = _showAdvanced ? (Brush)Application.Current.Resources["AssistantBubbleBrush"] : new SolidColorBrush(Colors.Transparent),
-            BorderBrush = _showAdvanced ? (Brush)Application.Current.Resources["BorderBrushSoft"] : new SolidColorBrush(Colors.Transparent),
-            BorderThickness = _showAdvanced ? new Thickness(1) : new Thickness(0),
+            Padding = new Thickness(4, 2, 4, 2),
+            CornerRadius = new CornerRadius(0),
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderBrush = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Left,
             Child = _content
         };

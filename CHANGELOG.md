@@ -2,6 +2,14 @@
 
 Le modifiche rilevanti di Hermes Hub sono documentate qui. Le release GitHub restano la fonte per asset e note complete.
 
+## 0.6.163 - 2026-07-16
+
+- UI Windows riallineata al linguaggio visivo Android: palette scura comune, superfici gerarchiche, accento arancione e bordi coerenti.
+- Sidebar Windows riorganizzata per aree operative, con stato selezionato, chat recenti e intestazione contestuale per ogni sezione.
+- Home Chat Windows aggiornata con sfondo sfumato, stato vuoto compatto, operazioni rapide verticali, context meter e composer rifiniti.
+- Messaggi Windows aggiornati con label `HERMES`, bubble utente asimmetrica, streaming coerente e azioni integrate nel nuovo stile.
+- Normalizzate card e superfici di Impostazioni, Server, Archivio, Cron, About, News e Video senza cambiare contratti, dati o impostazioni salvate.
+
 ## 0.6.162 - 2026-07-16
 
 - Rimosso il nome del backend dagli stati chat: l'interfaccia indica ora connessione, attesa del primo evento, elaborazione prompt e generazione risposta.

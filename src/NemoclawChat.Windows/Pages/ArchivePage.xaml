@@ -70,7 +70,7 @@
                 Grid.Column="1"
                 Padding="20"
                 Background="{StaticResource SurfaceBrush}"
-                BorderBrush="#FF3A3A3A"
+                BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
                 CornerRadius="18">
                 <StackPanel Spacing="14">

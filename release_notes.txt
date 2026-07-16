@@ -1,15 +1,13 @@
-Hermes Hub 0.6.162 (progresso reale e ragionamento visibile)
+Hermes Hub 0.6.163 (UI Windows allineata ad Android)
 
-- Stati chat: rimosso il nome tecnico del backend; ora indicano cosa Hermes sta aspettando o facendo.
-- Elaborazione prompt: percentuale mostrata solo quando il server invia contatori reali `processed/total`; nessuna percentuale stimata.
-- Gateway: richiede `return_progress` e `timings_per_token` nel body del modello e inoltra i metadati reali ai client.
-- Ragionamento live: `reasoning_content` dei chunk modello viene inoltrato come evento Hermes dedicato.
-- Ragionamento UI: voce sempre visibile e cliccabile su Windows e Android; la tendina mostra il contenuto ricevuto o dichiara che il server non lo ha inviato.
-- Archivio Windows: ragionamento salvato, ricaricato e sincronizzato tra dispositivi insieme alla risposta.
-- Android: rimossi conteggi token derivati dalla lunghezza del testo; restano solo metriche effettivamente ricevute.
-- Compatibilita: `applicationId com.nemoclaw.chat`, firma Android, package identity Windows, archivio e impostazioni esistenti preservati.
-- Versioni: Windows/AdminBridge `0.6.162`; Android `versionName 0.6.162`, `versionCode 166`.
-- Asset: `HermesHub-0.6.162-android.apk`, `NemoclawChat.Windows_0.6.162.0_x64.msix`, `HermesHub-0.6.162-linux-gateway.tar.gz`.
-- SHA-256 Android: `FF2BE5DDB61555224333B340D9E20556FFBEFF3FF80F25D551BC80CB5DAB813D`.
-- SHA-256 Windows: `FE2D61ED33B457DAFA5A6A4D2E9E1D519F8B95A72EA10AE06619F39FFB2B4992`.
-- SHA-256 gateway Linux: `A9E725653731896B5F47E7652B02BAD55F60C71AE3738C12CA61B208AE415029`.
+- Windows: palette, superfici, bordi e gerarchia visiva riallineati alla UI Android.
+- Shell Windows: sidebar organizzata per aree, stato selezionato e testata contestuale durante la navigazione.
+- Chat Windows: nuovo stato vuoto sfumato, operazioni rapide verticali, context meter compatto e composer con accento Hermes.
+- Messaggi Windows: label `HERMES`, bubble utente asimmetrica e streaming uniforme con il client Android.
+- Pagine secondarie: card e bordi normalizzati in Impostazioni, Server, Archivio, Cron, About, News e Video.
+- Compatibilita: package identity Windows, `applicationId com.nemoclaw.chat`, firma Android, archivio, endpoint e impostazioni esistenti preservati.
+- Versioni: Windows/AdminBridge `0.6.163`; Android `versionName 0.6.163`, `versionCode 167`.
+- Asset: `HermesHub-0.6.163-android.apk`, `NemoclawChat.Windows_0.6.163.0_x64.msix`, `HermesHub-0.6.163-linux-gateway.tar.gz`.
+- SHA-256 Android: `9A07FC66AA460B2CC31049001410F10DFC5CEE9EE00B018B2B9B2C5526BE45DB`.
+- SHA-256 Windows: `E9A67A8ACFE7558B779A2A94AD1523AE8A60FDE70A04D72AFC7868ECED928D69`.
+- SHA-256 gateway Linux: `A9BC61403E0B04788F59ADFFCC7E2DF1CC3187D5ED69438EA50575FABF32812C`.

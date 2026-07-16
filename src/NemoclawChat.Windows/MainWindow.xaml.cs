@@ -30,8 +30,8 @@ public sealed partial class MainWindow : Window
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
         AppWindow.SetIcon("Assets/AppIcon.ico");
         RestoreWindowState();
-        ContentFrame.Navigate(typeof(HomePage));
         ContentFrame.Navigated += ContentFrame_Navigated;
+        ContentFrame.Navigate(typeof(HomePage));
         ChatArchiveStore.Changed += RefreshRecentChats;
         Closed += MainWindow_Closed;
         _notificationPoller = new HubNotificationPoller(DispatcherQueue);
@@ -289,6 +289,7 @@ public sealed partial class MainWindow : Window
 
     private void ContentFrame_Navigated(object sender, Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
+        UpdateShellNavigation(e.SourcePageType);
         if (e.SourcePageType == typeof(VoicePage))
         {
             ApplyVoiceShell();
@@ -297,6 +298,72 @@ public sealed partial class MainWindow : Window
         {
             ApplyStandardShell();
         }
+    }
+
+    private void UpdateShellNavigation(Type pageType)
+    {
+        var (title, subtitle, selected) = pageType == typeof(HomePage)
+            ? ("Chat", "Conversazione principale Hermes Agent", NavNewChatButton)
+            : pageType == typeof(ArchivePage)
+                ? ("Archivio chat", "Conversazioni sincronizzate", NavArchiveButton)
+                : pageType == typeof(ProjectsPage) || pageType == typeof(ConversationManagerPage)
+                    ? ("Progetti", "Workspace e attività operative", NavProjectsButton)
+                    : pageType == typeof(CronPage)
+                        ? ("Cron", "Automazioni Hermes programmate", NavCronButton)
+                        : pageType == typeof(NotificationsPage)
+                            ? ("Notifiche", "Avvisi autonomi da Hermes", NavNotificationsButton)
+                            : pageType == typeof(ContinuityPage)
+                                ? ("Continuità", "Presenza e handoff tra dispositivi", NavContinuityButton)
+                                : pageType == typeof(AuditPage)
+                                    ? ("Timeline audit", "Eventi, run e operazioni server", NavAuditButton)
+                                    : pageType == typeof(SearchPage)
+                                        ? ("Ricerca globale", "Chat, progetti e contenuti Hermes", NavSearchButton)
+                                        : pageType == typeof(ServerPage)
+                                            ? ("Server", "Stato e controlli Hermes Agent", NavServerButton)
+                                            : pageType == typeof(HardwarePage)
+                                                ? ("Prestazioni", "Hardware del server Hermes", NavHardwareButton)
+                                                : pageType == typeof(VoicePage)
+                                                    ? ("Voce", "Conversazione vocale live", NavVoiceButton)
+                                                    : pageType == typeof(VideoPage)
+                                                        ? ("Video", "Libreria e produzione video", NavVideoButton)
+                                                        : pageType == typeof(ArtifactsPage)
+                                                            ? ("Artifact", "Output strutturati di Hermes", NavArtifactsButton)
+                                                            : pageType == typeof(NewsPage)
+                                                                ? ("News", "Articoli e briefing personali", NavNewsButton)
+                                                                : pageType == typeof(SettingsPage)
+                                                                    ? ("Impostazioni", "Connessione, voce e preferenze", NavSettingsButton)
+                                                                    : pageType == typeof(AboutPage)
+                                                                        ? ("Profilo locale", "Hermes Hub", ProfileButton)
+                                                                        : ("Hermes Hub", "Workspace operativo", (Button?)null);
+
+        ShellPageTitle.Text = title;
+        ShellPageSubtitle.Text = subtitle;
+        var normalStyle = (Style)Application.Current.Resources["SidebarButtonStyle"];
+        var selectedStyle = (Style)Application.Current.Resources["SidebarSelectedButtonStyle"];
+        foreach (var button in NavigationButtons())
+        {
+            button.Style = ReferenceEquals(button, selected) ? selectedStyle : normalStyle;
+        }
+    }
+
+    private IEnumerable<Button> NavigationButtons()
+    {
+        yield return NavNewChatButton;
+        yield return NavArchiveButton;
+        yield return NavProjectsButton;
+        yield return NavCronButton;
+        yield return NavNotificationsButton;
+        yield return NavContinuityButton;
+        yield return NavAuditButton;
+        yield return NavSearchButton;
+        yield return NavServerButton;
+        yield return NavHardwareButton;
+        yield return NavVoiceButton;
+        yield return NavVideoButton;
+        yield return NavArtifactsButton;
+        yield return NavNewsButton;
+        yield return NavSettingsButton;
+        yield return ProfileButton;
     }
 
     private void ApplyVoiceShell()
