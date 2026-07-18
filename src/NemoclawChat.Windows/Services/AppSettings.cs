@@ -9,6 +9,7 @@ public sealed class AppSettings
     public string InferenceEndpoint { get; set; } = string.Empty;
     public string PreferredApi { get; set; } = "hermes-native";
     public string Model { get; set; } = "hermes-agent";
+    public string VoiceModel { get; set; } = "hermes-voice";
     public string AccessMode { get; set; } = "Tailscale/LAN";
     public string VisualBlocksMode { get; set; } = "auto";
     public string VideoLibraryPath { get; set; } = string.Empty;
@@ -27,4 +28,11 @@ public sealed class AppSettings
     public bool MetricContextTokens { get; set; } = true;
     public bool MetricDuration { get; set; } = true;
     public int MaxAttachmentMb { get; set; } = 150;
+
+    public AppSettings ForModel(string model)
+    {
+        var copy = (AppSettings)MemberwiseClone();
+        copy.Model = string.IsNullOrWhiteSpace(model) ? Model : model.Trim();
+        return copy;
+    }
 }

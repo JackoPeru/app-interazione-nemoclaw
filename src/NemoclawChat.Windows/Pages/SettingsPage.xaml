@@ -50,6 +50,7 @@
                 <StackPanel Spacing="10">
                     <TextBlock Foreground="White" FontSize="16" FontWeight="SemiBold" Text="Voce" />
                     <TextBlock x:Name="VoiceProjectText" Foreground="{StaticResource MutedTextBrush}" Text="Profilo voce generale" />
+                    <TextBox x:Name="VoiceModelBox" Header="Modello dedicato Voce" PlaceholderText="hermes-voice" />
                     <ComboBox x:Name="VoiceNameBox" Header="Voce Kokoro" SelectedIndex="0">
                         <ComboBoxItem Content="if_sara" />
                         <ComboBoxItem Content="im_nicola" />

@@ -36,6 +36,7 @@ public sealed partial class SettingsPage : Page
         ProviderBox.Text = settings.Provider;
         InferenceEndpointBox.Text = settings.InferenceEndpoint;
         ModelBox.Text = settings.Model;
+        VoiceModelBox.Text = settings.VoiceModel;
         VideoLibraryPathBox.Text = settings.VideoLibraryPath;
         NewsLibraryPathBox.Text = settings.NewsLibraryPath;
         ActiveProjectNameBox.Text = settings.ActiveProjectName;
@@ -160,6 +161,7 @@ public sealed partial class SettingsPage : Page
             InferenceEndpoint = InferenceEndpointBox.Text.Trim(),
             PreferredApi = SelectedComboText(PreferredApiBox),
             Model = ModelBox.Text.Trim(),
+            VoiceModel = VoiceModelBox.Text.Trim(),
             VideoLibraryPath = VideoLibraryPathBox.Text.Trim(),
             NewsLibraryPath = NewsLibraryPathBox.Text.Trim(),
             ActiveProjectId = existing.ActiveProjectId,
@@ -188,6 +190,7 @@ public sealed partial class SettingsPage : Page
             ?? ValidateHttpUrl(settings.InferenceEndpoint, "Endpoint inferenza")
             ?? ValidatePreferredApi(settings.PreferredApi)
             ?? ValidateRequired(settings.Model, "Modello")
+            ?? ValidateRequired(settings.VoiceModel, "Modello Voce")
             ?? ValidateRequired(settings.AccessMode, "Accesso")
             ?? ValidateVisualBlocksMode(settings.VisualBlocksMode);
     }

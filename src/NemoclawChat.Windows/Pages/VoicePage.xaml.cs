@@ -293,12 +293,12 @@ public sealed partial class VoicePage : Page
         var turnToken = turnCts.Token;
         SetPhase(VoiceCallPhase.Thinking, "Hermes sta pensando...");
 
-        try
+        async Task StreamAnswerAsync(AppSettings requestSettings, string requestPrompt, bool speakWhileStreaming)
         {
             await foreach (var ev in ChatStreamClient.StreamChatAsync(
-                               settings,
+                               requestSettings,
                                "Chat",
-                               $"Sei in una chiamata vocale. Rispondi subito in italiano, con tono naturale e frasi brevi. Niente markdown, elenchi o preamboli. La prima frase deve avere al massimo 8 parole. Utente: {prompt}",
+                               requestPrompt,
                                contextHistory,
                                conversationId: null,
                                previousResponseId: null,
@@ -309,12 +309,15 @@ public sealed partial class VoicePage : Page
                 {
                     case StreamTextDelta delta:
                         answer.Append(delta.Delta);
-                        speechBuffer.Append(delta.Delta);
-                        SetStatus($"Hermes: {TrimForStatus(answer.ToString())}");
-                        foreach (var segment in DrainSpeechSegments(speechBuffer, flush: false))
+                        if (speakWhileStreaming)
                         {
-                            playbackChain = QueueSpeechSegmentAsync(playbackChain, settings, segment, turnToken);
+                            speechBuffer.Append(delta.Delta);
+                            foreach (var segment in DrainSpeechSegments(speechBuffer, flush: false))
+                            {
+                                playbackChain = QueueSpeechSegmentAsync(playbackChain, settings, segment, turnToken);
+                            }
                         }
+                        SetStatus($"Hermes: {TrimForStatus(answer.ToString())}");
                         break;
                     case StreamDone done when !string.IsNullOrWhiteSpace(done.AccumulatedText):
                         answer.Clear();
@@ -322,6 +325,41 @@ public sealed partial class VoicePage : Page
                         break;
                     case StreamError error:
                         throw new InvalidOperationException(error.Message);
+                }
+            }
+        }
+
+        try
+        {
+            if (VoiceModelRouter.RequiresLargeModel(prompt))
+            {
+                SetStatus("Hermes grande sta lavorando...");
+                await StreamAnswerAsync(
+                    settings.ForModel(settings.Model),
+                    VoiceModelRouter.BuildLargePrompt(prompt),
+                    speakWhileStreaming: true).ConfigureAwait(false);
+            }
+            else
+            {
+                await StreamAnswerAsync(
+                    settings.ForModel(settings.VoiceModel),
+                    VoiceModelRouter.BuildSmallPrompt(prompt),
+                    speakWhileStreaming: false).ConfigureAwait(false);
+
+                var routedAnswer = answer.ToString().Trim();
+                if (string.IsNullOrWhiteSpace(routedAnswer) || VoiceModelRouter.RequestedEscalation(routedAnswer))
+                {
+                    answer.Clear();
+                    speechBuffer.Clear();
+                    SetStatus("Hermes Voce chiede al modello grande...");
+                    await StreamAnswerAsync(
+                        settings.ForModel(settings.Model),
+                        VoiceModelRouter.BuildLargePrompt(prompt),
+                        speakWhileStreaming: true).ConfigureAwait(false);
+                }
+                else
+                {
+                    speechBuffer.Append(routedAnswer);
                 }
             }
 

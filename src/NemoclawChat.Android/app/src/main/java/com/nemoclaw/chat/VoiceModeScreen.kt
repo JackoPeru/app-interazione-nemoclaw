@@ -746,41 +746,83 @@ private suspend fun runVoiceTurn(
     setPhase(VoiceCallPhase.Thinking)
     setStatus("Hermes sta pensando...")
 
-    streamChatRequest(
-        settings = settings,
-        mode = "Chat",
-        prompt = "Sei in una chiamata vocale. Rispondi subito in italiano, con tono naturale e frasi brevi. Niente markdown, elenchi o preamboli. La prima frase deve avere al massimo 8 parole. Utente: $prompt",
-        history = contextHistory,
-        conversationId = voiceConversation.conversationId,
-        previousResponseId = voiceConversation.previousResponseId,
-        attachments = emptyList(),
-        apiKey = apiKey
-    ).collect { event ->
-        when (event) {
-            is ChatStreamEvent.TextDelta -> {
-                answer.append(event.delta)
-                speechBuffer.append(event.delta)
-                setStatus("Hermes: ${answer.toString().trimForStatus()}")
-                val queued = drainSpeechSegments(speechBuffer, flush = false)
-                for (segment in queued) {
-                    playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this, voice, speed) {
-                        setPhase(VoiceCallPhase.Speaking)
+    suspend fun streamAnswer(
+        requestSettings: AppSettings,
+        requestPrompt: String,
+        speakWhileStreaming: Boolean,
+        preserveConversation: Boolean
+    ) {
+        streamChatRequest(
+            settings = requestSettings,
+            mode = "Chat",
+            prompt = requestPrompt,
+            history = contextHistory,
+            conversationId = voiceConversation.conversationId.takeIf { preserveConversation },
+            previousResponseId = voiceConversation.previousResponseId.takeIf { preserveConversation },
+            attachments = emptyList(),
+            apiKey = apiKey
+        ).collect { event ->
+            when (event) {
+                is ChatStreamEvent.TextDelta -> {
+                    answer.append(event.delta)
+                    if (speakWhileStreaming) {
+                        speechBuffer.append(event.delta)
+                        val queued = drainSpeechSegments(speechBuffer, flush = false)
+                        for (segment in queued) {
+                            playback = queueSpeechSegment(context, settings, apiKey, segment, playback, this@coroutineScope, voice, speed) {
+                                setPhase(VoiceCallPhase.Speaking)
+                            }
+                        }
                     }
+                    setStatus("Hermes: ${answer.toString().trimForStatus()}")
                 }
-            }
-            is ChatStreamEvent.TextSnapshot -> {
-                val previous = answer.toString()
-                val merged = mergeTextSnapshot(previous, event.text)
-                answer.clear()
-                answer.append(merged)
-                if (merged.startsWith(previous) && merged.length > previous.length) {
-                    speechBuffer.append(merged.substring(previous.length))
+                is ChatStreamEvent.TextSnapshot -> {
+                    val previous = answer.toString()
+                    val merged = mergeTextSnapshot(previous, event.text)
+                    answer.clear()
+                    answer.append(merged)
+                    if (speakWhileStreaming && merged.startsWith(previous) && merged.length > previous.length) {
+                        speechBuffer.append(merged.substring(previous.length))
+                    }
+                    setStatus("Hermes: ${merged.trimForStatus()}")
                 }
-                setStatus("Hermes: ${merged.trimForStatus()}")
+                is ChatStreamEvent.ResponseId -> if (preserveConversation) {
+                    voiceConversation.previousResponseId = event.id.takeIf { it.isNotBlank() }
+                }
+                is ChatStreamEvent.Error -> throw java.io.IOException(event.message)
+                else -> Unit
             }
-            is ChatStreamEvent.ResponseId -> voiceConversation.previousResponseId = event.id.takeIf { it.isNotBlank() }
-            is ChatStreamEvent.Error -> throw java.io.IOException(event.message)
-            else -> Unit
+        }
+    }
+
+    if (voiceRequiresLargeModel(prompt)) {
+        setStatus("Hermes grande sta lavorando...")
+        streamAnswer(
+            settings.copy(model = settings.model),
+            voiceLargePrompt(prompt),
+            speakWhileStreaming = true,
+            preserveConversation = true
+        )
+    } else {
+        streamAnswer(
+            settings.copy(model = settings.voiceModel.ifBlank { settings.model }),
+            voiceSmallPrompt(prompt),
+            speakWhileStreaming = false,
+            preserveConversation = false
+        )
+        val routedAnswer = answer.toString().trim()
+        if (routedAnswer.isBlank() || routedAnswer.contains("HERMES_LARGE", ignoreCase = true)) {
+            answer.clear()
+            speechBuffer.clear()
+            setStatus("Hermes Voce chiede al modello grande...")
+            streamAnswer(
+                settings.copy(model = settings.model),
+                voiceLargePrompt(prompt),
+                speakWhileStreaming = true,
+                preserveConversation = true
+            )
+        } else {
+            speechBuffer.append(routedAnswer)
         }
     }
 
@@ -797,6 +839,34 @@ private suspend fun runVoiceTurn(
     setPhase(VoiceCallPhase.Listening)
     setStatus("Ti ascolto.")
 }
+
+private const val VoiceEscalationMarker = "[[HERMES_LARGE]]"
+
+private val VoiceLargeModelTriggers = listOf(
+    "esegui", "fai ", "crea ", "modifica ", "elimina ", "installa ", "scarica ",
+    "aggiorna ", "avvia ", "ferma ", "riavvia ", "apri ", "chiudi ", "salva ",
+    "invia ", "manda ", "cerca ", "verifica ", "controlla ", "analizza ",
+    "pianifica ", "programma ", "accendi ", "spegni ", "ragiona ", "confronta ",
+    "task", "server", "terminale", "terminal", "ssh", "file", "cartella", "repo",
+    "repository", "codice", "build", "release", "commit", "cron", "automazione",
+    "ricerca aggiornata", "notizie di oggi", "ultima versione", "in dettaglio"
+)
+
+private fun voiceRequiresLargeModel(prompt: String): Boolean {
+    val normalized = " ${prompt.trim().lowercase(java.util.Locale.ROOT)} "
+    return normalized.length > 420 || VoiceLargeModelTriggers.any(normalized::contains)
+}
+
+private fun voiceSmallPrompt(prompt: String): String = """
+    Sei Hermes Voce, modello rapido. Rispondi solo alla richiesta dopo Utente, in italiano, con una risposta breve e naturale, senza markdown o ragionamento visibile.
+    Gestisci solo conversazione semplice e domande brevi. Se servono strumenti, azioni, file, server, dati aggiornati, pianificazione o ragionamento complesso, scrivi soltanto $VoiceEscalationMarker. Non usare strumenti e non fingere di avere eseguito azioni.
+    Utente: $prompt
+""".trimIndent()
+
+private fun voiceLargePrompt(prompt: String): String = """
+    Sei in una chiamata vocale. Gestisci completamente richiesta, inclusi strumenti e task necessari. Rispondi in italiano con tono naturale. Comunica subito esito o prima azione utile; niente markdown o preamboli. Prima frase massimo 8 parole.
+    Utente: $prompt
+""".trimIndent()
 
 private fun queueSpeechSegment(
     context: Context,

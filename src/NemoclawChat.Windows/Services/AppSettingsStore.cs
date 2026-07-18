@@ -69,6 +69,12 @@ public static class AppSettingsStore
             changed = true;
         }
 
+        if (string.IsNullOrWhiteSpace(settings.VoiceModel))
+        {
+            settings.VoiceModel = "hermes-voice";
+            changed = true;
+        }
+
         if (string.IsNullOrWhiteSpace(settings.Provider))
         {
             settings.Provider = "hermes-agent";

@@ -22,6 +22,10 @@ class PatchError(RuntimeError):
 
 
 _HARDWARE_DISK_FILTER_MARKER = "# HERMES_HUB_HARDWARE_DISK_FILTER_V1"
+_MODEL_ROUTE_TOOLSETS_MARKER = "# HERMES_HUB_MODEL_ROUTE_TOOLSETS_V1"
+_MODEL_ROUTE_LIMITS_MARKER = "# HERMES_HUB_MODEL_ROUTE_LIMITS_V1"
+_MODEL_ROUTE_MAX_TOKENS_MARKER = "# HERMES_HUB_MODEL_ROUTE_MAX_TOKENS_V1"
+_MODEL_ROUTE_MAX_TOKENS_FIX_MARKER = "# HERMES_HUB_MODEL_ROUTE_MAX_TOKENS_FIX_V1"
 _HARDWARE_DISK_BLOCK_V1 = f'''    {_HARDWARE_DISK_FILTER_MARKER}
     disks: List[Dict[str, Any]] = []
     ignored_filesystems = {{
@@ -1216,6 +1220,206 @@ _hermes_hub_preload_whisper()
 
 def _patch_text(text: str) -> tuple[str, list[str]]:
     changes: list[str] = []
+
+    if _MODEL_ROUTE_TOOLSETS_MARKER not in text:
+        old_route_parser = '''        allowed_keys = ("model", "provider", "api_key", "base_url")
+        routes: Dict[str, Dict[str, Any]] = {}
+        for alias, cfg in raw.items():
+            alias_str = str(alias).strip()
+            if not alias_str or not isinstance(cfg, dict):
+                logger.warning(
+                    "api_server model_routes: dropping invalid route entry %r", alias_str or alias
+                )
+                continue
+            route = {
+                key: str(cfg[key]).strip()
+                for key in allowed_keys
+                if cfg.get(key) is not None and str(cfg[key]).strip()
+            }
+'''
+        new_route_parser = f'''        {_MODEL_ROUTE_TOOLSETS_MARKER}
+        allowed_keys = ("model", "provider", "api_key", "base_url")
+        routes: Dict[str, Dict[str, Any]] = {{}}
+        for alias, cfg in raw.items():
+            alias_str = str(alias).strip()
+            if not alias_str or not isinstance(cfg, dict):
+                logger.warning(
+                    "api_server model_routes: dropping invalid route entry %r", alias_str or alias
+                )
+                continue
+            route = {{
+                key: str(cfg[key]).strip()
+                for key in allowed_keys
+                if cfg.get(key) is not None and str(cfg[key]).strip()
+            }}
+            configured_toolsets = cfg.get("toolsets")
+            if isinstance(configured_toolsets, (list, tuple)):
+                route["toolsets"] = sorted({{str(item).strip() for item in configured_toolsets if str(item).strip()}})
+            elif configured_toolsets is not None:
+                logger.warning(
+                    "api_server model_routes: ignoring non-list toolsets for route %r", alias_str
+                )
+'''
+        text, _ = _replace_once(
+            text,
+            old_route_parser,
+            new_route_parser,
+            "model route toolsets parser",
+        )
+        old_toolset_resolution = '''        user_config = _load_gateway_config()
+        enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
+'''
+        new_toolset_resolution = '''        user_config = _load_gateway_config()
+        route_toolsets = route.get("toolsets") if route and not session_override else None
+        enabled_toolsets = (
+            sorted(route_toolsets)
+            if route_toolsets is not None
+            else sorted(_get_platform_tools(user_config, "api_server"))
+        )
+'''
+        text, _ = _replace_once(
+            text,
+            old_toolset_resolution,
+            new_toolset_resolution,
+            "model route toolsets resolution",
+        )
+        changes.append("per-model-route toolsets")
+
+    if _MODEL_ROUTE_LIMITS_MARKER not in text:
+        old_route_toolsets = '''            configured_toolsets = cfg.get("toolsets")
+            if isinstance(configured_toolsets, (list, tuple)):
+                route["toolsets"] = sorted({str(item).strip() for item in configured_toolsets if str(item).strip()})
+            elif configured_toolsets is not None:
+                logger.warning(
+                    "api_server model_routes: ignoring non-list toolsets for route %r", alias_str
+                )
+'''
+        new_route_limits = f'''            configured_toolsets = cfg.get("toolsets")
+            if isinstance(configured_toolsets, (list, tuple)):
+                route["toolsets"] = sorted({{str(item).strip() for item in configured_toolsets if str(item).strip()}})
+            elif configured_toolsets is not None:
+                logger.warning(
+                    "api_server model_routes: ignoring non-list toolsets for route %r", alias_str
+                )
+            {_MODEL_ROUTE_LIMITS_MARKER}
+            configured_max_iterations = cfg.get("max_iterations")
+            if configured_max_iterations is not None:
+                try:
+                    route["max_iterations"] = max(1, min(120, int(configured_max_iterations)))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "api_server model_routes: ignoring invalid max_iterations for route %r", alias_str
+                    )
+'''
+        text, _ = _replace_once(
+            text,
+            old_route_toolsets,
+            new_route_limits,
+            "model route max iterations parser",
+        )
+        old_iteration_resolution = '''        max_iterations = _current_max_iterations()
+'''
+        new_iteration_resolution = '''        max_iterations = _current_max_iterations()
+        if route and not session_override and route.get("max_iterations") is not None:
+            max_iterations = int(route["max_iterations"])
+'''
+        text, _ = _replace_once(
+            text,
+            old_iteration_resolution,
+            new_iteration_resolution,
+            "model route max iterations resolution",
+        )
+        changes.append("per-model-route iteration limit")
+
+    if _MODEL_ROUTE_MAX_TOKENS_MARKER not in text:
+        old_iteration_parser = '''            configured_max_iterations = cfg.get("max_iterations")
+            if configured_max_iterations is not None:
+                try:
+                    route["max_iterations"] = max(1, min(120, int(configured_max_iterations)))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "api_server model_routes: ignoring invalid max_iterations for route %r", alias_str
+                    )
+'''
+        new_token_parser = f'''            configured_max_iterations = cfg.get("max_iterations")
+            if configured_max_iterations is not None:
+                try:
+                    route["max_iterations"] = max(1, min(120, int(configured_max_iterations)))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "api_server model_routes: ignoring invalid max_iterations for route %r", alias_str
+                    )
+            {_MODEL_ROUTE_MAX_TOKENS_MARKER}
+            configured_max_tokens = cfg.get("max_tokens")
+            if configured_max_tokens is not None:
+                try:
+                    route["max_tokens"] = max(64, min(4096, int(configured_max_tokens)))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "api_server model_routes: ignoring invalid max_tokens for route %r", alias_str
+                    )
+'''
+        text, _ = _replace_once(
+            text,
+            old_iteration_parser,
+            new_token_parser,
+            "model route max tokens parser",
+        )
+        old_agent_limits = '''            max_iterations=max_iterations,
+            quiet_mode=True,
+'''
+        new_agent_limits = '''            max_iterations=max_iterations,
+            max_tokens=(
+                int(route["max_tokens"])
+                if route and not session_override and route.get("max_tokens") is not None
+                else None
+            ),
+            quiet_mode=True,
+'''
+        text, _ = _replace_once(
+            text,
+            old_agent_limits,
+            new_agent_limits,
+            "model route max tokens agent",
+        )
+        changes.append("per-model-route output token limit")
+
+    if _MODEL_ROUTE_MAX_TOKENS_FIX_MARKER not in text:
+        old_explicit_max_tokens = '''            max_iterations=max_iterations,
+            max_tokens=(
+                int(route["max_tokens"])
+                if route and not session_override and route.get("max_tokens") is not None
+                else None
+            ),
+            quiet_mode=True,
+'''
+        new_agent_limits = '''            max_iterations=max_iterations,
+            quiet_mode=True,
+'''
+        text, _ = _replace_once(
+            text,
+            old_explicit_max_tokens,
+            new_agent_limits,
+            "remove duplicate model route max tokens argument",
+        )
+        old_route_base_url = '''            if route.get("base_url"):
+                runtime_kwargs["base_url"] = route["base_url"]
+            logger.debug(
+'''
+        new_route_base_url = f'''            if route.get("base_url"):
+                runtime_kwargs["base_url"] = route["base_url"]
+            {_MODEL_ROUTE_MAX_TOKENS_FIX_MARKER}
+            if route.get("max_tokens") is not None:
+                runtime_kwargs["max_tokens"] = int(route["max_tokens"])
+            logger.debug(
+'''
+        text, _ = _replace_once(
+            text,
+            old_route_base_url,
+            new_route_base_url,
+            "model route max tokens runtime override",
+        )
+        changes.append("fix per-model-route max tokens runtime override")
 
     cleanup_patterns = [
         (

@@ -1,4 +1,4 @@
-Hermes Hub 0.6.169 (ragionamento separato, wake word reale e updater resiliente)
+Hermes Hub 0.6.170 (ragionamento separato, wake word reale e updater resiliente)
 
 - Ragionamento: eventi `analysis`/`reasoning` e blocchi `<think>` finali restano nella sezione dedicata su Windows e Android, senza finire nella risposta.
 - Ragionamento: quando Hermes non espone contenuto, l'interfaccia lo dichiara invece di simularlo.
@@ -10,5 +10,5 @@ Hermes Hub 0.6.169 (ragionamento separato, wake word reale e updater resiliente)
 - Gateway: patcher compatibile con callback Responses legacy già modificate.
 - Updater Linux: asset fallito messo in quarantena dopo rollback per evitare blackout ripetuti.
 - Compatibilità: package identity Windows, `applicationId com.nemoclaw.chat`, firme, archivio, endpoint e impostazioni esistenti preservati.
-- Versioni: Windows/AdminBridge `0.6.169`; Android `versionName 0.6.169`, `versionCode 173`.
-- Asset previsti: `HermesHub-0.6.169-android.apk`, `NemoclawChat.Windows_0.6.169.0_x64.msix`, `HermesHub-0.6.169-linux-gateway.tar.gz`.
+- Versioni: Windows/AdminBridge `0.6.170`; Android `versionName 0.6.170`, `versionCode 174`.
+- Asset previsti: `HermesHub-0.6.170-android.apk`, `NemoclawChat.Windows_0.6.170.0_x64.msix`, `HermesHub-0.6.170-linux-gateway.tar.gz`.

@@ -667,6 +667,7 @@ data class AppSettings(
     val inferenceEndpoint: String = AppDefaults.inferenceEndpoint,
     val preferredApi: String = AppDefaults.preferredApi,
     val model: String = AppDefaults.model,
+    val voiceModel: String = AppDefaults.voiceModel,
     val accessMode: String = AppDefaults.accessMode,
     val visualBlocksMode: String = AppDefaults.visualBlocksMode,
     val videoLibraryPath: String = AppDefaults.videoLibraryPath,
@@ -6919,6 +6920,7 @@ private fun SettingsScreen(
     var inferenceEndpoint by remember(settings.inferenceEndpoint) { mutableStateOf(settings.inferenceEndpoint) }
     var preferredApi by remember(settings.preferredApi) { mutableStateOf(settings.preferredApi) }
     var model by remember(settings.model) { mutableStateOf(settings.model) }
+    var voiceModel by remember(settings.voiceModel) { mutableStateOf(settings.voiceModel) }
     var accessMode by remember(settings.accessMode) { mutableStateOf(settings.accessMode) }
     var visualBlocksMode by remember(settings.visualBlocksMode) { mutableStateOf(settings.visualBlocksMode) }
     var videoLibraryPath by remember(settings.videoLibraryPath) { mutableStateOf(settings.videoLibraryPath) }
@@ -6967,6 +6969,7 @@ private fun SettingsScreen(
             inferenceEndpoint = inferenceEndpoint.trim(),
             preferredApi = preferredApi.trim(),
             model = model.trim(),
+            voiceModel = voiceModel.trim(),
             accessMode = accessMode.trim(),
             visualBlocksMode = visualBlocksMode.trim(),
             videoLibraryPath = videoLibraryPath.trim(),
@@ -7032,6 +7035,7 @@ private fun SettingsScreen(
                             color = AppColors.Muted,
                             fontSize = 12.sp
                         )
+                        SettingsField("Modello dedicato Voce", voiceModel, { voiceModel = it })
                         Text("Voce Kokoro", color = Color.White)
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -7434,6 +7438,7 @@ private fun validateSettings(settings: AppSettings): String? {
         ?: validateHttpUrl(settings.inferenceEndpoint, "Endpoint API")
         ?: validatePreferredApi(settings.preferredApi)
         ?: validateRequired(settings.model, "Modello")
+        ?: validateRequired(settings.voiceModel, "Modello Voce")
         ?: validateRequired(settings.accessMode, "Accesso")
         ?: validateVisualBlocksMode(settings.visualBlocksMode)
 }
@@ -10307,6 +10312,7 @@ private fun loadSettings(context: Context): AppSettings {
         inferenceEndpoint = prefs.getString("inferenceEndpoint", AppDefaults.inferenceEndpoint) ?: AppDefaults.inferenceEndpoint,
         preferredApi = prefs.getString("preferredApi", AppDefaults.preferredApi) ?: AppDefaults.preferredApi,
         model = prefs.getString("model", AppDefaults.model) ?: AppDefaults.model,
+        voiceModel = prefs.getString("voiceModel", AppDefaults.voiceModel) ?: AppDefaults.voiceModel,
         accessMode = prefs.getString("accessMode", AppDefaults.accessMode) ?: AppDefaults.accessMode,
         visualBlocksMode = prefs.getString("visualBlocksMode", AppDefaults.visualBlocksMode) ?: AppDefaults.visualBlocksMode,
         videoLibraryPath = prefs.getString("videoLibraryPath", AppDefaults.videoLibraryPath) ?: AppDefaults.videoLibraryPath,
@@ -10351,6 +10357,11 @@ private fun normalizePlugAndPlaySettings(context: Context, settings: AppSettings
         changed = true
     }
 
+    if (next.voiceModel.isBlank()) {
+        next = next.copy(voiceModel = AppDefaults.voiceModel)
+        changed = true
+    }
+
     if (next.provider.isBlank()) {
         next = next.copy(provider = AppDefaults.provider)
         changed = true
@@ -10384,6 +10395,7 @@ private fun saveSettings(context: Context, settings: AppSettings) {
         putString("inferenceEndpoint", normalizeUrl(settings.inferenceEndpoint))
         putString("preferredApi", settings.preferredApi.trim())
         putString("model", settings.model.trim())
+        putString("voiceModel", settings.voiceModel.trim())
         putString("accessMode", settings.accessMode.trim())
         putString("visualBlocksMode", settings.visualBlocksMode.trim())
         putString("videoLibraryPath", settings.videoLibraryPath.trim())
@@ -11745,6 +11757,7 @@ private object AppDefaults {
     const val inferenceEndpoint = ""
     const val preferredApi = "hermes-native"
     const val model = "hermes-agent"
+    const val voiceModel = "hermes-voice"
     const val accessMode = "Tailscale/LAN plug-and-play"
     const val visualBlocksMode = "auto"
     const val videoLibraryPath = ""
