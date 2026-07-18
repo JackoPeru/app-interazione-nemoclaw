@@ -1707,6 +1707,10 @@ public static class ChatStreamClient
         foreach (var property in element.EnumerateObject())
         {
             var name = property.Name;
+            if (name is "type" or "id" or "status" or "role")
+            {
+                continue;
+            }
             var value = property.Value;
             var childInsideReasoning = nowInsideReasoning || name.Contains("reasoning", StringComparison.OrdinalIgnoreCase);
             if (!childInsideReasoning && IsNonAssistantTextPayload(element))

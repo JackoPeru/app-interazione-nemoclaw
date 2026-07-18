@@ -1308,7 +1308,9 @@ private fun parseEventObject(eventName: String?, obj: JSONObject): List<ChatStre
             if (delta.isNotEmpty()) out += ChatStreamEvent.TextDelta(delta)
             return out
         }
-        t.contains("output_text") && (t.contains("done") || t.contains("completed")) -> {
+        t.contains("output_text") &&
+            !t.contains("output_item") &&
+            (t.contains("done") || t.contains("completed")) -> {
             extractTextFromAnyJson(obj).takeIf { it.isNotEmpty() }?.let {
                 out += ChatStreamEvent.TextSnapshot(it)
             }
@@ -1695,6 +1697,7 @@ private fun extractReasoningText(value: Any?, insideReasoning: Boolean = false):
                 val keys = value.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
+                    if (key == "type" || key == "id" || key == "status" || key == "role") continue
                     val childInsideReasoning = nowInsideReasoning || key.contains("reasoning", ignoreCase = true)
                     if ((!childInsideReasoning && isNonAssistantTextPayload(value)).not() && (childInsideReasoning ||
                         key == "output" ||
